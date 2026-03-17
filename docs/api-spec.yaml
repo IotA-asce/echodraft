@@ -1,0 +1,1176 @@
+openapi: 3.1.0
+info:
+  title: AI Audiobook Studio API
+  version: 0.1.0
+  description: >
+    Local-first MVP API for project creation, manuscript import, structure
+    management, voice assignment, segment rendering, chapter assembly, review,
+    rights gating, and export.
+servers:
+  - url: http://localhost:8000
+tags:
+  - name: Projects
+  - name: Source
+  - name: Structure
+  - name: Casting
+  - name: Pronunciation
+  - name: Rendering
+  - name: Jobs
+  - name: Review
+  - name: Exports
+  - name: Rights
+paths:
+  /api/v1/projects:
+    get:
+      tags: [Projects]
+      summary: List projects
+      responses:
+        "200":
+          description: Project list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      tags: [Projects]
+      summary: Create project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /api/v1/projects/{projectId}:
+    get:
+      tags: [Projects]
+      summary: Get project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Project detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+    patch:
+      tags: [Projects]
+      summary: Update project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectRequest"
+      responses:
+        "200":
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+    delete:
+      tags: [Projects]
+      summary: Delete project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "204":
+          description: Project deleted
+
+  /api/v1/projects/{projectId}/source/import:
+    post:
+      tags: [Source]
+      summary: Import manuscript source
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "202":
+          description: Import job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAcceptedResponse"
+
+  /api/v1/projects/{projectId}/source/reparse:
+    post:
+      tags: [Source]
+      summary: Re-run parsing on source document
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "202":
+          description: Reparse job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAcceptedResponse"
+
+  /api/v1/projects/{projectId}/chapters:
+    get:
+      tags: [Structure]
+      summary: List chapters for project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Chapter list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Chapter"
+
+  /api/v1/chapters/{chapterId}:
+    get:
+      tags: [Structure]
+      summary: Get chapter detail
+      parameters:
+        - $ref: "#/components/parameters/ChapterId"
+      responses:
+        "200":
+          description: Chapter detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chapter"
+
+  /api/v1/chapters/{chapterId}/scenes:
+    get:
+      tags: [Structure]
+      summary: List scenes for chapter
+      parameters:
+        - $ref: "#/components/parameters/ChapterId"
+      responses:
+        "200":
+          description: Scene list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Scene"
+
+  /api/v1/scenes/{sceneId}/segments:
+    get:
+      tags: [Structure]
+      summary: List segments for scene
+      parameters:
+        - $ref: "#/components/parameters/SceneId"
+      responses:
+        "200":
+          description: Segment list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Segment"
+
+  /api/v1/segments/{segmentId}:
+    patch:
+      tags: [Structure]
+      summary: Update segment text, speaker, or direction
+      parameters:
+        - $ref: "#/components/parameters/SegmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSegmentRequest"
+      responses:
+        "200":
+          description: Segment updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Segment"
+
+  /api/v1/projects/{projectId}/characters:
+    get:
+      tags: [Casting]
+      summary: List characters
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Character list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Character"
+    post:
+      tags: [Casting]
+      summary: Create character
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCharacterRequest"
+      responses:
+        "201":
+          description: Character created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+
+  /api/v1/characters/{characterId}:
+    patch:
+      tags: [Casting]
+      summary: Update character
+      parameters:
+        - $ref: "#/components/parameters/CharacterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCharacterRequest"
+      responses:
+        "200":
+          description: Character updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+
+  /api/v1/projects/{projectId}/voices:
+    get:
+      tags: [Casting]
+      summary: List voice profiles
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Voice profile list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VoiceProfile"
+    post:
+      tags: [Casting]
+      summary: Create voice profile
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVoiceProfileRequest"
+      responses:
+        "201":
+          description: Voice profile created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceProfile"
+
+  /api/v1/voices/{voiceId}:
+    patch:
+      tags: [Casting]
+      summary: Update voice profile
+      parameters:
+        - $ref: "#/components/parameters/VoiceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVoiceProfileRequest"
+      responses:
+        "200":
+          description: Voice profile updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceProfile"
+
+  /api/v1/voices/{voiceId}/preview:
+    post:
+      tags: [Casting]
+      summary: Generate a voice preview clip
+      parameters:
+        - $ref: "#/components/parameters/VoiceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoicePreviewRequest"
+      responses:
+        "202":
+          description: Preview job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAcceptedResponse"
+
+  /api/v1/characters/{characterId}/assign-voice:
+    post:
+      tags: [Casting]
+      summary: Assign voice to character
+      parameters:
+        - $ref: "#/components/parameters/CharacterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignVoiceRequest"
+      responses:
+        "200":
+          description: Voice assigned
+
+  /api/v1/projects/{projectId}/pronunciations:
+    get:
+      tags: [Pronunciation]
+      summary: List pronunciation entries
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Pronunciation list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PronunciationEntry"
+    post:
+      tags: [Pronunciation]
+      summary: Create pronunciation entry
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePronunciationEntryRequest"
+      responses:
+        "201":
+          description: Pronunciation entry created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PronunciationEntry"
+
+  /api/v1/pronunciations/{entryId}:
+    patch:
+      tags: [Pronunciation]
+      summary: Update pronunciation entry
+      parameters:
+        - $ref: "#/components/parameters/PronunciationEntryId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePronunciationEntryRequest"
+      responses:
+        "200":
+          description: Pronunciation entry updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PronunciationEntry"
+    delete:
+      tags: [Pronunciation]
+      summary: Delete pronunciation entry
+      parameters:
+        - $ref: "#/components/parameters/PronunciationEntryId"
+      responses:
+        "204":
+          description: Pronunciation entry deleted
+
+  /api/v1/projects/{projectId}/generate/chapters:
+    post:
+      tags: [Rendering]
+      summary: Generate all or selected chapters
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateChaptersRequest"
+      responses:
+        "202":
+          description: Generation job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAcceptedResponse"
+
+  /api/v1/chapters/{chapterId}/generate:
+    post:
+      tags: [Rendering]
+      summary: Generate a chapter
+      parameters:
+        - $ref: "#/components/parameters/ChapterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateChapterRequest"
+      responses:
+        "202":
+          description: Generation job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAcceptedResponse"
+
+  /api/v1/segments/{segmentId}/generate:
+    post:
+      tags: [Rendering]
+      summary: Generate or regenerate one segment
+      parameters:
+        - $ref: "#/components/parameters/SegmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateSegmentRequest"
+      responses:
+        "202":
+          description: Segment generation job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAcceptedResponse"
+
+  /api/v1/jobs/{jobId}:
+    get:
+      tags: [Jobs]
+      summary: Get job status
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job status detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatus"
+
+  /api/v1/jobs/{jobId}/cancel:
+    post:
+      tags: [Jobs]
+      summary: Cancel job
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job cancellation result
+
+  /api/v1/projects/{projectId}/issues:
+    get:
+      tags: [Review]
+      summary: List project issues
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Issue list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Issue"
+
+  /api/v1/issues/{issueId}:
+    patch:
+      tags: [Review]
+      summary: Update issue state
+      parameters:
+        - $ref: "#/components/parameters/IssueId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateIssueRequest"
+      responses:
+        "200":
+          description: Issue updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+
+  /api/v1/segments/{segmentId}/comments:
+    post:
+      tags: [Review]
+      summary: Add comment on segment
+      parameters:
+        - $ref: "#/components/parameters/SegmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCommentRequest"
+      responses:
+        "201":
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+
+  /api/v1/segments/{segmentId}/mark-reviewed:
+    post:
+      tags: [Review]
+      summary: Mark segment as reviewed
+      parameters:
+        - $ref: "#/components/parameters/SegmentId"
+      responses:
+        "200":
+          description: Segment marked reviewed
+
+  /api/v1/projects/{projectId}/exports:
+    get:
+      tags: [Exports]
+      summary: List exports
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Export list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExportPackage"
+    post:
+      tags: [Exports]
+      summary: Create export
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateExportRequest"
+      responses:
+        "202":
+          description: Export job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAcceptedResponse"
+
+  /api/v1/exports/{exportId}:
+    get:
+      tags: [Exports]
+      summary: Get export detail
+      parameters:
+        - $ref: "#/components/parameters/ExportId"
+      responses:
+        "200":
+          description: Export detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportPackage"
+
+  /api/v1/projects/{projectId}/rights:
+    get:
+      tags: [Rights]
+      summary: Get rights declarations
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Rights detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RightsDeclaration"
+
+  /api/v1/projects/{projectId}/rights/declaration:
+    post:
+      tags: [Rights]
+      summary: Create or update rights declaration
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertRightsDeclarationRequest"
+      responses:
+        "200":
+          description: Rights declaration stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RightsDeclaration"
+
+components:
+  parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+    ChapterId:
+      name: chapterId
+      in: path
+      required: true
+      schema:
+        type: string
+    SceneId:
+      name: sceneId
+      in: path
+      required: true
+      schema:
+        type: string
+    SegmentId:
+      name: segmentId
+      in: path
+      required: true
+      schema:
+        type: string
+    CharacterId:
+      name: characterId
+      in: path
+      required: true
+      schema:
+        type: string
+    VoiceId:
+      name: voiceId
+      in: path
+      required: true
+      schema:
+        type: string
+    PronunciationEntryId:
+      name: entryId
+      in: path
+      required: true
+      schema:
+        type: string
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+    IssueId:
+      name: issueId
+      in: path
+      required: true
+      schema:
+        type: string
+    ExportId:
+      name: exportId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        author:
+          type: string
+        description:
+          type: string
+        rightsStatus:
+          type: string
+        status:
+          type: string
+        settings:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    Chapter:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        chapterNumber:
+          type: integer
+        title:
+          type: string
+        orderIndex:
+          type: integer
+        wordCount:
+          type: integer
+        status:
+          type: string
+    Scene:
+      type: object
+      properties:
+        id:
+          type: string
+        chapterId:
+          type: string
+        orderIndex:
+          type: integer
+        title:
+          type: string
+        moodTags:
+          type: array
+          items:
+            type: string
+        stylePreset:
+          type: string
+        ambienceProfile:
+          type: string
+    Segment:
+      type: object
+      properties:
+        id:
+          type: string
+        sceneId:
+          type: string
+        orderIndex:
+          type: integer
+        segmentType:
+          type: string
+        speakerCharacterId:
+          type:
+            - string
+            - "null"
+        textContent:
+          type: string
+        normalizedText:
+          type: string
+        attributionConfidence:
+          type: number
+        direction:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+        currentRenderId:
+          type:
+            - string
+            - "null"
+    Character:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        displayName:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        roleType:
+          type: string
+        notes:
+          type: string
+    VoiceProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        name:
+          type: string
+        backend:
+          type: string
+        baseVoiceId:
+          type: string
+        stylePrompt:
+          type: string
+        settings:
+          type: object
+          additionalProperties: true
+        sampleAudioPath:
+          type: string
+        isNarratorDefault:
+          type: boolean
+    PronunciationEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        term:
+          type: string
+        phonetic:
+          type: string
+        replacementText:
+          type: string
+        notes:
+          type: string
+    Issue:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        chapterId:
+          type:
+            - string
+            - "null"
+        sceneId:
+          type:
+            - string
+            - "null"
+        segmentId:
+          type:
+            - string
+            - "null"
+        severity:
+          type: string
+        category:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    Comment:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        chapterId:
+          type:
+            - string
+            - "null"
+        segmentId:
+          type:
+            - string
+            - "null"
+        body:
+          type: string
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    ExportPackage:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        format:
+          type: string
+        scope:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        outputPath:
+          type: string
+        status:
+          type: string
+    RightsDeclaration:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        declarationType:
+          type: string
+        status:
+          type: string
+        notes:
+          type: string
+        evidencePath:
+          type: string
+    CreateProjectRequest:
+      type: object
+      required: [title, rightsStatus]
+      properties:
+        title:
+          type: string
+        author:
+          type: string
+        description:
+          type: string
+        rightsStatus:
+          type: string
+        settings:
+          type: object
+          additionalProperties: true
+    UpdateProjectRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        author:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        settings:
+          type: object
+          additionalProperties: true
+    CreateCharacterRequest:
+      type: object
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        roleType:
+          type: string
+    UpdateCharacterRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        roleType:
+          type: string
+        notes:
+          type: string
+    CreateVoiceProfileRequest:
+      type: object
+      required: [name, backend]
+      properties:
+        name:
+          type: string
+        backend:
+          type: string
+        baseVoiceId:
+          type: string
+        stylePrompt:
+          type: string
+        settings:
+          type: object
+          additionalProperties: true
+        isNarratorDefault:
+          type: boolean
+    UpdateVoiceProfileRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        stylePrompt:
+          type: string
+        settings:
+          type: object
+          additionalProperties: true
+        isNarratorDefault:
+          type: boolean
+    VoicePreviewRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+        stylePrompt:
+          type: string
+    AssignVoiceRequest:
+      type: object
+      required: [voiceProfileId]
+      properties:
+        voiceProfileId:
+          type: string
+    CreatePronunciationEntryRequest:
+      type: object
+      required: [term]
+      properties:
+        term:
+          type: string
+        phonetic:
+          type: string
+        replacementText:
+          type: string
+        notes:
+          type: string
+    UpdatePronunciationEntryRequest:
+      type: object
+      properties:
+        phonetic:
+          type: string
+        replacementText:
+          type: string
+        notes:
+          type: string
+    UpdateSegmentRequest:
+      type: object
+      properties:
+        textContent:
+          type: string
+        speakerCharacterId:
+          type: string
+        direction:
+          type: object
+          additionalProperties: true
+    GenerateChaptersRequest:
+      type: object
+      properties:
+        chapterIds:
+          type: array
+          items:
+            type: string
+        renderMode:
+          type: string
+        qualityMode:
+          type: string
+        includeAmbience:
+          type: boolean
+        regenerateOnlyFailed:
+          type: boolean
+    GenerateChapterRequest:
+      type: object
+      properties:
+        renderMode:
+          type: string
+        qualityMode:
+          type: string
+        includeAmbience:
+          type: boolean
+        regenerateOnlyFailed:
+          type: boolean
+    GenerateSegmentRequest:
+      type: object
+      properties:
+        voiceProfileId:
+          type: string
+        directionOverride:
+          type: object
+          additionalProperties: true
+        force:
+          type: boolean
+    UpdateIssueRequest:
+      type: object
+      properties:
+        status:
+          type: string
+        severity:
+          type: string
+        description:
+          type: string
+    CreateCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+    CreateExportRequest:
+      type: object
+      required: [format, scope]
+      properties:
+        format:
+          type: string
+        scope:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    UpsertRightsDeclarationRequest:
+      type: object
+      required: [declarationType, status]
+      properties:
+        declarationType:
+          type: string
+        status:
+          type: string
+        notes:
+          type: string
+        evidencePath:
+          type: string
+    JobAcceptedResponse:
+      type: object
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+        pollUrl:
+          type: string
+    JobStatus:
+      type: object
+      properties:
+        id:
+          type: string
+        jobType:
+          type: string
+        status:
+          type: string
+        progress:
+          type: object
+          additionalProperties: true
+        errorMessage:
+          type: string
