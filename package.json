@@ -1,0 +1,11 @@
+{
+  "name": "echodraft",
+  "private": true,
+  "workspaces": ["apps/web"],
+  "scripts": {
+    "web:dev": "npm --workspace @echodraft/web run dev",
+    "web:lint": "npm --workspace @echodraft/web run lint",
+    "web:typecheck": "npm --workspace @echodraft/web run typecheck",
+    "web:test:smoke": "npm --workspace @echodraft/web run test:smoke"
+  }
+}
