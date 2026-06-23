@@ -20,6 +20,8 @@ test("creates a local project from the dashboard", async ({ page }) => {
     buffer: Buffer.from("A browser-imported manuscript.")
   });
   await expect(page.getByText("A browser-imported manuscript.")).toBeVisible();
+  await page.getByRole("button", { name: "Extract structure" }).click();
+  await expect(page.getByText("Editable story map")).toBeVisible();
 
   const createdDirectories = readdirSync(artifactRoot).filter((name) => !before.has(name));
   expect(createdDirectories).toHaveLength(1);
