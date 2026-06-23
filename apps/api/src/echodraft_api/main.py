@@ -2,7 +2,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from uuid import uuid4
 
-from echodraft_domain import AssignVoice, Chapter, Character, CharacterCreate, Job, Project, ProjectCreate, PronunciationCreate, PronunciationEntry, ReparseRequest, Scene, Segment, SegmentRevision, SegmentUpdate, SourceDocument, StructureRequest, VoiceProfile, VoiceProfileCreate
+from echodraft_domain import AssignVoice, Chapter, Character, CharacterCreate, Job, Project, ProjectCreate, PronunciationCreate, PronunciationEntry, ReparseRequest, Scene, Segment, SegmentRevision, SegmentUpdate, SourceDocument, StructureRequest, VoicePreview, VoicePreviewRequest, VoiceProfile, VoiceProfileCreate
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,6 +11,7 @@ from .container import AppContainer, build_container
 from .logging import configure_logging
 from .ingestion import IngestionError, IngestionService, PARSER_VERSION
 from .structure import StructureService, chapter_model, revision_model, scene_model, segment_model
+from .direction import DirectionService
 
 logger = configure_logging()
 
@@ -185,6 +186,13 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     def create_pronunciation(project_id: str, payload: PronunciationCreate, request: Request) -> PronunciationEntry:
         x = request.app.state.container.casting.create_pronunciation(project_id, payload.term, payload.phonetic, payload.replacement_text)
         return PronunciationEntry.model_validate({"id": x.id, "projectId": x.project_id, "term": x.term, "phonetic": x.phonetic, "replacementText": x.replacement_text})
+
+    @app.post("/api/v1/projects/{project_id}/voices/preview", response_model=VoicePreview)
+    def preview_voice(project_id: str, payload: VoicePreviewRequest, request: Request) -> VoicePreview:
+        try:
+            return DirectionService(request.app.state.container).preview(project_id, payload.text, payload.voice_profile_id, payload.direction)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     return app
 
