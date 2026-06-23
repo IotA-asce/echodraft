@@ -19,6 +19,7 @@ from .models import (
     StructureRequest,
     VoiceProfile,
     VoiceProfileCreate, AssignVoice, PronunciationEntry, PronunciationCreate,
+    DirectionProfile, VoicePreview, VoicePreviewRequest,
     ParserWarning,
     WarningSeverity,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "StructureRequest",
     "VoiceProfile",
     "VoiceProfileCreate", "AssignVoice", "PronunciationEntry", "PronunciationCreate",
+    "DirectionProfile", "VoicePreview", "VoicePreviewRequest",
     "ParserWarning",
     "WarningSeverity",
 ]

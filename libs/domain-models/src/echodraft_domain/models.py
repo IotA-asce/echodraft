@@ -203,6 +203,28 @@ class PronunciationCreate(ApiModel):
     phonetic: str | None = None
     replacement_text: str | None = Field(default=None, alias="replacementText")
 
+class DirectionProfile(ApiModel):
+    scope_type: str = Field(alias="scopeType")
+    scope_id: str = Field(alias="scopeId")
+    pace: float = Field(default=1.0, ge=0.5, le=2.0)
+    intensity: float = Field(default=0.5, ge=0.0, le=1.0)
+    tone: str = "neutral"
+    style_prompt: str | None = Field(default=None, alias="stylePrompt")
+    emphasis: bool = False
+    whisper: bool = False
+    no_sfx: bool = Field(default=True, alias="noSfx")
+
+class VoicePreviewRequest(ApiModel):
+    text: str = Field(min_length=1, max_length=1000)
+    voice_profile_id: str = Field(alias="voiceProfileId")
+    direction: DirectionProfile
+
+class VoicePreview(ApiModel):
+    asset_path: str = Field(alias="assetPath")
+    adapter: str
+    model_version: str = Field(alias="modelVersion")
+    direction: DirectionProfile
+
 
 class Issue(ApiModel):
     id: str
