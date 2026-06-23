@@ -35,7 +35,7 @@ Key columns:
 - `updated_at` DATETIME
 
 ### `source_documents`
-Purpose: imported source manuscript record.
+Purpose: append-only record of each imported or reparsed source manuscript.
 
 Key columns:
 - `id` TEXT PK
@@ -45,6 +45,20 @@ Key columns:
 - `checksum` TEXT
 - `parser_version` TEXT
 - `word_count` INTEGER
+
+Stage 01 columns:
+- `original_filename` TEXT NOT NULL
+- `mime_type` TEXT NOT NULL
+- `checksum` TEXT NOT NULL
+- `imported_at` DATETIME NOT NULL
+- `rights_status` TEXT NOT NULL
+- `parser_version` TEXT NOT NULL
+- `original_path` TEXT NOT NULL
+- `canonical_path` TEXT nullable
+- `manifest_path` TEXT nullable
+- `warnings_json` TEXT NOT NULL
+- `status` TEXT NOT NULL
+- `error_message` TEXT nullable
 
 ### `chapters`
 Purpose: chapter-level structure.

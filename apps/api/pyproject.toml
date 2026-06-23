@@ -6,6 +6,10 @@ dependencies = [
   "echodraft-db",
   "echodraft-domain-models",
   "fastapi>=0.128.0",
+  "beautifulsoup4>=4.13.0",
+  "ebooklib>=0.19",
+  "python-docx>=1.2.0",
+  "python-multipart>=0.0.20",
   "uvicorn[standard]>=0.35.0",
 ]
 
