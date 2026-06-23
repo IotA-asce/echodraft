@@ -2,7 +2,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from uuid import uuid4
 
-from echodraft_domain import Job, Project, ProjectCreate, ReparseRequest, SourceDocument
+from echodraft_domain import Chapter, Job, Project, ProjectCreate, ReparseRequest, Scene, Segment, SegmentRevision, SegmentUpdate, SourceDocument, StructureRequest
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,6 +10,7 @@ from .config import AppSettings
 from .container import AppContainer, build_container
 from .logging import configure_logging
 from .ingestion import IngestionError, IngestionService, PARSER_VERSION
+from .structure import StructureService, chapter_model, revision_model, scene_model, segment_model
 
 logger = configure_logging()
 
@@ -114,6 +115,44 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         if source.canonical_path and Path(source.canonical_path).exists():
             source.preview = Path(source.canonical_path).read_text(encoding="utf-8")[:6000]
         return source
+
+    @app.post("/api/v1/projects/{project_id}/structure/extract", response_model=Job, status_code=202)
+    def extract_structure(project_id: str, payload: StructureRequest, request: Request) -> Job:
+        container: AppContainer = request.app.state.container
+        service = StructureService(container)
+        if not container.projects.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        return container.jobs.submit("structure.extract", lambda: service.extract(project_id, payload.max_segment_chars), project_id)
+
+    @app.get("/api/v1/projects/{project_id}/chapters", response_model=list[Chapter])
+    def list_chapters(project_id: str, request: Request) -> list[Chapter]:
+        return [chapter_model(item) for item in request.app.state.container.structure.chapters(project_id)]
+
+    @app.get("/api/v1/chapters/{chapter_id}", response_model=Chapter)
+    def get_chapter(chapter_id: str, request: Request) -> Chapter:
+        record = request.app.state.container.structure.chapter(chapter_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="Chapter not found")
+        return chapter_model(record)
+
+    @app.get("/api/v1/chapters/{chapter_id}/scenes", response_model=list[Scene])
+    def list_scenes(chapter_id: str, request: Request) -> list[Scene]:
+        return [scene_model(item) for item in request.app.state.container.structure.scenes(chapter_id)]
+
+    @app.get("/api/v1/scenes/{scene_id}/segments", response_model=list[Segment])
+    def list_segments(scene_id: str, request: Request) -> list[Segment]:
+        return [segment_model(item) for item in request.app.state.container.structure.segments(scene_id)]
+
+    @app.patch("/api/v1/segments/{segment_id}", response_model=Segment)
+    def update_segment(segment_id: str, payload: SegmentUpdate, request: Request) -> Segment:
+        record = request.app.state.container.structure.update_segment(segment_id, payload.text_content)
+        if not record:
+            raise HTTPException(status_code=404, detail="Segment not found")
+        return segment_model(record)
+
+    @app.get("/api/v1/segments/{segment_id}/revisions", response_model=list[SegmentRevision])
+    def list_segment_revisions(segment_id: str, request: Request) -> list[SegmentRevision]:
+        return [revision_model(item) for item in request.app.state.container.structure.revisions(segment_id)]
 
     return app
 

@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 
-import { createProject, getJob, getSource, importSource, listProjects, reparseSource, type Project, type SourceDocument } from "./api";
+import { createProject, extractStructure, getJob, getSource, importSource, listChapters, listProjects, listScenes, listSegments, reparseSource, updateSegment, type Chapter, type Project, type Scene, type Segment, type SourceDocument } from "./api";
 
 export function ProjectDashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -15,6 +15,9 @@ export function ProjectDashboard() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [source, setSource] = useState<SourceDocument | null>(null);
   const [importing, setImporting] = useState(false);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [scenes, setScenes] = useState<Scene[]>([]);
+  const [segments, setSegments] = useState<Segment[]>([]);
 
   useEffect(() => {
     listProjects()
@@ -72,6 +75,18 @@ export function ProjectDashboard() {
     catch (cause) { setError(cause instanceof Error ? cause.message : "Reparse failed."); }
     finally { setImporting(false); }
   }
+
+  async function handleExtract() {
+    if (!selectedProjectId) return;
+    setImporting(true); setError(null);
+    try { const job = await extractStructure(selectedProjectId); await waitForSource(job.id, selectedProjectId); setChapters(await listChapters(selectedProjectId)); setScenes([]); setSegments([]); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Structure extraction failed."); }
+    finally { setImporting(false); }
+  }
+
+  async function openChapter(chapter: Chapter) { const next = await listScenes(chapter.id); setScenes(next); setSegments(next[0] ? await listSegments(next[0].id) : []); }
+  async function openScene(scene: Scene) { setSegments(await listSegments(scene.id)); }
+  async function editSegment(segment: Segment) { const text = window.prompt("Edit segment text", segment.textContent); if (!text?.trim()) return; const updated = await updateSegment(segment.id, text); setSegments((current) => current.map((item) => item.id === updated.id ? updated : item)); }
 
   return (
     <main className="desk-shell">
@@ -152,9 +167,10 @@ export function ProjectDashboard() {
         <div><p className="eyebrow">Manuscript intake</p><h2>Bring in the working text</h2><p className="lede">TXT, Markdown, DOCX, and EPUB are normalized locally. The original file remains preserved beside the canonical text.</p></div>
         <div className="import-card">
           <label className="drop-zone"><input aria-label="Manuscript file" type="file" accept=".txt,.md,.markdown,.docx,.epub" onChange={handleFile} disabled={importing} /><strong>{importing ? "Preparing canonical text…" : "Choose a manuscript"}</strong><span>Rights-confirmed local import · 10 MB maximum</span></label>
-          {source ? <div className="source-result"><div className="source-heading"><strong>{source.originalFilename}</strong><button type="button" onClick={handleReparse} disabled={importing}>Reparse</button></div><pre>{source.preview}</pre><ul className="warning-list">{source.warnings.length ? source.warnings.map((warning, index) => <li key={`${warning.message}-${index}`}><b>{warning.severity}</b><span>{warning.message}</span></li>) : <li><b>clear</b><span>No parser warnings.</span></li>}</ul></div> : <p className="import-placeholder">Select a project manuscript to inspect its source preview and parsing diagnostics.</p>}
+          {source ? <div className="source-result"><div className="source-heading"><strong>{source.originalFilename}</strong><span><button type="button" onClick={handleExtract} disabled={importing}>Extract structure</button><button type="button" onClick={handleReparse} disabled={importing}>Reparse</button></span></div><pre>{source.preview}</pre><ul className="warning-list">{source.warnings.length ? source.warnings.map((warning, index) => <li key={`${warning.message}-${index}`}><b>{warning.severity}</b><span>{warning.message}</span></li>) : <li><b>clear</b><span>No parser warnings.</span></li>}</ul></div> : <p className="import-placeholder">Select a project manuscript to inspect its source preview and parsing diagnostics.</p>}
         </div>
       </section> : null}
+      {chapters.length ? <section className="structure-view"><div><p className="eyebrow">Structure viewer</p><h2>Editable story map</h2><p className="lede">Unresolved boundaries remain visible for editorial correction.</p></div><div className="structure-columns"><div>{chapters.map((chapter) => <button className="tree-button" key={chapter.id} onClick={() => openChapter(chapter)}>{chapter.title || "Untitled"}<small>{chapter.status} · {Math.round(chapter.confidence * 100)}%</small></button>)}</div><div>{scenes.map((scene, index) => <button className="tree-button" key={scene.id} onClick={() => openScene(scene)}>Scene {index + 1}<small>{scene.status} · {Math.round(scene.confidence * 100)}%</small></button>)}</div><div>{segments.map((segment) => <button className="segment-button" key={segment.id} onClick={() => editSegment(segment)}><span>{segment.textContent}</span><small>r{segment.revision} · {segment.speakerCandidate || "narration"}</small></button>)}</div></div></section> : null}
     </main>
   );
 }

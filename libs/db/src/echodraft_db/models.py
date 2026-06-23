@@ -71,3 +71,51 @@ class SourceDocumentRecord(Base):
     warnings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class ChapterRecord(Base):
+    __tablename__ = "chapters"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    order_index: Mapped[int] = mapped_column(nullable=False)
+    title: Mapped[str | None] = mapped_column(String(512))
+    start_offset: Mapped[int] = mapped_column(nullable=False)
+    end_offset: Mapped[int] = mapped_column(nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class SceneRecord(Base):
+    __tablename__ = "scenes"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    chapter_id: Mapped[str] = mapped_column(ForeignKey("chapters.id"), nullable=False, index=True)
+    order_index: Mapped[int] = mapped_column(nullable=False)
+    start_offset: Mapped[int] = mapped_column(nullable=False)
+    end_offset: Mapped[int] = mapped_column(nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class SegmentRecord(Base):
+    __tablename__ = "segments"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    scene_id: Mapped[str] = mapped_column(ForeignKey("scenes.id"), nullable=False, index=True)
+    order_index: Mapped[int] = mapped_column(nullable=False)
+    text_content: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
+    segment_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    speaker_candidate: Mapped[str | None] = mapped_column(String(128))
+    speaker_confidence: Mapped[float] = mapped_column(nullable=False)
+    start_offset: Mapped[int] = mapped_column(nullable=False)
+    end_offset: Mapped[int] = mapped_column(nullable=False)
+    revision: Mapped[int] = mapped_column(nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class SegmentRevisionRecord(Base):
+    __tablename__ = "segment_revisions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    segment_id: Mapped[str] = mapped_column(ForeignKey("segments.id"), nullable=False, index=True)
+    revision: Mapped[int] = mapped_column(nullable=False)
+    text_content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -98,6 +98,14 @@ class SourceDocument(ApiModel):
     preview: str | None = None
 
 
+class StructureRequest(ApiModel):
+    max_segment_chars: int = Field(default=600, ge=120, le=2000, alias="maxSegmentChars")
+
+
+class SegmentUpdate(ApiModel):
+    text_content: str = Field(min_length=1, alias="textContent")
+
+
 class ReparseRequest(ApiModel):
     parser_version: str = Field(default="ingestion-0.1.0", alias="parserVersion")
 
@@ -107,12 +115,20 @@ class Chapter(ApiModel):
     project_id: str = Field(alias="projectId")
     order_index: int = Field(alias="orderIndex")
     status: str
+    title: str | None = None
+    confidence: float
+    start_offset: int = Field(alias="startOffset")
+    end_offset: int = Field(alias="endOffset")
 
 
 class Scene(ApiModel):
     id: str
     chapter_id: str = Field(alias="chapterId")
     order_index: int = Field(alias="orderIndex")
+    status: str
+    confidence: float
+    start_offset: int = Field(alias="startOffset")
+    end_offset: int = Field(alias="endOffset")
 
 
 class Segment(ApiModel):
@@ -121,6 +137,21 @@ class Segment(ApiModel):
     order_index: int = Field(alias="orderIndex")
     text_content: str = Field(alias="textContent")
     status: str
+    normalized_text: str = Field(alias="normalizedText")
+    segment_type: str = Field(alias="segmentType")
+    speaker_candidate: str | None = Field(default=None, alias="speakerCandidate")
+    speaker_confidence: float = Field(alias="speakerConfidence")
+    start_offset: int = Field(alias="startOffset")
+    end_offset: int = Field(alias="endOffset")
+    revision: int
+
+
+class SegmentRevision(ApiModel):
+    id: str
+    segment_id: str = Field(alias="segmentId")
+    revision: int
+    text_content: str = Field(alias="textContent")
+    created_at: datetime = Field(alias="createdAt")
 
 
 class Character(ApiModel):
