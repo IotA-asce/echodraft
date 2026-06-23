@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from echodraft_domain import (
@@ -11,10 +12,10 @@ from echodraft_domain import (
     RightsStatus,
     SourceDocument,
 )
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from .database import Database
-from .models import JobRecord, ProjectRecord, RightsDeclarationRecord, SourceDocumentRecord
+from .models import ChapterRecord, JobRecord, ProjectRecord, RightsDeclarationRecord, SceneRecord, SegmentRecord, SegmentRevisionRecord, SourceDocumentRecord
 
 
 def _project(record: ProjectRecord) -> Project:
@@ -183,3 +184,58 @@ class SourceDocumentRepository:
                     "warnings": [ParserWarning.model_validate(item) for item in json.loads(record.warnings_json)],
                 }
             )
+
+
+class StructureRepository:
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def replace(self, project_id: str, hierarchy: list[dict[str, Any]]) -> None:
+        with self.database.session() as session:
+            chapter_ids = select(ChapterRecord.id).where(ChapterRecord.project_id == project_id)
+            scene_ids = select(SceneRecord.id).where(SceneRecord.chapter_id.in_(chapter_ids))
+            segment_ids = select(SegmentRecord.id).where(SegmentRecord.scene_id.in_(scene_ids))
+            session.execute(delete(SegmentRevisionRecord).where(SegmentRevisionRecord.segment_id.in_(segment_ids)))
+            session.execute(delete(SegmentRecord).where(SegmentRecord.scene_id.in_(scene_ids)))
+            session.execute(delete(SceneRecord).where(SceneRecord.chapter_id.in_(chapter_ids)))
+            session.execute(delete(ChapterRecord).where(ChapterRecord.project_id == project_id))
+            for chapter in hierarchy:
+                session.add(ChapterRecord(**chapter["record"]))
+                for scene in chapter["scenes"]:
+                    session.add(SceneRecord(**scene["record"]))
+                    for segment in scene["segments"]:
+                        session.add(SegmentRecord(**segment))
+            session.commit()
+
+    def chapters(self, project_id: str) -> list[ChapterRecord]:
+        with self.database.session() as session:
+            return list(session.scalars(select(ChapterRecord).where(ChapterRecord.project_id == project_id).order_by(ChapterRecord.order_index)))
+
+    def chapter(self, chapter_id: str) -> ChapterRecord | None:
+        with self.database.session() as session:
+            return session.get(ChapterRecord, chapter_id)
+
+    def scenes(self, chapter_id: str) -> list[SceneRecord]:
+        with self.database.session() as session:
+            return list(session.scalars(select(SceneRecord).where(SceneRecord.chapter_id == chapter_id).order_by(SceneRecord.order_index)))
+
+    def segments(self, scene_id: str) -> list[SegmentRecord]:
+        with self.database.session() as session:
+            return list(session.scalars(select(SegmentRecord).where(SegmentRecord.scene_id == scene_id).order_by(SegmentRecord.order_index)))
+
+    def update_segment(self, segment_id: str, text: str) -> SegmentRecord | None:
+        with self.database.session() as session:
+            record = session.get(SegmentRecord, segment_id)
+            if not record:
+                return None
+            session.add(SegmentRevisionRecord(id=f"segrev_{uuid4().hex[:16]}", segment_id=segment_id, revision=record.revision, text_content=record.text_content, created_at=datetime.now(UTC)))
+            record.text_content = text.strip()
+            record.normalized_text = text.strip()
+            record.revision += 1
+            record.status = "needs_review"
+            session.commit()
+            return record
+
+    def revisions(self, segment_id: str) -> list[SegmentRevisionRecord]:
+        with self.database.session() as session:
+            return list(session.scalars(select(SegmentRevisionRecord).where(SegmentRevisionRecord.segment_id == segment_id).order_by(SegmentRevisionRecord.revision.desc())))
