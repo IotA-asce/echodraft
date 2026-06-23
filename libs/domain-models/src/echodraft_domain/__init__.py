@@ -7,11 +7,15 @@ from .models import (
     JobState,
     Project,
     ProjectCreate,
+    ReparseRequest,
     RightsDeclaration,
     RightsStatus,
     Scene,
     Segment,
+    SourceDocument,
     VoiceProfile,
+    ParserWarning,
+    WarningSeverity,
 )
 
 __all__ = [
@@ -23,9 +27,13 @@ __all__ = [
     "JobState",
     "Project",
     "ProjectCreate",
+    "ReparseRequest",
     "RightsDeclaration",
     "RightsStatus",
     "Scene",
     "Segment",
+    "SourceDocument",
     "VoiceProfile",
+    "ParserWarning",
+    "WarningSeverity",
 ]

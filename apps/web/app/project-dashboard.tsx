@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 
-import { createProject, listProjects, type Project } from "./api";
+import { createProject, getJob, getSource, importSource, listProjects, reparseSource, type Project, type SourceDocument } from "./api";
 
 export function ProjectDashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -12,6 +12,9 @@ export function ProjectDashboard() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [source, setSource] = useState<SourceDocument | null>(null);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     listProjects()
@@ -32,6 +35,7 @@ export function ProjectDashboard() {
         rightsStatus: "declared",
       });
       setProjects((current) => [project, ...current]);
+      setSelectedProjectId(project.id);
       setTitle("");
       setAuthor("");
       setRightsAcknowledged(false);
@@ -40,6 +44,33 @@ export function ProjectDashboard() {
     } finally {
       setCreating(false);
     }
+  }
+
+  async function waitForSource(jobId: string, projectId: string) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const job = await getJob(jobId);
+      if (job.status === "succeeded") { setSource(await getSource(projectId)); return; }
+      if (job.status === "failed" || job.status === "cancelled") throw new Error(job.errorMessage || "Import failed.");
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error("Import is taking longer than expected. Check the job status and try again.");
+  }
+
+  async function handleFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !selectedProjectId) return;
+    setImporting(true); setError(null); setSource(null);
+    try { const job = await importSource(selectedProjectId, file); await waitForSource(job.id, selectedProjectId); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Import failed."); }
+    finally { setImporting(false); event.target.value = ""; }
+  }
+
+  async function handleReparse() {
+    if (!selectedProjectId) return;
+    setImporting(true); setError(null);
+    try { const job = await reparseSource(selectedProjectId); await waitForSource(job.id, selectedProjectId); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Reparse failed."); }
+    finally { setImporting(false); }
   }
 
   return (
@@ -105,18 +136,25 @@ export function ProjectDashboard() {
           ) : null}
           <ul className="project-list">
             {projects.map((project) => (
-              <li key={project.id}>
+              <li key={project.id} className={selectedProjectId === project.id ? "selected" : undefined}>
                 <div className="project-index">{project.title.slice(0, 1).toUpperCase()}</div>
                 <div>
                   <strong>{project.title}</strong>
                   <p>{project.author || "Independent production"} · {project.status}</p>
                 </div>
-                <time dateTime={project.createdAt}>{new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(project.createdAt))}</time>
+                <button className="select-project" type="button" onClick={() => { setSelectedProjectId(project.id); getSource(project.id).then(setSource).catch(() => setSource(null)); }}>Open</button>
               </li>
             ))}
           </ul>
         </section>
       </section>
+      {selectedProjectId ? <section className="import-desk">
+        <div><p className="eyebrow">Manuscript intake</p><h2>Bring in the working text</h2><p className="lede">TXT, Markdown, DOCX, and EPUB are normalized locally. The original file remains preserved beside the canonical text.</p></div>
+        <div className="import-card">
+          <label className="drop-zone"><input aria-label="Manuscript file" type="file" accept=".txt,.md,.markdown,.docx,.epub" onChange={handleFile} disabled={importing} /><strong>{importing ? "Preparing canonical text…" : "Choose a manuscript"}</strong><span>Rights-confirmed local import · 10 MB maximum</span></label>
+          {source ? <div className="source-result"><div className="source-heading"><strong>{source.originalFilename}</strong><button type="button" onClick={handleReparse} disabled={importing}>Reparse</button></div><pre>{source.preview}</pre><ul className="warning-list">{source.warnings.length ? source.warnings.map((warning, index) => <li key={`${warning.message}-${index}`}><b>{warning.severity}</b><span>{warning.message}</span></li>) : <li><b>clear</b><span>No parser warnings.</span></li>}</ul></div> : <p className="import-placeholder">Select a project manuscript to inspect its source preview and parsing diagnostics.</p>}
+        </div>
+      </section> : null}
     </main>
   );
 }
