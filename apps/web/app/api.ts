@@ -12,14 +12,15 @@ export type CreateProjectPayload = {
   author?: string;
   rightsStatus: "declared";
 };
+export type Job = { id: string; status: "queued" | "running" | "succeeded" | "failed" | "cancelled"; errorMessage?: string | null };
+export type ParserWarning = { severity: string; sourceRange?: string | null; message: string; suggestedAction?: string | null };
+export type SourceDocument = { originalFilename: string; status: string; parserVersion: string; preview?: string | null; warnings: ParserWarning[] };
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...options?.headers },
-  });
+  const headers = options?.body instanceof FormData ? options?.headers : { "Content-Type": "application/json", ...options?.headers };
+  const response = await fetch(`${apiUrl}${path}`, { ...options, headers });
   if (!response.ok) {
     const detail = await response.json().catch(() => null) as { detail?: string } | null;
     throw new Error(detail?.detail ?? "The local studio could not complete that request.");
@@ -30,3 +31,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const listProjects = () => request<Project[]>("/api/v1/projects");
 export const createProject = (payload: CreateProjectPayload) =>
   request<Project>("/api/v1/projects", { method: "POST", body: JSON.stringify(payload) });
+export const getJob = (id: string) => request<Job>(`/api/v1/jobs/${id}`);
+export const getSource = (projectId: string) => request<SourceDocument>(`/api/v1/projects/${projectId}/source`);
+export async function importSource(projectId: string, file: File) {
+  const form = new FormData(); form.set("file", file); form.set("rightsAcknowledged", "true");
+  return request<Job>(`/api/v1/projects/${projectId}/source/import`, { method: "POST", body: form });
+}
+export const reparseSource = (projectId: string) => request<Job>(`/api/v1/projects/${projectId}/source/reparse`, { method: "POST", body: JSON.stringify({ parserVersion: "ingestion-0.1.0" }) });
