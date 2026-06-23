@@ -1,0 +1,31 @@
+[project]
+name = "echodraft-workspace"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["apps/api", "libs/domain-models", "libs/db"]
+
+[tool.uv.sources]
+echodraft-domain-models = { workspace = true }
+echodraft-db = { workspace = true }
+
+[dependency-groups]
+dev = ["httpx>=0.28.1", "mypy>=1.15.0", "pytest>=8.3.5", "ruff>=0.11.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["apps/api/tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
