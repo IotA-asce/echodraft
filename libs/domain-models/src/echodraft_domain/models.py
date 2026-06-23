@@ -225,6 +225,22 @@ class VoicePreview(ApiModel):
     model_version: str = Field(alias="modelVersion")
     direction: DirectionProfile
 
+class SegmentRenderRequest(ApiModel):
+    voice_profile_id: str = Field(alias="voiceProfileId")
+    direction: DirectionProfile
+    output_format: str = Field(default="wav", alias="outputFormat")
+    force: bool = False
+
+class SegmentRender(ApiModel):
+    id: str
+    segment_id: str = Field(alias="segmentId")
+    render_key: str = Field(alias="renderKey")
+    status: str
+    audio_path: str = Field(alias="audioPath")
+    metadata_path: str = Field(alias="metadataPath")
+    duration_ms: int = Field(alias="durationMs")
+    parent_render_id: str | None = Field(default=None, alias="parentRenderId")
+
 
 class Issue(ApiModel):
     id: str
