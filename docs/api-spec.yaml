@@ -497,6 +497,57 @@ paths:
               schema:
                 $ref: "#/components/schemas/JobAcceptedResponse"
 
+  /api/v1/projects/{projectId}/chapters/{chapterId}/assemble:
+    post:
+      tags: [Rendering]
+      summary: Assemble the current successful segment renders into an immutable chapter stem
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/ChapterId"
+      responses:
+        "202":
+          description: Chapter stem assembled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChapterRender"
+        "422":
+          description: A non-empty segment has no successful render or an artifact is missing
+
+  /api/v1/projects/{projectId}/chapters/{chapterId}/renders:
+    get:
+      tags: [Rendering]
+      summary: List immutable chapter render history, newest first
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/ChapterId"
+      responses:
+        "200":
+          description: Chapter render history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChapterRender"
+
+  /api/v1/projects/{projectId}/chapters/{chapterId}/active-render:
+    get:
+      tags: [Rendering]
+      summary: Get the latest successful immutable chapter render
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/ChapterId"
+      responses:
+        "200":
+          description: Active chapter render
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChapterRender"
+        "404":
+          description: Chapter not found or no assembled render exists
+
   /api/v1/jobs/{jobId}:
     get:
       tags: [Jobs]
@@ -822,6 +873,22 @@ components:
           type:
             - string
             - "null"
+    ChapterRender:
+      type: object
+      required: [id, chapterId, status, speechPath, manifestPath, durationMs]
+      properties:
+        id:
+          type: string
+        chapterId:
+          type: string
+        status:
+          type: string
+        speechPath:
+          type: string
+        manifestPath:
+          type: string
+        durationMs:
+          type: integer
     Character:
       type: object
       properties:
