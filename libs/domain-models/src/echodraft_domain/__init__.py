@@ -1,6 +1,7 @@
 from .models import (
     Chapter,
     Character,
+    CharacterCreate,
     ExportPackage,
     Issue,
     Job,
@@ -17,6 +18,7 @@ from .models import (
     SourceDocument,
     StructureRequest,
     VoiceProfile,
+    VoiceProfileCreate, AssignVoice, PronunciationEntry, PronunciationCreate,
     ParserWarning,
     WarningSeverity,
 )
@@ -24,6 +26,7 @@ from .models import (
 __all__ = [
     "Chapter",
     "Character",
+    "CharacterCreate",
     "ExportPackage",
     "Issue",
     "Job",
@@ -40,6 +43,7 @@ __all__ = [
     "SourceDocument",
     "StructureRequest",
     "VoiceProfile",
+    "VoiceProfileCreate", "AssignVoice", "PronunciationEntry", "PronunciationCreate",
     "ParserWarning",
     "WarningSeverity",
 ]

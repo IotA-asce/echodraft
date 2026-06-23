@@ -119,3 +119,39 @@ class SegmentRevisionRecord(Base):
     revision: Mapped[int] = mapped_column(nullable=False)
     text_content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CharacterRecord(Base):
+    __tablename__ = "characters"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    aliases_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    role_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class VoiceProfileRecord(Base):
+    __tablename__ = "voice_profiles"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    backend: Mapped[str] = mapped_column(String(100), nullable=False)
+    style_prompt: Mapped[str | None] = mapped_column(Text)
+
+
+class CharacterVoiceAssignmentRecord(Base):
+    __tablename__ = "character_voice_assignments"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    character_id: Mapped[str] = mapped_column(ForeignKey("characters.id"), unique=True)
+    voice_profile_id: Mapped[str] = mapped_column(ForeignKey("voice_profiles.id"))
+
+
+class PronunciationEntryRecord(Base):
+    __tablename__ = "pronunciation_entries"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    term: Mapped[str] = mapped_column(String(200), nullable=False)
+    phonetic: Mapped[str | None] = mapped_column(String(200))
+    replacement_text: Mapped[str | None] = mapped_column(String(200))

@@ -15,7 +15,20 @@ from echodraft_domain import (
 from sqlalchemy import delete, select
 
 from .database import Database
-from .models import ChapterRecord, JobRecord, ProjectRecord, RightsDeclarationRecord, SceneRecord, SegmentRecord, SegmentRevisionRecord, SourceDocumentRecord
+from .models import (
+    ChapterRecord,
+    CharacterRecord,
+    CharacterVoiceAssignmentRecord,
+    JobRecord,
+    PronunciationEntryRecord,
+    ProjectRecord,
+    RightsDeclarationRecord,
+    SceneRecord,
+    SegmentRecord,
+    SegmentRevisionRecord,
+    SourceDocumentRecord,
+    VoiceProfileRecord,
+)
 
 
 def _project(record: ProjectRecord) -> Project:
@@ -89,7 +102,12 @@ class ProjectRepository:
 
     def list(self) -> list[Project]:
         with self.database.session() as session:
-            return [_project(item) for item in session.scalars(select(ProjectRecord).order_by(ProjectRecord.created_at.desc()))]
+            return [
+                _project(item)
+                for item in session.scalars(
+                    select(ProjectRecord).order_by(ProjectRecord.created_at.desc())
+                )
+            ]
 
     def get(self, project_id: str) -> Project | None:
         with self.database.session() as session:
@@ -101,7 +119,9 @@ class JobRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
 
-    def create(self, job_type: str, project_id: str | None = None, target_id: str | None = None) -> Job:
+    def create(
+        self, job_type: str, project_id: str | None = None, target_id: str | None = None
+    ) -> Job:
         now = datetime.now(UTC)
         record = JobRecord(
             id=f"job_{uuid4().hex[:16]}",
@@ -125,7 +145,9 @@ class JobRepository:
         allowed = {
             JobState.QUEUED: {JobState.RUNNING, JobState.CANCELLED},
             JobState.RUNNING: {JobState.SUCCEEDED, JobState.FAILED, JobState.CANCELLED},
-            JobState.SUCCEEDED: set(), JobState.FAILED: set(), JobState.CANCELLED: set(),
+            JobState.SUCCEEDED: set(),
+            JobState.FAILED: set(),
+            JobState.CANCELLED: set(),
         }
         with self.database.session() as session:
             record = session.get(JobRecord, job_id)
@@ -175,13 +197,22 @@ class SourceDocumentRepository:
                 return None
             return SourceDocument.model_validate(
                 {
-                    "id": record.id, "projectId": record.project_id,
-                    "originalFilename": record.original_filename, "mimeType": record.mime_type,
-                    "checksum": record.checksum, "importedAt": record.imported_at,
-                    "rightsStatus": record.rights_status, "parserVersion": record.parser_version,
-                    "originalPath": record.original_path, "canonicalPath": record.canonical_path,
-                    "manifestPath": record.manifest_path, "status": record.status,
-                    "warnings": [ParserWarning.model_validate(item) for item in json.loads(record.warnings_json)],
+                    "id": record.id,
+                    "projectId": record.project_id,
+                    "originalFilename": record.original_filename,
+                    "mimeType": record.mime_type,
+                    "checksum": record.checksum,
+                    "importedAt": record.imported_at,
+                    "rightsStatus": record.rights_status,
+                    "parserVersion": record.parser_version,
+                    "originalPath": record.original_path,
+                    "canonicalPath": record.canonical_path,
+                    "manifestPath": record.manifest_path,
+                    "status": record.status,
+                    "warnings": [
+                        ParserWarning.model_validate(item)
+                        for item in json.loads(record.warnings_json)
+                    ],
                 }
             )
 
@@ -195,7 +226,11 @@ class StructureRepository:
             chapter_ids = select(ChapterRecord.id).where(ChapterRecord.project_id == project_id)
             scene_ids = select(SceneRecord.id).where(SceneRecord.chapter_id.in_(chapter_ids))
             segment_ids = select(SegmentRecord.id).where(SegmentRecord.scene_id.in_(scene_ids))
-            session.execute(delete(SegmentRevisionRecord).where(SegmentRevisionRecord.segment_id.in_(segment_ids)))
+            session.execute(
+                delete(SegmentRevisionRecord).where(
+                    SegmentRevisionRecord.segment_id.in_(segment_ids)
+                )
+            )
             session.execute(delete(SegmentRecord).where(SegmentRecord.scene_id.in_(scene_ids)))
             session.execute(delete(SceneRecord).where(SceneRecord.chapter_id.in_(chapter_ids)))
             session.execute(delete(ChapterRecord).where(ChapterRecord.project_id == project_id))
@@ -209,7 +244,13 @@ class StructureRepository:
 
     def chapters(self, project_id: str) -> list[ChapterRecord]:
         with self.database.session() as session:
-            return list(session.scalars(select(ChapterRecord).where(ChapterRecord.project_id == project_id).order_by(ChapterRecord.order_index)))
+            return list(
+                session.scalars(
+                    select(ChapterRecord)
+                    .where(ChapterRecord.project_id == project_id)
+                    .order_by(ChapterRecord.order_index)
+                )
+            )
 
     def chapter(self, chapter_id: str) -> ChapterRecord | None:
         with self.database.session() as session:
@@ -217,18 +258,38 @@ class StructureRepository:
 
     def scenes(self, chapter_id: str) -> list[SceneRecord]:
         with self.database.session() as session:
-            return list(session.scalars(select(SceneRecord).where(SceneRecord.chapter_id == chapter_id).order_by(SceneRecord.order_index)))
+            return list(
+                session.scalars(
+                    select(SceneRecord)
+                    .where(SceneRecord.chapter_id == chapter_id)
+                    .order_by(SceneRecord.order_index)
+                )
+            )
 
     def segments(self, scene_id: str) -> list[SegmentRecord]:
         with self.database.session() as session:
-            return list(session.scalars(select(SegmentRecord).where(SegmentRecord.scene_id == scene_id).order_by(SegmentRecord.order_index)))
+            return list(
+                session.scalars(
+                    select(SegmentRecord)
+                    .where(SegmentRecord.scene_id == scene_id)
+                    .order_by(SegmentRecord.order_index)
+                )
+            )
 
     def update_segment(self, segment_id: str, text: str) -> SegmentRecord | None:
         with self.database.session() as session:
             record = session.get(SegmentRecord, segment_id)
             if not record:
                 return None
-            session.add(SegmentRevisionRecord(id=f"segrev_{uuid4().hex[:16]}", segment_id=segment_id, revision=record.revision, text_content=record.text_content, created_at=datetime.now(UTC)))
+            session.add(
+                SegmentRevisionRecord(
+                    id=f"segrev_{uuid4().hex[:16]}",
+                    segment_id=segment_id,
+                    revision=record.revision,
+                    text_content=record.text_content,
+                    created_at=datetime.now(UTC),
+                )
+            )
             record.text_content = text.strip()
             record.normalized_text = text.strip()
             record.revision += 1
@@ -238,4 +299,111 @@ class StructureRepository:
 
     def revisions(self, segment_id: str) -> list[SegmentRevisionRecord]:
         with self.database.session() as session:
-            return list(session.scalars(select(SegmentRevisionRecord).where(SegmentRevisionRecord.segment_id == segment_id).order_by(SegmentRevisionRecord.revision.desc())))
+            return list(
+                session.scalars(
+                    select(SegmentRevisionRecord)
+                    .where(SegmentRevisionRecord.segment_id == segment_id)
+                    .order_by(SegmentRevisionRecord.revision.desc())
+                )
+            )
+
+
+class CastingRepository:
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def characters(self, project_id: str) -> list[CharacterRecord]:
+        with self.database.session() as s:
+            return list(
+                s.scalars(select(CharacterRecord).where(CharacterRecord.project_id == project_id))
+            )
+
+    def create_character(
+        self,
+        project_id: str,
+        name: str,
+        aliases: list[str],
+        role: str,
+        confidence: float,
+        notes: str | None,
+    ) -> CharacterRecord:
+        with self.database.session() as s:
+            record = CharacterRecord(
+                id=f"char_{uuid4().hex[:16]}",
+                project_id=project_id,
+                display_name=name,
+                aliases_json=json.dumps(aliases),
+                role_type=role,
+                confidence=confidence,
+                notes=notes,
+            )
+            s.add(record)
+            s.commit()
+            return record
+
+    def voices(self, project_id: str) -> list[VoiceProfileRecord]:
+        with self.database.session() as s:
+            return list(
+                s.scalars(
+                    select(VoiceProfileRecord).where(VoiceProfileRecord.project_id == project_id)
+                )
+            )
+
+    def create_voice(
+        self, project_id: str, name: str, backend: str, prompt: str | None
+    ) -> VoiceProfileRecord:
+        with self.database.session() as s:
+            record = VoiceProfileRecord(
+                id=f"voice_{uuid4().hex[:16]}",
+                project_id=project_id,
+                name=name,
+                backend=backend,
+                style_prompt=prompt,
+            )
+            s.add(record)
+            s.commit()
+            return record
+
+    def assign(self, character_id: str, voice_id: str) -> None:
+        with self.database.session() as s:
+            existing = s.scalar(
+                select(CharacterVoiceAssignmentRecord).where(
+                    CharacterVoiceAssignmentRecord.character_id == character_id
+                )
+            )
+            if existing:
+                existing.voice_profile_id = voice_id
+            else:
+                s.add(
+                    CharacterVoiceAssignmentRecord(
+                        id=f"assign_{uuid4().hex[:16]}",
+                        character_id=character_id,
+                        voice_profile_id=voice_id,
+                    )
+                )
+            s.commit()
+
+    def pronunciations(self, project_id: str) -> list[PronunciationEntryRecord]:
+        with self.database.session() as s:
+            return list(
+                s.scalars(
+                    select(PronunciationEntryRecord).where(
+                        PronunciationEntryRecord.project_id == project_id
+                    )
+                )
+            )
+
+    def create_pronunciation(
+        self, project_id: str, term: str, phonetic: str | None, replacement: str | None
+    ) -> PronunciationEntryRecord:
+        with self.database.session() as s:
+            record = PronunciationEntryRecord(
+                id=f"pron_{uuid4().hex[:16]}",
+                project_id=project_id,
+                term=term,
+                phonetic=phonetic,
+                replacement_text=replacement,
+            )
+            s.add(record)
+            s.commit()
+            return record
