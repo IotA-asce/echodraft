@@ -120,6 +120,7 @@ class SegmentRevisionRecord(Base):
     text_content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
+
 class SegmentRenderRecord(Base):
     __tablename__ = "segment_renders"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -131,6 +132,16 @@ class SegmentRenderRecord(Base):
     duration_ms: Mapped[int] = mapped_column(nullable=False)
     parent_render_id: Mapped[str | None] = mapped_column(String(64))
     request_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class ChapterRenderRecord(Base):
+    __tablename__ = "chapter_renders"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    chapter_id: Mapped[str] = mapped_column(ForeignKey("chapters.id"), index=True)
+    status: Mapped[str] = mapped_column(String(32))
+    speech_path: Mapped[str] = mapped_column(Text)
+    manifest_path: Mapped[str] = mapped_column(Text)
+    duration_ms: Mapped[int] = mapped_column()
 
 
 class CharacterRecord(Base):

@@ -203,6 +203,7 @@ class PronunciationCreate(ApiModel):
     phonetic: str | None = None
     replacement_text: str | None = Field(default=None, alias="replacementText")
 
+
 class DirectionProfile(ApiModel):
     scope_type: str = Field(alias="scopeType")
     scope_id: str = Field(alias="scopeId")
@@ -214,10 +215,12 @@ class DirectionProfile(ApiModel):
     whisper: bool = False
     no_sfx: bool = Field(default=True, alias="noSfx")
 
+
 class VoicePreviewRequest(ApiModel):
     text: str = Field(min_length=1, max_length=1000)
     voice_profile_id: str = Field(alias="voiceProfileId")
     direction: DirectionProfile
+
 
 class VoicePreview(ApiModel):
     asset_path: str = Field(alias="assetPath")
@@ -225,11 +228,13 @@ class VoicePreview(ApiModel):
     model_version: str = Field(alias="modelVersion")
     direction: DirectionProfile
 
+
 class SegmentRenderRequest(ApiModel):
     voice_profile_id: str = Field(alias="voiceProfileId")
     direction: DirectionProfile
     output_format: str = Field(default="wav", alias="outputFormat")
     force: bool = False
+
 
 class SegmentRender(ApiModel):
     id: str
@@ -240,6 +245,15 @@ class SegmentRender(ApiModel):
     metadata_path: str = Field(alias="metadataPath")
     duration_ms: int = Field(alias="durationMs")
     parent_render_id: str | None = Field(default=None, alias="parentRenderId")
+
+
+class ChapterRender(ApiModel):
+    id: str
+    chapter_id: str = Field(alias="chapterId")
+    status: str
+    speech_path: str = Field(alias="speechPath")
+    manifest_path: str = Field(alias="manifestPath")
+    duration_ms: int = Field(alias="durationMs")
 
 
 class Issue(ApiModel):
