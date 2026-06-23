@@ -2,7 +2,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from uuid import uuid4
 
-from echodraft_domain import AssignVoice, Chapter, Character, CharacterCreate, Job, Project, ProjectCreate, PronunciationCreate, PronunciationEntry, ReparseRequest, Scene, Segment, SegmentRevision, SegmentUpdate, SourceDocument, StructureRequest, VoicePreview, VoicePreviewRequest, VoiceProfile, VoiceProfileCreate
+from echodraft_domain import AssignVoice, Chapter, Character, CharacterCreate, Job, Project, ProjectCreate, PronunciationCreate, PronunciationEntry, ReparseRequest, Scene, Segment, SegmentRender, SegmentRenderRequest, SegmentRevision, SegmentUpdate, SourceDocument, StructureRequest, VoicePreview, VoicePreviewRequest, VoiceProfile, VoiceProfileCreate
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,6 +12,7 @@ from .logging import configure_logging
 from .ingestion import IngestionError, IngestionService, PARSER_VERSION
 from .structure import StructureService, chapter_model, revision_model, scene_model, segment_model
 from .direction import DirectionService
+from .rendering import SegmentRenderer
 
 logger = configure_logging()
 
@@ -193,6 +194,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             return DirectionService(request.app.state.container).preview(project_id, payload.text, payload.voice_profile_id, payload.direction)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/v1/projects/{project_id}/segments/{segment_id}/generate", response_model=SegmentRender, status_code=202)
+    def generate_segment(project_id: str, segment_id: str, payload: SegmentRenderRequest, request: Request) -> SegmentRender:
+        return SegmentRenderer(request.app.state.container).render(project_id, segment_id, payload)
 
     return app
 
