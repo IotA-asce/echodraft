@@ -2,11 +2,19 @@ import json
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from echodraft_domain import Job, JobState, Project, ProjectCreate, RightsStatus
+from echodraft_domain import (
+    Job,
+    JobState,
+    ParserWarning,
+    Project,
+    ProjectCreate,
+    RightsStatus,
+    SourceDocument,
+)
 from sqlalchemy import select
 
 from .database import Database
-from .models import JobRecord, ProjectRecord, RightsDeclarationRecord
+from .models import JobRecord, ProjectRecord, RightsDeclarationRecord, SourceDocumentRecord
 
 
 def _project(record: ProjectRecord) -> Project:
@@ -82,6 +90,11 @@ class ProjectRepository:
         with self.database.session() as session:
             return [_project(item) for item in session.scalars(select(ProjectRecord).order_by(ProjectRecord.created_at.desc()))]
 
+    def get(self, project_id: str) -> Project | None:
+        with self.database.session() as session:
+            record = session.get(ProjectRecord, project_id)
+            return _project(record) if record else None
+
 
 class JobRepository:
     def __init__(self, database: Database) -> None:
@@ -111,9 +124,7 @@ class JobRepository:
         allowed = {
             JobState.QUEUED: {JobState.RUNNING, JobState.CANCELLED},
             JobState.RUNNING: {JobState.SUCCEEDED, JobState.FAILED, JobState.CANCELLED},
-            JobState.SUCCEEDED: set(),
-            JobState.FAILED: set(),
-            JobState.CANCELLED: set(),
+            JobState.SUCCEEDED: set(), JobState.FAILED: set(), JobState.CANCELLED: set(),
         }
         with self.database.session() as session:
             record = session.get(JobRecord, job_id)
@@ -131,3 +142,44 @@ class JobRepository:
             record.error_message = error_message
             session.commit()
             return _job(record)
+
+
+class SourceDocumentRepository:
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def create(self, record: SourceDocumentRecord) -> None:
+        with self.database.session() as session:
+            session.add(record)
+            session.commit()
+
+    def update(self, source_id: str, **fields: object) -> SourceDocumentRecord:
+        with self.database.session() as session:
+            record = session.get(SourceDocumentRecord, source_id)
+            if not record:
+                raise KeyError(source_id)
+            for key, value in fields.items():
+                setattr(record, key, value)
+            session.commit()
+            return record
+
+    def latest(self, project_id: str) -> SourceDocument | None:
+        with self.database.session() as session:
+            record = session.scalar(
+                select(SourceDocumentRecord)
+                .where(SourceDocumentRecord.project_id == project_id)
+                .order_by(SourceDocumentRecord.imported_at.desc())
+            )
+            if not record:
+                return None
+            return SourceDocument.model_validate(
+                {
+                    "id": record.id, "projectId": record.project_id,
+                    "originalFilename": record.original_filename, "mimeType": record.mime_type,
+                    "checksum": record.checksum, "importedAt": record.imported_at,
+                    "rightsStatus": record.rights_status, "parserVersion": record.parser_version,
+                    "originalPath": record.original_path, "canonicalPath": record.canonical_path,
+                    "manifestPath": record.manifest_path, "status": record.status,
+                    "warnings": [ParserWarning.model_validate(item) for item in json.loads(record.warnings_json)],
+                }
+            )

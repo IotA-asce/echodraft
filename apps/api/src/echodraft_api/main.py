@@ -1,13 +1,15 @@
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from uuid import uuid4
 
-from echodraft_domain import Job, Project, ProjectCreate
-from fastapi import FastAPI, HTTPException, Request, Response, status
+from echodraft_domain import Job, Project, ProjectCreate, ReparseRequest, SourceDocument
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import AppSettings
 from .container import AppContainer, build_container
 from .logging import configure_logging
+from .ingestion import IngestionError, IngestionService, PARSER_VERSION
 
 logger = configure_logging()
 
@@ -70,6 +72,48 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         return job
+
+    @app.post("/api/v1/projects/{project_id}/source/import", response_model=Job, status_code=202)
+    async def import_source(project_id: str, request: Request, file: UploadFile = File(...), rights_acknowledged: bool = Form(..., alias="rightsAcknowledged"), parser_version: str = Form(PARSER_VERSION, alias="parserVersion")) -> Job:
+        if not rights_acknowledged:
+            raise HTTPException(status_code=422, detail="Rights acknowledgement is required for import.")
+        container: AppContainer = request.app.state.container
+        service = IngestionService(container)
+        try:
+            source_id = service.stage(project_id, file.filename or "manuscript.txt", file.content_type, await file.read(), parser_version)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Project not found") from None
+        except IngestionError as error:
+            raise HTTPException(status_code=415, detail=str(error)) from error
+        source = container.sources.latest(project_id)
+        assert source
+        job = container.jobs.submit("source.import", lambda: service.process(source_id, project_id, source.original_filename, source.mime_type, parser_version, Path(source.original_path)), project_id)
+        return job
+
+    @app.post("/api/v1/projects/{project_id}/source/reparse", response_model=Job, status_code=202)
+    def reparse_source(project_id: str, payload: ReparseRequest, request: Request) -> Job:
+        container: AppContainer = request.app.state.container
+        previous = container.sources.latest(project_id)
+        if not previous:
+            raise HTTPException(status_code=404, detail="No source document found")
+        service = IngestionService(container)
+        try:
+            source_id = service.stage(project_id, previous.original_filename, previous.mime_type, Path(previous.original_path).read_bytes(), payload.parser_version)
+        except IngestionError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        source = container.sources.latest(project_id)
+        assert source
+        return container.jobs.submit("source.reparse", lambda: service.process(source_id, project_id, source.original_filename, source.mime_type, payload.parser_version, Path(source.original_path)), project_id)
+
+    @app.get("/api/v1/projects/{project_id}/source", response_model=SourceDocument)
+    def get_source(project_id: str, request: Request) -> SourceDocument:
+        container: AppContainer = request.app.state.container
+        source = container.sources.latest(project_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="No source document found")
+        if source.canonical_path and Path(source.canonical_path).exists():
+            source.preview = Path(source.canonical_path).read_text(encoding="utf-8")[:6000]
+        return source
 
     return app
 

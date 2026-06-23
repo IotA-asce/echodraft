@@ -22,6 +22,12 @@ class JobState(StrEnum):
     CANCELLED = "cancelled"
 
 
+class WarningSeverity(StrEnum):
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
 class ProjectCreate(ApiModel):
     title: str = Field(min_length=1, max_length=200)
     author: str | None = Field(default=None, max_length=200)
@@ -66,6 +72,34 @@ class RightsDeclaration(ApiModel):
     declaration_type: str = Field(alias="declarationType")
     status: RightsStatus
     created_at: datetime = Field(alias="createdAt")
+
+
+class ParserWarning(ApiModel):
+    severity: WarningSeverity
+    source_range: str | None = Field(default=None, alias="sourceRange")
+    message: str
+    suggested_action: str | None = Field(default=None, alias="suggestedAction")
+
+
+class SourceDocument(ApiModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    original_filename: str = Field(alias="originalFilename")
+    mime_type: str = Field(alias="mimeType")
+    checksum: str
+    imported_at: datetime = Field(alias="importedAt")
+    rights_status: RightsStatus = Field(alias="rightsStatus")
+    parser_version: str = Field(alias="parserVersion")
+    original_path: str = Field(alias="originalPath")
+    canonical_path: str | None = Field(default=None, alias="canonicalPath")
+    manifest_path: str | None = Field(default=None, alias="manifestPath")
+    status: str
+    warnings: list[ParserWarning] = Field(default_factory=list)
+    preview: str | None = None
+
+
+class ReparseRequest(ApiModel):
+    parser_version: str = Field(default="ingestion-0.1.0", alias="parserVersion")
 
 
 class Chapter(ApiModel):

@@ -121,6 +121,12 @@ paths:
       summary: Re-run parsing on source document
       parameters:
         - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReparseRequest"
       responses:
         "202":
           description: Reparse job accepted
@@ -128,6 +134,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobAcceptedResponse"
+
+  /api/v1/projects/{projectId}/source:
+    get:
+      tags: [Source]
+      summary: Get the latest imported source document and canonical preview
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Latest source document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceDocument"
 
   /api/v1/projects/{projectId}/chapters:
     get:
@@ -1174,3 +1194,53 @@ components:
           additionalProperties: true
         errorMessage:
           type: string
+    ReparseRequest:
+      type: object
+      properties:
+        parserVersion:
+          type: string
+    ParserWarning:
+      type: object
+      properties:
+        severity:
+          type: string
+        sourceRange:
+          type: string
+        message:
+          type: string
+        suggestedAction:
+          type: string
+    SourceDocument:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        originalFilename:
+          type: string
+        mimeType:
+          type: string
+        checksum:
+          type: string
+        importedAt:
+          type: string
+          format: date-time
+        rightsStatus:
+          type: string
+        parserVersion:
+          type: string
+        originalPath:
+          type: string
+        canonicalPath:
+          type: string
+        manifestPath:
+          type: string
+        status:
+          type: string
+        preview:
+          type: string
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParserWarning"
