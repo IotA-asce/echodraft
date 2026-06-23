@@ -297,6 +297,10 @@ class StructureRepository:
             session.commit()
             return record
 
+    def segment(self, segment_id: str) -> SegmentRecord | None:
+        with self.database.session() as session:
+            return session.get(SegmentRecord, segment_id)
+
     def revisions(self, segment_id: str) -> list[SegmentRevisionRecord]:
         with self.database.session() as session:
             return list(
