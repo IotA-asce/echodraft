@@ -158,6 +158,18 @@ class Character(ApiModel):
     id: str
     project_id: str = Field(alias="projectId")
     display_name: str = Field(alias="displayName")
+    aliases: list[str] = []
+    role_type: str = Field(alias="roleType")
+    confidence: float
+    notes: str | None = None
+
+
+class CharacterCreate(ApiModel):
+    display_name: str = Field(min_length=1, alias="displayName")
+    aliases: list[str] = []
+    role_type: str = Field(default="major", alias="roleType")
+    confidence: float = 1.0
+    notes: str | None = None
 
 
 class VoiceProfile(ApiModel):
@@ -165,6 +177,31 @@ class VoiceProfile(ApiModel):
     project_id: str = Field(alias="projectId")
     name: str
     backend: str
+    style_prompt: str | None = Field(default=None, alias="stylePrompt")
+
+
+class VoiceProfileCreate(ApiModel):
+    name: str
+    backend: str
+    style_prompt: str | None = Field(default=None, alias="stylePrompt")
+
+
+class AssignVoice(ApiModel):
+    voice_profile_id: str = Field(alias="voiceProfileId")
+
+
+class PronunciationEntry(ApiModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    term: str
+    phonetic: str | None = None
+    replacement_text: str | None = Field(default=None, alias="replacementText")
+
+
+class PronunciationCreate(ApiModel):
+    term: str
+    phonetic: str | None = None
+    replacement_text: str | None = Field(default=None, alias="replacementText")
 
 
 class Issue(ApiModel):

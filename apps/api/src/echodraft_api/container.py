@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from echodraft_db import Database, JobRepository, ProjectRepository, SourceDocumentRepository, StructureRepository
+from echodraft_db import CastingRepository, Database, JobRepository, ProjectRepository, SourceDocumentRepository, StructureRepository
 
 from .artifacts import ArtifactStore
 from .config import AppSettings
@@ -15,6 +15,7 @@ class AppContainer:
     jobs_repository: JobRepository
     sources: SourceDocumentRepository
     structure: StructureRepository
+    casting: CastingRepository
     jobs: InProcessJobRunner
 
 
@@ -30,5 +31,6 @@ def build_container(settings: AppSettings) -> AppContainer:
         jobs_repository=jobs_repository,
         sources=SourceDocumentRepository(database),
         structure=StructureRepository(database),
+        casting=CastingRepository(database),
         jobs=InProcessJobRunner(jobs_repository),
     )
