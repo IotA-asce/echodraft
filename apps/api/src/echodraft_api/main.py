@@ -8,6 +8,11 @@ from echodraft_domain import (
     ChapterRender,
     Character,
     CharacterCreate,
+    Comment,
+    CommentCreate,
+    Issue,
+    IssueCreate,
+    IssueUpdate,
     Job,
     Project,
     ProjectCreate,
@@ -16,6 +21,8 @@ from echodraft_domain import (
     ReparseRequest,
     Scene,
     Segment,
+    SegmentPatchRequest,
+    SegmentPatchResult,
     SegmentRender,
     SegmentRenderRequest,
     SegmentRevision,
@@ -38,6 +45,7 @@ from .structure import StructureService, chapter_model, revision_model, scene_mo
 from .direction import DirectionService
 from .rendering import SegmentRenderer
 from .assembly import ChapterAssembler
+from .review import ReviewService
 
 logger = configure_logging()
 
@@ -410,6 +418,70 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             return ChapterAssembler(request.app.state.container).active(project_id, chapter_id)
         except ValueError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get("/api/v1/projects/{project_id}/issues", response_model=list[Issue])
+    def list_issues(
+        project_id: str,
+        request: Request,
+        status_filter: str | None = None,
+        segment_id: str | None = None,
+    ) -> list[Issue]:
+        return [
+            ReviewService.issue_model(item)
+            for item in request.app.state.container.review.issues(
+                project_id, status_filter, segment_id
+            )
+        ]
+
+    @app.post("/api/v1/projects/{project_id}/issues", response_model=Issue, status_code=201)
+    def create_issue(project_id: str, payload: IssueCreate, request: Request) -> Issue:
+        record = request.app.state.container.review.create_issue(
+            project_id=project_id,
+            chapter_id=payload.chapter_id,
+            segment_id=payload.segment_id,
+            category=payload.category,
+            severity=payload.severity,
+            title=payload.title,
+            description=payload.description,
+        )
+        return ReviewService.issue_model(record)
+
+    @app.patch("/api/v1/issues/{issue_id}", response_model=Issue)
+    def update_issue(issue_id: str, payload: IssueUpdate, request: Request) -> Issue:
+        record = request.app.state.container.review.update_issue(
+            issue_id, payload.status, payload.severity
+        )
+        if not record:
+            raise HTTPException(status_code=404, detail="Issue not found")
+        return ReviewService.issue_model(record)
+
+    @app.get("/api/v1/issues/{issue_id}/comments", response_model=list[Comment])
+    def list_comments(issue_id: str, request: Request) -> list[Comment]:
+        return [
+            ReviewService.comment_model(item)
+            for item in request.app.state.container.review.comments(issue_id)
+        ]
+
+    @app.post("/api/v1/issues/{issue_id}/comments", response_model=Comment, status_code=201)
+    def add_comment(issue_id: str, payload: CommentCreate, request: Request) -> Comment:
+        return ReviewService.comment_model(
+            request.app.state.container.review.add_comment(issue_id, payload.body, payload.author)
+        )
+
+    @app.post(
+        "/api/v1/projects/{project_id}/segments/{segment_id}/patch",
+        response_model=SegmentPatchResult,
+        status_code=202,
+    )
+    def patch_segment(
+        project_id: str, segment_id: str, payload: SegmentPatchRequest, request: Request
+    ) -> SegmentPatchResult:
+        try:
+            return ReviewService(request.app.state.container).patch_segment(
+                project_id, segment_id, payload
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     return app
 

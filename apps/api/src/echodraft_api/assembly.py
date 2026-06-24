@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .container import AppContainer
+from .review import ReviewService
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,9 @@ class ChapterAssembler:
             )
             session.add(record)
             session.commit()
+        ReviewService(self.container).qa_chapter(
+            project_id, chapter_id, record.id, record.speech_path, record.duration_ms
+        )
         return self._model(record)
 
     def history(self, project_id: str, chapter_id: str) -> list[ChapterRender]:

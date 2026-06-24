@@ -587,6 +587,24 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Issue"
+    post:
+      tags: [Review]
+      summary: Create an editorial issue
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueCreate"
+      responses:
+        "201":
+          description: Issue created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
 
   /api/v1/issues/{issueId}:
     patch:
@@ -627,6 +645,61 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Comment"
+
+  /api/v1/issues/{issueId}/comments:
+    get:
+      tags: [Review]
+      summary: List issue comments
+      parameters:
+        - $ref: "#/components/parameters/IssueId"
+      responses:
+        "200":
+          description: Comment list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Comment"
+    post:
+      tags: [Review]
+      summary: Add a comment to an issue
+      parameters:
+        - $ref: "#/components/parameters/IssueId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentCreate"
+      responses:
+        "201":
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+
+  /api/v1/projects/{projectId}/segments/{segmentId}/patch:
+    post:
+      tags: [Review]
+      summary: Patch one segment and reassemble only its owning chapter
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/SegmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SegmentPatchRequest"
+      responses:
+        "202":
+          description: Patch completed with immutable render lineage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SegmentPatchResult"
 
   /api/v1/segments/{segmentId}/mark-reviewed:
     post:
@@ -977,6 +1050,22 @@ components:
         metadata:
           type: object
           additionalProperties: true
+    IssueCreate:
+      type: object
+      required: [category, title, description]
+      properties:
+        chapterId:
+          type: string
+        segmentId:
+          type: string
+        severity:
+          type: string
+        category:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
     Comment:
       type: object
       properties:
@@ -999,6 +1088,14 @@ components:
         createdAt:
           type: string
           format: date-time
+    CommentCreate:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+        author:
+          type: string
     ExportPackage:
       type: object
       properties:
@@ -1209,6 +1306,28 @@ components:
           type: string
         description:
           type: string
+    SegmentPatchRequest:
+      type: object
+      required: [voiceProfileId, direction]
+      properties:
+        voiceProfileId:
+          type: string
+        direction:
+          type: object
+          additionalProperties: true
+        textContent:
+          type: string
+        issueId:
+          type: string
+    SegmentPatchResult:
+      type: object
+      properties:
+        segment:
+          $ref: "#/components/schemas/Segment"
+        render:
+          $ref: "#/components/schemas/SegmentRender"
+        chapterRender:
+          $ref: "#/components/schemas/ChapterRender"
     CreateCommentRequest:
       type: object
       required: [body]
