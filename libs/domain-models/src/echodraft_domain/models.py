@@ -259,9 +259,52 @@ class ChapterRender(ApiModel):
 class Issue(ApiModel):
     id: str
     project_id: str = Field(alias="projectId")
+    chapter_id: str | None = Field(default=None, alias="chapterId")
+    segment_id: str | None = Field(default=None, alias="segmentId")
     severity: str
     category: str
     title: str
+    description: str
+    status: str
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class IssueCreate(ApiModel):
+    chapter_id: str | None = Field(default=None, alias="chapterId")
+    segment_id: str | None = Field(default=None, alias="segmentId")
+    severity: str = "warning"
+    category: str
+    title: str
+    description: str
+
+
+class IssueUpdate(ApiModel):
+    status: str | None = None
+    severity: str | None = None
+
+
+class Comment(ApiModel):
+    id: str
+    issue_id: str = Field(alias="issueId")
+    body: str
+    author: str
+    created_at: datetime = Field(alias="createdAt")
+
+
+class CommentCreate(ApiModel):
+    body: str = Field(min_length=1)
+    author: str = "local-user"
+
+
+class SegmentPatchRequest(SegmentRenderRequest):
+    text_content: str | None = Field(default=None, alias="textContent")
+    issue_id: str | None = Field(default=None, alias="issueId")
+
+
+class SegmentPatchResult(ApiModel):
+    segment: Segment
+    render: SegmentRender
+    chapter_render: ChapterRender = Field(alias="chapterRender")
 
 
 class ExportPackage(ApiModel):
