@@ -38,7 +38,11 @@ class ChapterAssembler:
     def __init__(self, container: AppContainer) -> None:
         self.container = container
 
-    def assemble(self, project_id: str, chapter_id: str) -> ChapterRender:
+    def assemble(
+        self, project_id: str, chapter_id: str, render_mode: str = "speech_only"
+    ) -> ChapterRender:
+        if render_mode not in {"speech_only", "multi_voice", "light_cinematic"}:
+            raise ValueError("Unsupported render mode.")
         project = self.container.projects.get(project_id)
         chapter = self.container.structure.chapter(chapter_id)
         if not project or not chapter or chapter.project_id != project_id:
@@ -51,6 +55,13 @@ class ChapterAssembler:
             root.mkdir(parents=True, exist_ok=True)
             speech_path = root / "speech.wav"
             duration_ms = self._write_speech_stem(speech_path, inputs)
+            ambience_path = None
+            mixed_path = None
+            if render_mode == "light_cinematic":
+                ambience_path = root / "ambience.wav"
+                mixed_path = root / "mix.wav"
+                self._write_silence_stem(ambience_path, duration_ms)
+                mixed_path.write_bytes(speech_path.read_bytes())
             manifest_path = root / "chapter_render_manifest.json"
             waveform_path = root / "waveform.json"
             validation_path = root / "validation_report.json"
@@ -78,6 +89,8 @@ class ChapterAssembler:
                             for item in inputs
                         ],
                         "durationMs": duration_ms,
+                        "renderMode": render_mode,
+                        "ambienceInputs": [],
                     },
                     indent=2,
                     sort_keys=True,
@@ -103,6 +116,9 @@ class ChapterAssembler:
                 speech_path=str(speech_path),
                 manifest_path=str(manifest_path),
                 duration_ms=duration_ms,
+                render_mode=render_mode,
+                ambience_stem_path=str(ambience_path) if ambience_path else None,
+                mixed_audio_path=str(mixed_path) if mixed_path else None,
             )
             session.add(record)
             session.commit()
@@ -237,6 +253,13 @@ class ChapterAssembler:
         frame_count = int(self.sample_rate * duration_ms / 1000)
         return b"\x00" * frame_count * self.channels * self.sample_width
 
+    def _write_silence_stem(self, path: Path, duration_ms: int) -> None:
+        with wave.open(str(path), "wb") as target:
+            target.setnchannels(self.channels)
+            target.setsampwidth(self.sample_width)
+            target.setframerate(self.sample_rate)
+            target.writeframes(self._silence(duration_ms))
+
     @staticmethod
     def _model(record: ChapterRenderRecord) -> ChapterRender:
         return ChapterRender(
@@ -246,4 +269,7 @@ class ChapterAssembler:
             speechPath=record.speech_path,
             manifestPath=record.manifest_path,
             durationMs=record.duration_ms,
+            renderMode=record.render_mode,
+            ambienceStemPath=record.ambience_stem_path,
+            mixedAudioPath=record.mixed_audio_path,
         )

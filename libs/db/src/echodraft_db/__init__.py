@@ -1,4 +1,5 @@
 from .database import Database
+from .ambience import AmbienceRepository
 from .repository import (
     CastingRepository,
     JobRepository,
@@ -9,6 +10,7 @@ from .repository import (
 from .review import ReviewRepository
 
 __all__ = [
+    "AmbienceRepository",
     "Database",
     "CastingRepository",
     "JobRepository",
