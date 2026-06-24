@@ -193,6 +193,202 @@ npm run web:dev
 
 Open `http://localhost:3000`. The API is available at `http://localhost:8000`; use `GET /health` for liveness and `GET /ready` for local storage readiness.
 
+## How to Use Echodraft
+
+Echodraft currently has two working surfaces:
+
+- The dashboard at `http://localhost:3000` covers project creation, manuscript import, structure extraction, browsing, and segment text editing.
+- The interactive API at `http://localhost:8000/docs` covers the complete production pipeline, including casting, voice direction, rendering, chapter assembly, review patches, and export.
+
+Keep the API running whenever you use either surface. All project metadata, source files, manifests, generated audio, and exports remain on the local machine unless you deliberately copy them elsewhere.
+
+### 1. Check the Local Runtime
+
+Open these endpoints before starting a project:
+
+- `GET http://localhost:8000/health` confirms that the API process is alive.
+- `GET http://localhost:8000/ready` confirms the artifact storage path is available.
+- `http://localhost:8000/docs` opens FastAPI's interactive Swagger interface, where requests can be tried without a separate API client.
+
+On PowerShell, the readiness check is:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/ready
+```
+
+### 2. Create a Rights-Declared Project
+
+In the dashboard, enter a title and optional author, confirm that you have the rights to produce the audiobook draft, and select **Create project**. Echodraft rejects projects and imports without an explicit rights declaration.
+
+The API equivalent is `POST /api/v1/projects`:
+
+```json
+{
+  "title": "My Local Audiobook",
+  "author": "A. Writer",
+  "description": "Private working draft",
+  "rightsStatus": "declared"
+}
+```
+
+Save the returned project `id`. API paths below use placeholders such as `{project_id}`, `{chapter_id}`, and `{segment_id}`; replace each placeholder with an ID returned by an earlier request.
+
+### 3. Import a Manuscript
+
+Open the project in the dashboard and choose a manuscript. Supported source formats are:
+
+- plain text (`.txt`)
+- Markdown (`.md` or `.markdown`)
+- Word (`.docx`)
+- EPUB (`.epub`)
+
+PDF is not a supported ingestion format. Convert a PDF to one of the supported text formats first, then review the converted text before importing it. The dashboard currently limits uploads to 10 MB.
+
+The original manuscript is preserved, while a normalized canonical text file and an import manifest are created alongside it. Review the source preview and every parser warning before continuing. **Reparse** repeats normalization from the preserved original when parser behavior changes.
+
+For API use, call `POST /api/v1/projects/{project_id}/source/import` as multipart form data with:
+
+- `file`: the manuscript file
+- `rightsAcknowledged`: `true`
+- `parserVersion`: optional; defaults to the current ingestion parser
+
+Import and reparse operations return a job. Poll `GET /api/v1/jobs/{job_id}` until `status` is `succeeded`, `failed`, or `cancelled`. If a job fails, inspect `errorMessage` before retrying.
+
+### 4. Extract and Review Structure
+
+Select **Extract structure** in the dashboard after a successful import. The default maximum segment size is 600 characters. The API request is `POST /api/v1/projects/{project_id}/structure/extract`:
+
+```json
+{
+  "maxSegmentChars": 600
+}
+```
+
+This is also a background job. Once it succeeds, work down the hierarchy:
+
+1. `GET /api/v1/projects/{project_id}/chapters`
+2. `GET /api/v1/chapters/{chapter_id}/scenes`
+3. `GET /api/v1/scenes/{scene_id}/segments`
+
+Clicking a segment in the dashboard opens a text editor. Saving an edit creates a new segment revision rather than deleting the old text. Revision history is available from `GET /api/v1/segments/{segment_id}/revisions`.
+
+Structure extraction uses Markdown headings as chapter signals, so clean chapter headings such as `## Chapter 1` produce the best results.
+
+### 5. Configure Characters, Voices, and Pronunciation
+
+These actions currently use the interactive API:
+
+| Action | Endpoint |
+| --- | --- |
+| List or create characters | `GET/POST /api/v1/projects/{project_id}/characters` |
+| List or create voice profiles | `GET/POST /api/v1/projects/{project_id}/voices` |
+| Assign a voice to a character | `POST /api/v1/characters/{character_id}/assign-voice` |
+| List or add pronunciations | `GET/POST /api/v1/projects/{project_id}/pronunciations` |
+| Generate a short voice preview | `POST /api/v1/projects/{project_id}/voices/preview` |
+
+For setup and tests, create a voice profile with `"backend": "mock"`. It produces deterministic silent WAV files and exercises the complete pipeline without a model. Use `"backend": "kokoro"` only after configuring the local Kokoro adapter described above.
+
+Direction is explicit and reusable. A conservative narration profile looks like:
+
+```json
+{
+  "scopeType": "segment",
+  "scopeId": "{segment_id}",
+  "pace": 1.0,
+  "intensity": 0.4,
+  "tone": "neutral",
+  "stylePrompt": "Clear, restrained audiobook narration",
+  "emphasis": false,
+  "whisper": false,
+  "noSfx": true
+}
+```
+
+Keep voice and pronunciation choices licensed and locally documented. Echodraft does not download models or grant rights to voices automatically.
+
+### 6. Render Segments
+
+Render each segment with `POST /api/v1/projects/{project_id}/segments/{segment_id}/generate`:
+
+```json
+{
+  "voiceProfileId": "{voice_profile_id}",
+  "direction": {
+    "scopeType": "segment",
+    "scopeId": "{segment_id}",
+    "pace": 1.0,
+    "intensity": 0.4,
+    "tone": "neutral",
+    "stylePrompt": "Clear, restrained audiobook narration",
+    "emphasis": false,
+    "whisper": false,
+    "noSfx": true
+  },
+  "outputFormat": "wav",
+  "force": false
+}
+```
+
+Successful renders are immutable and content-addressed. Repeating an identical request reuses the matching successful render; set `force` to `true` only when a fresh render is intentionally required.
+
+### 7. Assemble a Chapter
+
+After every segment in a chapter has a successful render, call `POST /api/v1/projects/{project_id}/chapters/{chapter_id}/assemble`:
+
+```json
+{
+  "renderMode": "speech_only"
+}
+```
+
+Use `speech_only` for the stable alpha workflow. The ambience schema and render modes exist, but real source-asset mixing is still incomplete.
+
+Inspect chapter history with `GET /api/v1/projects/{project_id}/chapters/{chapter_id}/renders` and the selected output with `GET /api/v1/projects/{project_id}/chapters/{chapter_id}/active-render`. Each assembly creates a new manifest-backed record and preserves earlier chapter renders.
+
+### 8. Review and Patch a Line
+
+Create and manage review issues with:
+
+- `GET/POST /api/v1/projects/{project_id}/issues`
+- `PATCH /api/v1/issues/{issue_id}`
+- `GET/POST /api/v1/issues/{issue_id}/comments`
+
+To correct one line, call `POST /api/v1/projects/{project_id}/segments/{segment_id}/patch`. Supply the revised `textContent` when the words change, the voice and direction to use, and optionally the related `issueId`. The patch operation creates a new segment revision and render, then reassembles only the owning chapter. Previous segment and chapter renders remain available for comparison and rollback analysis.
+
+### 9. Export WAV or MP3
+
+Once the selected chapters have active renders, call `POST /api/v1/projects/{project_id}/exports`:
+
+```json
+{
+  "format": "mp3",
+  "chapterIds": ["{chapter_id}"]
+}
+```
+
+Use `"wav"` for an uncompressed working export or `"mp3"` for a distributable listening copy. MP3 export requires `ffmpeg` on `PATH`. M4B is not implemented.
+
+The response includes `outputPath` and `manifestPath`. Retain the manifest with the exported audio: it records the selected chapter renders and supports later provenance checks.
+
+### 10. Find Local Project Files
+
+With the default configuration:
+
+- SQLite metadata is stored at `.echodraft/echodraft.db`.
+- Project sources, canonical text, manifests, renders, exports, and logs are stored below `.echodraft/projects`.
+- Audio files are stored on the filesystem, never as relational database blobs.
+
+The API returns absolute artifact paths for generated records. Do not edit manifests or render history by hand while the API is running. To start from a clean disposable workspace, stop both servers and move the `.echodraft` directory somewhere safe; deleting it permanently removes all local project metadata and artifacts.
+
+### Troubleshooting the Workflow
+
+- If the dashboard cannot connect, verify that the API is running and `NEXT_PUBLIC_API_URL` points to `http://localhost:8000`.
+- If an import or extraction appears stuck, inspect its job through `GET /api/v1/jobs/{job_id}`.
+- If Kokoro rendering fails, verify the executable, model, voice registry, and requested voice ID; Echodraft does not silently fall back to `mock`.
+- If chapter assembly fails, confirm every segment in that chapter has a successful render.
+- If MP3 export fails, run `ffmpeg -version` and confirm the installed build includes MP3 encoding support.
+- After an unexpected API restart, interrupted in-process jobs are marked failed. Restart the affected operation from its persisted source or render artifacts.
+
 ### Validate Changes
 
 ```bash
@@ -224,16 +420,6 @@ $env:ECHODRAFT_DATABASE_URL = "sqlite:///./.tmp/echodraft-migration.db"
 uv run alembic -c libs/db/alembic.ini upgrade head
 Remove-Item Env:ECHODRAFT_DATABASE_URL
 ```
-
-## Core Workflow
-
-1. Create a project and declare rights.
-2. Import a manuscript and inspect parser warnings.
-3. Extract chapters, scenes, and segments.
-4. Configure voices, pronunciation, and direction.
-5. Render segments and assemble a chapter speech stem.
-6. Review QA issues, patch individual segments, then reassemble only the affected chapter.
-7. Export validated WAV or MP3 chapter files and retain the export manifest.
 
 ## Repository Layout
 
