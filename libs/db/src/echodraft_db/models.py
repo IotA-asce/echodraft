@@ -144,6 +144,46 @@ class ChapterRenderRecord(Base):
     duration_ms: Mapped[int] = mapped_column()
 
 
+class IssueRecord(Base):
+    __tablename__ = "issues"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    chapter_id: Mapped[str | None] = mapped_column(ForeignKey("chapters.id"), index=True)
+    segment_id: Mapped[str | None] = mapped_column(ForeignKey("segments.id"), index=True)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    dedupe_key: Mapped[str | None] = mapped_column(String(256), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CommentRecord(Base):
+    __tablename__ = "comments"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    issue_id: Mapped[str] = mapped_column(ForeignKey("issues.id"), index=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    author: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PatchAttemptRecord(Base):
+    __tablename__ = "patch_attempts"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    issue_id: Mapped[str | None] = mapped_column(ForeignKey("issues.id"), index=True)
+    segment_id: Mapped[str] = mapped_column(ForeignKey("segments.id"), index=True)
+    old_render_id: Mapped[str | None] = mapped_column(ForeignKey("segment_renders.id"))
+    new_render_id: Mapped[str] = mapped_column(ForeignKey("segment_renders.id"), nullable=False)
+    chapter_render_id: Mapped[str] = mapped_column(ForeignKey("chapter_renders.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class CharacterRecord(Base):
     __tablename__ = "characters"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
