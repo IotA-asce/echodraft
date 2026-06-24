@@ -5,6 +5,7 @@ from uuid import uuid4
 from echodraft_domain import (
     AssignVoice,
     Chapter,
+    ChapterAssemblyRequest,
     ChapterRender,
     Character,
     CharacterCreate,
@@ -389,9 +390,16 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         response_model=ChapterRender,
         status_code=202,
     )
-    def assemble_chapter(project_id: str, chapter_id: str, request: Request) -> ChapterRender:
+    def assemble_chapter(
+        project_id: str,
+        chapter_id: str,
+        request: Request,
+        payload: ChapterAssemblyRequest | None = None,
+    ) -> ChapterRender:
         try:
-            return ChapterAssembler(request.app.state.container).assemble(project_id, chapter_id)
+            return ChapterAssembler(request.app.state.container).assemble(
+                project_id, chapter_id, payload.render_mode if payload else "speech_only"
+            )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 

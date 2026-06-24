@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from echodraft_db import (
+    AmbienceRepository,
     CastingRepository,
     Database,
     JobRepository,
@@ -25,6 +26,7 @@ class AppContainer:
     structure: StructureRepository
     casting: CastingRepository
     review: ReviewRepository
+    ambience: AmbienceRepository
     jobs: InProcessJobRunner
 
 
@@ -42,5 +44,6 @@ def build_container(settings: AppSettings) -> AppContainer:
         structure=StructureRepository(database),
         casting=CastingRepository(database),
         review=ReviewRepository(database),
+        ambience=AmbienceRepository(database),
         jobs=InProcessJobRunner(jobs_repository),
     )

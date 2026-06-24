@@ -254,6 +254,60 @@ class ChapterRender(ApiModel):
     speech_path: str = Field(alias="speechPath")
     manifest_path: str = Field(alias="manifestPath")
     duration_ms: int = Field(alias="durationMs")
+    render_mode: str = Field(default="speech_only", alias="renderMode")
+    ambience_stem_path: str | None = Field(default=None, alias="ambienceStemPath")
+    mixed_audio_path: str | None = Field(default=None, alias="mixedAudioPath")
+
+
+class ChapterAssemblyRequest(ApiModel):
+    render_mode: str = Field(default="speech_only", alias="renderMode")
+
+
+class AmbienceAsset(ApiModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    name: str
+    asset_path: str = Field(alias="assetPath")
+    license_note: str = Field(alias="licenseNote")
+    provenance: str
+
+
+class AmbienceAssetCreate(ApiModel):
+    name: str
+    asset_path: str = Field(alias="assetPath")
+    license_note: str = Field(alias="licenseNote")
+    provenance: str
+
+
+class AmbienceProfile(ApiModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    name: str
+    gain_db: float = Field(alias="gainDb")
+
+
+class AmbienceProfileCreate(ApiModel):
+    name: str
+    gain_db: float = Field(default=-24.0, alias="gainDb")
+
+
+class AmbienceCue(ApiModel):
+    id: str
+    scene_id: str = Field(alias="sceneId")
+    asset_id: str | None = Field(default=None, alias="assetId")
+    gain_db: float = Field(alias="gainDb")
+    fade_in_ms: int = Field(alias="fadeInMs")
+    fade_out_ms: int = Field(alias="fadeOutMs")
+    no_sfx: bool = Field(alias="noSfx")
+
+
+class AmbienceCueCreate(ApiModel):
+    scene_id: str = Field(alias="sceneId")
+    asset_id: str | None = Field(default=None, alias="assetId")
+    gain_db: float = Field(default=-24.0, alias="gainDb")
+    fade_in_ms: int = Field(default=500, alias="fadeInMs")
+    fade_out_ms: int = Field(default=500, alias="fadeOutMs")
+    no_sfx: bool = Field(default=False, alias="noSfx")
 
 
 class Issue(ApiModel):
