@@ -5,8 +5,10 @@ from pathlib import Path
 from uuid import uuid4
 from echodraft_domain import SegmentRender, SegmentRenderRequest
 from echodraft_db.models import SegmentRenderRecord
+from sqlalchemy import select
 from .container import AppContainer
 from .direction import MockTtsAdapter
+from .review import ReviewService
 
 
 class SegmentRenderer:
@@ -53,6 +55,15 @@ class SegmentRenderer:
                 indent=2,
             )
         )
+        with self.container.structure.database.session() as session:
+            previous = session.scalar(
+                select(SegmentRenderRecord)
+                .where(
+                    SegmentRenderRecord.segment_id == segment_id,
+                    SegmentRenderRecord.status == "succeeded",
+                )
+                .order_by(SegmentRenderRecord.id.desc())
+            )
         record = SegmentRenderRecord(
             id=f"rend_{uuid4().hex[:16]}",
             segment_id=segment_id,
@@ -61,12 +72,13 @@ class SegmentRenderer:
             audio_path=str(audio),
             metadata_path=str(metadata),
             duration_ms=duration,
-            parent_render_id=None,
+            parent_render_id=previous.id if previous else None,
             request_json=json.dumps(payload),
         )
         with self.container.structure.database.session() as s:
             s.add(record)
             s.commit()
+        ReviewService(self.container).qa_segment(project_id, record)
         return SegmentRender(
             id=record.id,
             segmentId=segment_id,
@@ -75,4 +87,5 @@ class SegmentRenderer:
             audioPath=record.audio_path,
             metadataPath=record.metadata_path,
             durationMs=duration,
+            parentRenderId=record.parent_render_id,
         )
