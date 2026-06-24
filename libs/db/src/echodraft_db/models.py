@@ -142,6 +142,38 @@ class ChapterRenderRecord(Base):
     speech_path: Mapped[str] = mapped_column(Text)
     manifest_path: Mapped[str] = mapped_column(Text)
     duration_ms: Mapped[int] = mapped_column()
+    render_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="speech_only")
+    ambience_stem_path: Mapped[str | None] = mapped_column(Text)
+    mixed_audio_path: Mapped[str | None] = mapped_column(Text)
+
+
+class AmbienceAssetRecord(Base):
+    __tablename__ = "ambience_assets"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    asset_path: Mapped[str] = mapped_column(Text, nullable=False)
+    license_note: Mapped[str] = mapped_column(Text, nullable=False)
+    provenance: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class AmbienceProfileRecord(Base):
+    __tablename__ = "ambience_profiles"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    gain_db: Mapped[float] = mapped_column(nullable=False)
+
+
+class AmbienceCueRecord(Base):
+    __tablename__ = "ambience_cues"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    scene_id: Mapped[str] = mapped_column(ForeignKey("scenes.id"), index=True)
+    asset_id: Mapped[str | None] = mapped_column(ForeignKey("ambience_assets.id"))
+    gain_db: Mapped[float] = mapped_column(nullable=False)
+    fade_in_ms: Mapped[int] = mapped_column(nullable=False)
+    fade_out_ms: Mapped[int] = mapped_column(nullable=False)
+    no_sfx: Mapped[bool] = mapped_column(nullable=False, default=False)
 
 
 class IssueRecord(Base):
