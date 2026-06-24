@@ -21,6 +21,14 @@ Do not skip branch creation.
 Do not code directly on main.
 Do not merge unverified changes unless the user explicitly instructs you to do so.
 
+## Publishing authorization
+The repository owner has permanently authorized Codex to push completed, verified work to the configured `origin` remote after following the golden implementation workflow. This authorization does not permit force pushes, destructive history rewrites, or staging unrelated user changes.
+
+Push the updated target branch after merge. Push the feature branch when it is useful for review, traceability, or recovery.
+
+## Local test assets
+`test-assets/` contains private or local-only fixtures. It must remain ignored by Git and must never be staged, committed, or pushed. Tests may read files from this directory when present, but repository tests must not require those local files to exist.
+
 ## Verification rule
 Before merge, run as many of these as relevant:
 - backend tests
