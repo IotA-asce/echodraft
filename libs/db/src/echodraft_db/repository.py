@@ -141,6 +141,21 @@ class JobRepository:
             record = session.get(JobRecord, job_id)
             return _job(record) if record else None
 
+    def reconcile_interrupted(self) -> int:
+        """In-process jobs cannot safely resume after restart; fail them with guidance."""
+        with self.database.session() as session:
+            records = list(
+                session.scalars(select(JobRecord).where(JobRecord.status == JobState.RUNNING.value))
+            )
+            for record in records:
+                record.status = JobState.FAILED.value
+                record.error_message = (
+                    "interrupted: restart the requested workflow from its last persisted artifact"
+                )
+                record.finished_at = datetime.now(UTC)
+            session.commit()
+            return len(records)
+
     def transition(self, job_id: str, target: JobState, error_message: str | None = None) -> Job:
         allowed = {
             JobState.QUEUED: {JobState.RUNNING, JobState.CANCELLED},
