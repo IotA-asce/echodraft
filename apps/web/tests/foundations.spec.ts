@@ -14,6 +14,7 @@ test("creates a local project from the dashboard", async ({ page }) => {
   await expect(page.getByText(title)).toBeVisible();
 
   await page.getByRole("listitem").filter({ hasText: title }).getByRole("button", { name: "Open" }).click();
+  await expect(page.getByLabel("Manuscript file")).toHaveAttribute("accept", /\.pdf/);
   await page.getByLabel("Manuscript file").setInputFiles({
     name: "smoke.txt",
     mimeType: "text/plain",

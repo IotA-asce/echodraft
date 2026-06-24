@@ -14,7 +14,7 @@ The system is deliberately segment-first and manifest-driven:
 ## Capabilities
 
 - SQLite-backed local project metadata and filesystem-backed artifacts.
-- TXT, Markdown, DOCX, and EPUB manuscript ingestion.
+- TXT, Markdown, DOCX, EPUB, and PDF manuscript ingestion.
 - Preserved originals, canonical text, parser warnings, and import manifests.
 - Chapter, scene, and sentence-safe segment extraction.
 - Inline segment editing with immutable revision history.
@@ -34,7 +34,7 @@ The system is deliberately segment-first and manifest-driven:
 - The dashboard covers project creation, manuscript intake, structure browsing, voice setup, chapter production, review, patching, and WAV/MP3 export. The API documentation remains available for development and integration work.
 - Ambience schemas and render modes exist, but source-asset mixing and dashboard controls are incomplete.
 - WAV and MP3 exports are implemented. M4B is not.
-- PDF is not an ingestion format. Convert PDFs to Markdown, TXT, DOCX, or EPUB first.
+- Text-based PDFs are extracted directly. Scanned PDFs require local Poppler and Tesseract English OCR; imports OCR at most 150 low-text pages.
 
 ## System requirements
 
@@ -46,6 +46,7 @@ The system is deliberately segment-first and manifest-driven:
 | Node.js | 20 or later | Next.js dashboard |
 | npm | Bundled with Node.js | Frontend dependencies |
 | FFmpeg | Current stable with MP3 support | MP3 export |
+| Poppler + Tesseract | Current stable with English language data | Scanned PDF OCR |
 
 Python 3.12 is the known project baseline. Newer Python versions may satisfy the workspace metadata but can be incompatible with optional TTS packages. In particular, current Kokoro runtimes commonly require Python 3.12 or earlier.
 
@@ -206,9 +207,26 @@ In the dashboard, enter a title and optional author, confirm that you have the r
 
 ### 2. Import a manuscript
 
-Open the project and choose a `.txt`, `.md`, `.markdown`, `.docx`, or `.epub` file. The dashboard accepts files up to 10 MB.
+Open the project and choose a `.txt`, `.md`, `.markdown`, `.docx`, `.epub`, or `.pdf` file. The dashboard accepts files up to 10 MB.
 
 Echodraft preserves the original, creates canonical text, and reports parser warnings. Review the preview before continuing. Use **Reparse** to repeat normalization from the preserved source.
+
+Text-based PDFs are extracted directly. For scanned or image-only pages, Echodraft renders only the low-text pages at 200 DPI and OCRs them locally with Tesseract English. Install the local tools before importing scanned PDFs:
+
+```bash
+# macOS
+brew install poppler tesseract
+
+# Debian/Ubuntu
+sudo apt install -y poppler-utils tesseract-ocr tesseract-ocr-eng
+```
+
+Windows users can install Poppler and the UB Mannheim Tesseract build, then add both executable directories to `PATH`. PDF OCR never uploads manuscript pages and rejects imports needing OCR on more than 150 pages. Password-protected PDFs are not supported.
+
+```powershell
+# Windows: install Tesseract, then install a Poppler distribution and add its Library\bin folder to PATH.
+winget install --id UB-Mannheim.TesseractOCR
+```
 
 Import and reparse operations return background jobs. In the API, poll `GET /api/v1/jobs/{job_id}` until the job is `succeeded`, `failed`, or `cancelled`.
 

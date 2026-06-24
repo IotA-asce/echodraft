@@ -17,3 +17,4 @@ Use `blocking` for an inability to import, render, assemble, patch, or export. I
 - MP3 export requires local FFmpeg with an MP3 encoder. M4B remains unsupported.
 - Ambience asset mixing remains intentionally deferred; speech-only output is the stable alpha path.
 - Mock TTS is intentionally silent. Current Kokoro support validates a local wrapper and applies the selected voice ID, but direction controls are retained as manifest notes and may not alter synthesis.
+- Text PDFs import directly. Scanned PDFs require `pdftoppm` from Poppler and English Tesseract data on `PATH`; OCR runs locally at 200 DPI and is capped at 150 low-text pages per import.
