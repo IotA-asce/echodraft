@@ -22,6 +22,12 @@ The MVP is deliberately segment-first and manifest-driven: a segment is the smal
 - The ambience data model and render modes exist, but source asset mixing and the related dashboard controls are not complete.
 - The web dashboard currently covers project creation, manuscript intake, structure browsing, and segment editing. Advanced production actions are available through the API.
 
+## Development Status
+
+The staged MVP implementation (foundations through alpha hardening) is present on `main`. The current development baseline includes ingestion, structure extraction, casting and direction records, segment rendering, chapter assembly, review and selective patching, WAV/MP3 export packaging, and interrupted-job reconciliation.
+
+The project is an alpha rather than a finished studio application. The main remaining product work is real ambience asset mixing, dashboard controls for advanced production actions, M4B packaging, and external alpha validation. See [implement/README.md](implement/README.md) for the stage map and [plans/phase-roadmap.md](plans/phase-roadmap.md) for the broader roadmap.
+
 ## Developer Setup
 
 ### Prerequisites
@@ -31,7 +37,71 @@ The MVP is deliberately segment-first and manifest-driven: a segment is the smal
 - Node.js 20 or later and npm.
 - `ffmpeg` with MP3 encoding support for MP3 exports.
 
-The API and dashboard run on macOS and Linux. Windows is not currently a supported development or production target.
+The API and dashboard can be developed on Windows, macOS, and Linux. The commands below use PowerShell on Windows; run them from the repository root.
+
+### Windows Prerequisites
+
+On Windows 10 or 11, install Git, Python, Node.js, `uv`, and `ffmpeg`. One convenient option is Windows Package Manager:
+
+```powershell
+winget install --id Git.Git -e
+winget install --id Python.Python.3.12 -e
+winget install --id OpenJS.NodeJS.LTS -e
+winget install --id astral-sh.uv -e
+winget install --id Gyan.FFmpeg -e
+```
+
+Close and reopen PowerShell after installation, then confirm the tools are on `PATH`:
+
+```powershell
+git --version
+python --version
+node --version
+npm --version
+uv --version
+ffmpeg -version
+```
+
+If the `python` command opens the Microsoft Store instead, disable the Python app execution aliases in Windows Settings or use the Python launcher (`py -3.12`) to confirm the installation. If `ffmpeg` is not found, reopen the terminal before changing `PATH` manually.
+
+### Windows Install
+
+```powershell
+git clone <repository-url>
+Set-Location echodraft
+
+uv sync --group dev
+npm install
+Copy-Item .env.example .env
+```
+
+The checked-in defaults keep SQLite data and generated artifacts under `.echodraft` in the repository. Windows Defender or another antivirus scanner may slow large local audio-artifact directories; exclude `.echodraft` only if you understand and accept the local security trade-off.
+
+### Windows Run
+
+Start the API in one PowerShell window:
+
+```powershell
+uv run --package echodraft-api uvicorn echodraft_api.main:app --reload
+```
+
+Start the dashboard in a second PowerShell window:
+
+```powershell
+npm run web:dev
+```
+
+Open `http://localhost:3000`. The API is available at `http://localhost:8000`; `Invoke-RestMethod http://localhost:8000/health` provides a quick liveness check.
+
+To override an API setting for the current PowerShell session, use environment variables before starting Uvicorn:
+
+```powershell
+$env:ECHODRAFT_DATABASE_URL = "sqlite:///./.echodraft/echodraft.db"
+$env:ECHODRAFT_ARTIFACT_ROOT = ".\.echodraft\projects"
+$env:ECHODRAFT_TTS_PROVIDER = "mock"
+```
+
+Next.js reads `NEXT_PUBLIC_API_URL` from `.env`. The API uses the same local defaults shown in `.env.example`; API overrides must be exported in the shell as above.
 
 Install `ffmpeg` on macOS:
 
@@ -76,7 +146,7 @@ ECHODRAFT_TTS_PROVIDER=mock
 
 ### Enable Local Kokoro TTS
 
-The default `mock` provider creates deterministic silent WAV fixtures. To use real local synthesis, install a Kokoro-compatible CLI for your macOS or Linux architecture and explicitly register locally licensed model and voice files. No model is downloaded automatically.
+The default `mock` provider creates deterministic silent WAV fixtures. To use real local synthesis, install a Kokoro-compatible CLI for your operating system and explicitly register locally licensed model and voice files. No model is downloaded automatically.
 
 ```dotenv
 ECHODRAFT_TTS_PROVIDER=kokoro
@@ -96,7 +166,16 @@ kokoro-tts \
   --output /tmp/preview.wav
 ```
 
-If the executable, model, registry, or requested voice is unavailable, preview and rendering fail with recovery guidance rather than falling back silently. Keep `ECHODRAFT_TTS_PROVIDER=mock` for CI and workflow development without local model files. The configured Kokoro executable must be available on `PATH` or be set to an absolute Linux/macOS executable path.
+On Windows, set absolute paths with PowerShell before starting the API. Quoted values are recommended when paths contain spaces:
+
+```powershell
+$env:ECHODRAFT_TTS_PROVIDER = "kokoro"
+$env:ECHODRAFT_KOKORO_EXECUTABLE = "C:\Tools\kokoro\kokoro-tts.exe"
+$env:ECHODRAFT_KOKORO_MODEL_PATH = "C:\Models\kokoro\model.bin"
+$env:ECHODRAFT_KOKORO_VOICE_PATH = "C:\Models\kokoro\voices.txt"
+```
+
+If the executable, model, registry, or requested voice is unavailable, preview and rendering fail with recovery guidance rather than falling back silently. Keep `ECHODRAFT_TTS_PROVIDER=mock` for CI and workflow development without local model files. The configured Kokoro executable must be available on `PATH` or set to an absolute executable path.
 
 ### Run Locally
 
@@ -124,11 +203,26 @@ npm run web:lint
 npm run web:typecheck
 ```
 
+The same commands work in PowerShell. The browser smoke test is optional for documentation-only changes and requires Playwright's Chromium binary:
+
+```powershell
+npx playwright install chromium
+npm run web:test:smoke
+```
+
 Run database migrations against a local SQLite database when persistence changes:
 
 ```bash
 ECHODRAFT_DATABASE_URL=sqlite:///./.tmp/echodraft-migration.db \
   uv run alembic -c libs/db/alembic.ini upgrade head
+```
+
+PowerShell equivalent:
+
+```powershell
+$env:ECHODRAFT_DATABASE_URL = "sqlite:///./.tmp/echodraft-migration.db"
+uv run alembic -c libs/db/alembic.ini upgrade head
+Remove-Item Env:ECHODRAFT_DATABASE_URL
 ```
 
 ## Core Workflow
