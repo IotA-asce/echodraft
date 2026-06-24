@@ -23,6 +23,20 @@ test("creates a local project from the dashboard", async ({ page }) => {
   await page.getByRole("button", { name: "Extract structure" }).click();
   await expect(page.getByText("Editable story map")).toBeVisible();
 
+  const structureColumns = page.locator(".structure-columns");
+  await structureColumns.locator(":scope > div").nth(0).getByRole("button").first().click();
+  const segmentButton = structureColumns.locator(":scope > div").nth(2).getByRole("button").first();
+  await segmentButton.click();
+
+  const editor = page.getByLabel("Narration text");
+  await expect(editor).toHaveValue("A browser-imported manuscript.");
+  await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled();
+  await editor.fill("A carefully revised browser-imported manuscript.");
+  await expect(page.getByText(/Saving creates revision r\d+/)).toBeVisible();
+  await page.getByRole("button", { name: "Save revision" }).click();
+  await expect(page.getByText(/Revision r\d+ saved\./)).toBeVisible();
+  await expect(segmentButton).toContainText("A carefully revised browser-imported manuscript.");
+
   const createdDirectories = readdirSync(artifactRoot).filter((name) => !before.has(name));
   expect(createdDirectories).toHaveLength(1);
   expect(existsSync(path.join(artifactRoot, createdDirectories[0], "manifests"))).toBeTruthy();
