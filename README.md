@@ -270,7 +270,7 @@ This is also a background job. Once it succeeds, work down the hierarchy:
 2. `GET /api/v1/chapters/{chapter_id}/scenes`
 3. `GET /api/v1/scenes/{scene_id}/segments`
 
-Clicking a segment in the dashboard opens a text editor. Saving an edit creates a new segment revision rather than deleting the old text. Revision history is available from `GET /api/v1/segments/{segment_id}/revisions`.
+Clicking a segment in the dashboard opens an inline multiline editor with the next revision number, character count, save/cancel controls, and unsaved-change protection. Use `Ctrl+Enter` (or `Cmd+Enter` on macOS) to save and `Esc` to cancel. Saving creates a new segment revision rather than deleting the old text. Revision history is available from `GET /api/v1/segments/{segment_id}/revisions`.
 
 Structure extraction uses Markdown headings as chapter signals, so clean chapter headings such as `## Chapter 1` produce the best results.
 

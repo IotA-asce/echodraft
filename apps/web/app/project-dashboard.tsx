@@ -18,6 +18,13 @@ export function ProjectDashboard() {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [editingSegment, setEditingSegment] = useState<Segment | null>(null);
+  const [segmentDraft, setSegmentDraft] = useState("");
+  const [savingSegment, setSavingSegment] = useState(false);
+  const [segmentEditError, setSegmentEditError] = useState<string | null>(null);
+  const [segmentEditStatus, setSegmentEditStatus] = useState<string | null>(null);
+
+  const hasUnsavedSegmentEdit = Boolean(editingSegment && segmentDraft !== editingSegment.textContent);
 
   useEffect(() => {
     listProjects()
@@ -25,6 +32,16 @@ export function ProjectDashboard() {
       .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Unable to load projects."))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!hasUnsavedSegmentEdit) return;
+    const protectUnsavedEdit = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = true;
+    };
+    window.addEventListener("beforeunload", protectUnsavedEdit);
+    return () => window.removeEventListener("beforeunload", protectUnsavedEdit);
+  }, [hasUnsavedSegmentEdit]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -84,9 +101,62 @@ export function ProjectDashboard() {
     finally { setImporting(false); }
   }
 
-  async function openChapter(chapter: Chapter) { const next = await listScenes(chapter.id); setScenes(next); setSegments(next[0] ? await listSegments(next[0].id) : []); }
-  async function openScene(scene: Scene) { setSegments(await listSegments(scene.id)); }
-  async function editSegment(segment: Segment) { const text = window.prompt("Edit segment text", segment.textContent); if (!text?.trim()) return; const updated = await updateSegment(segment.id, text); setSegments((current) => current.map((item) => item.id === updated.id ? updated : item)); }
+  function guardUnsavedSegmentEdit() {
+    if (!hasUnsavedSegmentEdit) return true;
+    setSegmentEditError("Save or cancel the current segment edit before navigating away.");
+    return false;
+  }
+
+  async function openChapter(chapter: Chapter) {
+    if (!guardUnsavedSegmentEdit()) return;
+    setEditingSegment(null);
+    setSegmentEditError(null);
+    const next = await listScenes(chapter.id);
+    setScenes(next);
+    setSegments(next[0] ? await listSegments(next[0].id) : []);
+  }
+
+  async function openScene(scene: Scene) {
+    if (!guardUnsavedSegmentEdit()) return;
+    setEditingSegment(null);
+    setSegmentEditError(null);
+    setSegments(await listSegments(scene.id));
+  }
+
+  function beginSegmentEdit(segment: Segment) {
+    if (editingSegment?.id === segment.id) return;
+    if (hasUnsavedSegmentEdit && editingSegment?.id !== segment.id) {
+      setSegmentEditError("Save or cancel the current segment edit before opening another segment.");
+      return;
+    }
+    setEditingSegment(segment);
+    setSegmentDraft(segment.textContent);
+    setSegmentEditError(null);
+    setSegmentEditStatus(null);
+  }
+
+  function cancelSegmentEdit() {
+    setEditingSegment(null);
+    setSegmentDraft("");
+    setSegmentEditError(null);
+  }
+
+  async function saveSegmentEdit() {
+    if (!editingSegment || !segmentDraft.trim() || !hasUnsavedSegmentEdit) return;
+    setSavingSegment(true);
+    setSegmentEditError(null);
+    try {
+      const updated = await updateSegment(editingSegment.id, segmentDraft.trim());
+      setSegments((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setSegmentEditStatus(`Revision r${updated.revision} saved.`);
+      setEditingSegment(null);
+      setSegmentDraft("");
+    } catch (cause) {
+      setSegmentEditError(cause instanceof Error ? cause.message : "Unable to save the segment revision.");
+    } finally {
+      setSavingSegment(false);
+    }
+  }
 
   return (
     <main className="desk-shell">
@@ -170,7 +240,32 @@ export function ProjectDashboard() {
           {source ? <div className="source-result"><div className="source-heading"><strong>{source.originalFilename}</strong><span><button type="button" onClick={handleExtract} disabled={importing}>Extract structure</button><button type="button" onClick={handleReparse} disabled={importing}>Reparse</button></span></div><pre>{source.preview}</pre><ul className="warning-list">{source.warnings.length ? source.warnings.map((warning, index) => <li key={`${warning.message}-${index}`}><b>{warning.severity}</b><span>{warning.message}</span></li>) : <li><b>clear</b><span>No parser warnings.</span></li>}</ul></div> : <p className="import-placeholder">Select a project manuscript to inspect its source preview and parsing diagnostics.</p>}
         </div>
       </section> : null}
-      {chapters.length ? <section className="structure-view"><div><p className="eyebrow">Structure viewer</p><h2>Editable story map</h2><p className="lede">Unresolved boundaries remain visible for editorial correction.</p></div><div className="structure-columns"><div>{chapters.map((chapter) => <button className="tree-button" key={chapter.id} onClick={() => openChapter(chapter)}>{chapter.title || "Untitled"}<small>{chapter.status} · {Math.round(chapter.confidence * 100)}%</small></button>)}</div><div>{scenes.map((scene, index) => <button className="tree-button" key={scene.id} onClick={() => openScene(scene)}>Scene {index + 1}<small>{scene.status} · {Math.round(scene.confidence * 100)}%</small></button>)}</div><div>{segments.map((segment) => <button className="segment-button" key={segment.id} onClick={() => editSegment(segment)}><span>{segment.textContent}</span><small>r{segment.revision} · {segment.speakerCandidate || "narration"}</small></button>)}</div></div></section> : null}
+      {chapters.length ? <section className="structure-view">
+        <div><p className="eyebrow">Structure viewer</p><h2>Editable story map</h2><p className="lede">Unresolved boundaries remain visible for editorial correction.</p></div>
+        <div className="structure-columns">
+          <div>{chapters.map((chapter) => <button className="tree-button" type="button" key={chapter.id} onClick={() => openChapter(chapter)}>{chapter.title || "Untitled"}<small>{chapter.status} · {Math.round(chapter.confidence * 100)}%</small></button>)}</div>
+          <div>{scenes.map((scene, index) => <button className="tree-button" type="button" key={scene.id} onClick={() => openScene(scene)}>Scene {index + 1}<small>{scene.status} · {Math.round(scene.confidence * 100)}%</small></button>)}</div>
+          <div className="segment-column" aria-live="polite">
+            {segmentEditStatus ? <p className="segment-edit-status">{segmentEditStatus}</p> : null}
+            {segments.map((segment) => <div className="segment-entry" key={segment.id}>
+              <button className={`segment-button${editingSegment?.id === segment.id ? " editing" : ""}`} type="button" onClick={() => beginSegmentEdit(segment)} aria-expanded={editingSegment?.id === segment.id}>
+                <span>{segment.textContent}</span><small>r{segment.revision} · {segment.speakerCandidate || "narration"}</small>
+              </button>
+              {editingSegment?.id === segment.id ? <div className="segment-editor">
+                <div className="segment-editor-heading"><div><p className="eyebrow">Edit segment</p><strong>Revision r{segment.revision + 1}</strong></div><span>{segmentDraft.length} characters</span></div>
+                <label htmlFor={`segment-editor-${segment.id}`}>Narration text</label>
+                <textarea id={`segment-editor-${segment.id}`} value={segmentDraft} onChange={(event) => { setSegmentDraft(event.target.value); setSegmentEditError(null); }} onKeyDown={(event) => {
+                  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); void saveSegmentEdit(); }
+                  if (event.key === "Escape" && !savingSegment) cancelSegmentEdit();
+                }} rows={8} autoFocus aria-describedby={`segment-editor-help-${segment.id}`} />
+                <p className="segment-editor-help" id={`segment-editor-help-${segment.id}`}>{hasUnsavedSegmentEdit ? `Saving creates revision r${segment.revision + 1}; revision r${segment.revision} remains in history.` : "Make a change to create a new revision."} <kbd>Ctrl</kbd> + <kbd>Enter</kbd> saves; <kbd>Esc</kbd> cancels.</p>
+                {segmentEditError ? <p className="segment-edit-error" role="alert">{segmentEditError}</p> : null}
+                <div className="segment-editor-actions"><button className="secondary" type="button" onClick={cancelSegmentEdit} disabled={savingSegment}>Cancel</button><button type="button" onClick={() => void saveSegmentEdit()} disabled={savingSegment || !segmentDraft.trim() || !hasUnsavedSegmentEdit}>{savingSegment ? "Saving revision…" : "Save revision"}</button></div>
+              </div> : null}
+            </div>)}
+          </div>
+        </div>
+      </section> : null}
     </main>
   );
 }
