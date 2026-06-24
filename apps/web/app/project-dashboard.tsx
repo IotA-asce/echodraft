@@ -1,271 +1,98 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  addComment, assetUrl, createCharacter, createExport, createProject, createPronunciation, createVoice, deleteVoice,
+  extractStructure, getJob, getProductionSettings, getProductionStatus, getSource, getTtsSettings,
+  importSource, listCharacters, listChapters, listComments, listExports, listIssues, listPronunciations,
+  listProjects, listScenes, listSegments, listVoices, patchSegment, previewVoice, produceChapter,
+  reparseSource, saveProductionSettings, saveSegmentOverride, saveTtsSettings, testTtsSettings,
+  updateIssue, updateSegment, type Chapter, type Character, type Comment, type Direction, type ExportPackage,
+  type Issue, type Job, type ProductionSettings, type ProductionStatus, type Pronunciation, type Project,
+  type Scene, type Segment, type SourceDocument, type TtsSettings, type VoiceProfile,
+} from "./api";
 
-import { createProject, extractStructure, getJob, getSource, importSource, listChapters, listProjects, listScenes, listSegments, reparseSource, updateSegment, type Chapter, type Project, type Scene, type Segment, type SourceDocument } from "./api";
+const directionFor = (scopeType: string, scopeId: string): Direction => ({ scopeType, scopeId, pace: 1, intensity: 0.4, tone: "neutral", stylePrompt: "Clear, restrained audiobook narration", emphasis: false, whisper: false, noSfx: true });
+const messageOf = (cause: unknown) => cause instanceof Error ? cause.message : "The local studio could not complete that request.";
 
 export function ProjectDashboard() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [title, setTitle] = useState("");
-  const [author, setAuthor] = useState("");
-  const [rightsAcknowledged, setRightsAcknowledged] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [source, setSource] = useState<SourceDocument | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [chapters, setChapters] = useState<Chapter[]>([]);
-  const [scenes, setScenes] = useState<Scene[]>([]);
-  const [segments, setSegments] = useState<Segment[]>([]);
-  const [editingSegment, setEditingSegment] = useState<Segment | null>(null);
-  const [segmentDraft, setSegmentDraft] = useState("");
-  const [savingSegment, setSavingSegment] = useState(false);
-  const [segmentEditError, setSegmentEditError] = useState<string | null>(null);
-  const [segmentEditStatus, setSegmentEditStatus] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]); const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [title, setTitle] = useState(""); const [author, setAuthor] = useState(""); const [rights, setRights] = useState(false);
+  const [source, setSource] = useState<SourceDocument | null>(null); const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [scenes, setScenes] = useState<Scene[]>([]); const [segments, setSegments] = useState<Segment[]>([]); const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
+  const [editing, setEditing] = useState<Segment | null>(null); const [draft, setDraft] = useState("");
+  const [tts, setTts] = useState<TtsSettings | null>(null); const [voices, setVoices] = useState<VoiceProfile[]>([]); const [production, setProduction] = useState<ProductionSettings | null>(null);
+  const [status, setStatus] = useState<ProductionStatus | null>(null); const [job, setJob] = useState<Job | null>(null);
+  const [issues, setIssues] = useState<Issue[]>([]); const [comments, setComments] = useState<Comment[]>([]); const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
+  const [exports, setExports] = useState<ExportPackage[]>([]); const [characters, setCharacters] = useState<Character[]>([]); const [pronunciations, setPronunciations] = useState<Pronunciation[]>([]);
+  const [notice, setNotice] = useState<string | null>(null); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const [voiceName, setVoiceName] = useState(""); const [providerVoiceId, setProviderVoiceId] = useState(""); const [selectedExportIds, setSelectedExportIds] = useState<string[]>([]);
 
-  const hasUnsavedSegmentEdit = Boolean(editingSegment && segmentDraft !== editingSegment.textContent);
+  const project = useMemo(() => projects.find((item) => item.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
+  const narrator = voices.find((item) => item.id === production?.narratorVoiceProfileId) ?? null;
 
+  useEffect(() => { listProjects().then(setProjects).catch((cause) => setError(messageOf(cause))); getTtsSettings().then(setTts).catch((cause) => setError(messageOf(cause))); }, []);
   useEffect(() => {
-    listProjects()
-      .then(setProjects)
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Unable to load projects."))
-      .finally(() => setLoading(false));
-  }, []);
+    if (!job || !["queued", "running"].includes(job.status)) return;
+    const timer = window.setTimeout(() => {
+      void getJob(job.id).then((next) => {
+        setJob(next);
+        if (next.status === "succeeded" && selectedProjectId && selectedChapter) {
+          void refreshProduction(selectedProjectId, selectedChapter.id);
+          setNotice("Chapter production completed. Review the active render below.");
+        }
+        if (next.status === "failed") setError(next.errorMessage ?? "Chapter production failed.");
+      }).catch((cause) => setError(messageOf(cause)));
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [job, selectedChapter, selectedProjectId]);
 
-  useEffect(() => {
-    if (!hasUnsavedSegmentEdit) return;
-    const protectUnsavedEdit = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = true;
-    };
-    window.addEventListener("beforeunload", protectUnsavedEdit);
-    return () => window.removeEventListener("beforeunload", protectUnsavedEdit);
-  }, [hasUnsavedSegmentEdit]);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!title.trim() || !rightsAcknowledged) return;
-    setCreating(true);
-    setError(null);
-    try {
-      const project = await createProject({
-        title: title.trim(),
-        author: author.trim() || undefined,
-        rightsStatus: "declared",
-      });
-      setProjects((current) => [project, ...current]);
-      setSelectedProjectId(project.id);
-      setTitle("");
-      setAuthor("");
-      setRightsAcknowledged(false);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to create project.");
-    } finally {
-      setCreating(false);
-    }
+  async function loadProject(projectId: string) {
+    setSelectedProjectId(projectId); setError(null); setNotice(null); setSelectedChapter(null); setScenes([]); setSegments([]);
+    const settled = await Promise.allSettled([getSource(projectId), listChapters(projectId), listVoices(projectId), getProductionSettings(projectId), listIssues(projectId), listExports(projectId), listCharacters(projectId), listPronunciations(projectId)]);
+    const [nextSource, nextChapters, nextVoices, nextProduction, nextIssues, nextExports, nextCharacters, nextPronunciations] = settled;
+    setSource(nextSource.status === "fulfilled" ? nextSource.value : null); setChapters(nextChapters.status === "fulfilled" ? nextChapters.value : []);
+    if (nextVoices.status === "fulfilled") setVoices(nextVoices.value); if (nextProduction.status === "fulfilled") setProduction(nextProduction.value);
+    if (nextIssues.status === "fulfilled") setIssues(nextIssues.value); if (nextExports.status === "fulfilled") setExports(nextExports.value);
+    if (nextCharacters.status === "fulfilled") setCharacters(nextCharacters.value); if (nextPronunciations.status === "fulfilled") setPronunciations(nextPronunciations.value);
   }
+  async function waitFor(jobId: string, projectId: string) { for (let i = 0; i < 80; i += 1) { const next = await getJob(jobId); if (next.status === "succeeded") return; if (next.status === "failed" || next.status === "cancelled") throw new Error(next.errorMessage || "Background task failed."); await new Promise((resolve) => setTimeout(resolve, 250)); } throw new Error("The task is taking longer than expected."); }
+  async function refreshProduction(projectId: string, chapterId: string) { const [nextStatus, nextIssues] = await Promise.all([getProductionStatus(projectId, chapterId), listIssues(projectId)]); setStatus(nextStatus); setIssues(nextIssues); }
 
-  async function waitForSource(jobId: string, projectId: string) {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      const job = await getJob(jobId);
-      if (job.status === "succeeded") { setSource(await getSource(projectId)); return; }
-      if (job.status === "failed" || job.status === "cancelled") throw new Error(job.errorMessage || "Import failed.");
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    throw new Error("Import is taking longer than expected. Check the job status and try again.");
-  }
+  async function create(event: FormEvent) { event.preventDefault(); if (!title.trim() || !rights) return; setBusy(true); try { const created = await createProject({ title: title.trim(), author: author.trim() || undefined, rightsStatus: "declared" }); setProjects((current) => [created, ...current]); setTitle(""); setAuthor(""); setRights(false); await loadProject(created.id); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
+  async function chooseFile(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file || !selectedProjectId) return; setBusy(true); try { const imported = await importSource(selectedProjectId, file); await waitFor(imported.id, selectedProjectId); setSource(await getSource(selectedProjectId)); setNotice("Manuscript normalized locally. Inspect the preview, then extract structure."); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); event.target.value = ""; } }
+  async function extract() { if (!selectedProjectId) return; setBusy(true); try { const extraction = await extractStructure(selectedProjectId); await waitFor(extraction.id, selectedProjectId); setChapters(await listChapters(selectedProjectId)); setNotice("Structure extracted. Select a chapter to edit or produce."); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
+  async function openChapter(chapter: Chapter) { if (!selectedProjectId) return; setSelectedChapter(chapter); const nextScenes = await listScenes(chapter.id); setScenes(nextScenes); setSegments(nextScenes[0] ? await listSegments(nextScenes[0].id) : []); await refreshProduction(selectedProjectId, chapter.id); }
+  async function saveEdit() { if (!editing || !draft.trim()) return; setBusy(true); try { const updated = await updateSegment(editing.id, draft.trim()); setSegments((current) => current.map((item) => item.id === updated.id ? updated : item)); setEditing(null); setNotice(`Revision r${updated.revision} saved. It will be rendered during the next chapter run.`); if (selectedProjectId && selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
+  async function saveTts() { if (!tts) return; setBusy(true); try { const saved = await saveTtsSettings({ provider: tts.provider, executable: tts.executable, modelPath: tts.modelPath, voiceRegistryPath: tts.voiceRegistryPath }); setTts(saved); await testTtsSettings(); setNotice("Local TTS settings saved and validated."); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
+  async function addVoice(event: FormEvent) { event.preventDefault(); if (!selectedProjectId || !voiceName.trim() || !providerVoiceId.trim()) return; try { const voice = await createVoice(selectedProjectId, { name: voiceName.trim(), backend: tts?.provider ?? "mock", providerVoiceId: providerVoiceId.trim() }); setVoices((current) => [...current, voice]); setVoiceName(""); setProviderVoiceId(""); } catch (cause) { setError(messageOf(cause)); } }
+  async function removeVoice(voiceId: string) { try { await deleteVoice(voiceId); setVoices((current) => current.filter((voice) => voice.id !== voiceId)); } catch (cause) { setError(messageOf(cause)); } }
+  async function selectNarrator(voiceId: string) { if (!selectedProjectId) return; try { const next = await saveProductionSettings(selectedProjectId, { narratorVoiceProfileId: voiceId, defaultDirection: production?.defaultDirection ?? directionFor("project", selectedProjectId) }); setProduction(next); if (selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id); } catch (cause) { setError(messageOf(cause)); } }
+  async function playPreview(voiceId: string) { if (!selectedProjectId) return; try { const preview = await previewVoice(selectedProjectId, voiceId, directionFor("project", selectedProjectId)); const player = new Audio(assetUrl(preview.audioUrl)); await player.play(); } catch (cause) { setError(messageOf(cause)); } }
+  async function setOverride(segmentId: string, voiceProfileId: string) { if (!selectedProjectId) return; try { await saveSegmentOverride(selectedProjectId, segmentId, { voiceProfileId: voiceProfileId || null }); setNotice("Segment voice override saved for future production."); } catch (cause) { setError(messageOf(cause)); } }
+  async function produce(force = false) { if (!selectedProjectId || !selectedChapter) return; try { setJob(await produceChapter(selectedProjectId, selectedChapter.id, force)); setNotice("Chapter production is running locally."); } catch (cause) { setError(messageOf(cause)); } }
+  async function openIssue(issue: Issue) { setActiveIssue(issue); try { setComments(await listComments(issue.id)); } catch (cause) { setError(messageOf(cause)); } }
+  async function comment(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); if (!activeIssue || !String(form.get("comment") || "").trim()) return; try { const added = await addComment(activeIssue.id, String(form.get("comment"))); setComments((current) => [...current, added]); event.currentTarget.reset(); } catch (cause) { setError(messageOf(cause)); } }
+  async function resolveIssue(issue: Issue) { try { const updated = await updateIssue(issue.id, { status: "resolved" }); setIssues((current) => current.map((item) => item.id === updated.id ? updated : item)); if (activeIssue?.id === updated.id) setActiveIssue(updated); } catch (cause) { setError(messageOf(cause)); } }
+  async function patch(issue: Issue) { if (!selectedProjectId || !issue.segmentId || !production?.narratorVoiceProfileId) return; try { await patchSegment(selectedProjectId, issue.segmentId, { issueId: issue.id, voiceProfileId: production.narratorVoiceProfileId, direction: production.defaultDirection ?? directionFor("segment", issue.segmentId) }); setNotice("Segment patched and its chapter reassembled."); if (selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id); } catch (cause) { setError(messageOf(cause)); } }
+  async function exportSelected(format: "wav" | "mp3") { if (!selectedProjectId || !selectedExportIds.length) return; try { const item = await createExport(selectedProjectId, format, selectedExportIds); setExports((current) => [item, ...current]); setNotice("Export package created. Download the ZIP from export history."); } catch (cause) { setError(messageOf(cause)); } }
 
-  async function handleFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file || !selectedProjectId) return;
-    setImporting(true); setError(null); setSource(null);
-    try { const job = await importSource(selectedProjectId, file); await waitForSource(job.id, selectedProjectId); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Import failed."); }
-    finally { setImporting(false); event.target.value = ""; }
-  }
-
-  async function handleReparse() {
-    if (!selectedProjectId) return;
-    setImporting(true); setError(null);
-    try { const job = await reparseSource(selectedProjectId); await waitForSource(job.id, selectedProjectId); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Reparse failed."); }
-    finally { setImporting(false); }
-  }
-
-  async function handleExtract() {
-    if (!selectedProjectId) return;
-    setImporting(true); setError(null);
-    try { const job = await extractStructure(selectedProjectId); await waitForSource(job.id, selectedProjectId); setChapters(await listChapters(selectedProjectId)); setScenes([]); setSegments([]); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Structure extraction failed."); }
-    finally { setImporting(false); }
-  }
-
-  function guardUnsavedSegmentEdit() {
-    if (!hasUnsavedSegmentEdit) return true;
-    setSegmentEditError("Save or cancel the current segment edit before navigating away.");
-    return false;
-  }
-
-  async function openChapter(chapter: Chapter) {
-    if (!guardUnsavedSegmentEdit()) return;
-    setEditingSegment(null);
-    setSegmentEditError(null);
-    const next = await listScenes(chapter.id);
-    setScenes(next);
-    setSegments(next[0] ? await listSegments(next[0].id) : []);
-  }
-
-  async function openScene(scene: Scene) {
-    if (!guardUnsavedSegmentEdit()) return;
-    setEditingSegment(null);
-    setSegmentEditError(null);
-    setSegments(await listSegments(scene.id));
-  }
-
-  function beginSegmentEdit(segment: Segment) {
-    if (editingSegment?.id === segment.id) return;
-    if (hasUnsavedSegmentEdit && editingSegment?.id !== segment.id) {
-      setSegmentEditError("Save or cancel the current segment edit before opening another segment.");
-      return;
-    }
-    setEditingSegment(segment);
-    setSegmentDraft(segment.textContent);
-    setSegmentEditError(null);
-    setSegmentEditStatus(null);
-  }
-
-  function cancelSegmentEdit() {
-    setEditingSegment(null);
-    setSegmentDraft("");
-    setSegmentEditError(null);
-  }
-
-  async function saveSegmentEdit() {
-    if (!editingSegment || !segmentDraft.trim() || !hasUnsavedSegmentEdit) return;
-    setSavingSegment(true);
-    setSegmentEditError(null);
-    try {
-      const updated = await updateSegment(editingSegment.id, segmentDraft.trim());
-      setSegments((current) => current.map((item) => item.id === updated.id ? updated : item));
-      setSegmentEditStatus(`Revision r${updated.revision} saved.`);
-      setEditingSegment(null);
-      setSegmentDraft("");
-    } catch (cause) {
-      setSegmentEditError(cause instanceof Error ? cause.message : "Unable to save the segment revision.");
-    } finally {
-      setSavingSegment(false);
-    }
-  }
-
-  return (
-    <main className="desk-shell">
-      <div className="grain" aria-hidden="true" />
-      <header className="masthead">
-        <a className="wordmark" href="#top" aria-label="echodraft home">
-          <span className="wordmark-mark">e</span>
-          <span>echodraft</span>
-        </a>
-        <p>Local studio / foundations</p>
-      </header>
-
-      <section className="hero" id="top">
-        <div>
-          <p className="eyebrow">The production desk</p>
-          <h1>Stories, prepared<br />for their next voice.</h1>
-          <p className="lede">Set up a private audiobook project. Files, renders, and working notes stay on this machine.</p>
-        </div>
-        <aside className="status-card" aria-label="Foundation status">
-          <span className="pulse" />
-          <div>
-            <p>System status</p>
-            <strong>Local runtime ready</strong>
-          </div>
-          <small>Jobs will appear here as the production pipeline comes online.</small>
-        </aside>
-      </section>
-
-      <section className="workspace">
-        <form className="create-card" onSubmit={handleSubmit}>
-          <p className="eyebrow">New project</p>
-          <h2>Open a fresh production file</h2>
-          <label>
-            Title
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="The Glass Orchard" required />
-          </label>
-          <label>
-            Author <span>optional</span>
-            <input value={author} onChange={(event) => setAuthor(event.target.value)} placeholder="A. Writer" />
-          </label>
-          <label className="rights-check">
-            <input type="checkbox" checked={rightsAcknowledged} onChange={(event) => setRightsAcknowledged(event.target.checked)} />
-            <span>I confirm I have the rights to create this audiobook draft.</span>
-          </label>
-          <button type="submit" disabled={creating || !rightsAcknowledged || !title.trim()}>
-            {creating ? "Opening project…" : "Create project"}
-          </button>
-        </form>
-
-        <section className="project-panel" aria-live="polite">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Project library</p>
-              <h2>Your local productions</h2>
-            </div>
-            <span>{projects.length.toString().padStart(2, "0")} projects</span>
-          </div>
-          {error ? <div className="notice error">{error}</div> : null}
-          {loading ? <div className="notice">Opening the local archive…</div> : null}
-          {!loading && !error && projects.length === 0 ? (
-            <div className="empty-state"><span>01</span><p>Your first project will create a local workspace for source, structure, audio, exports, logs, and manifests.</p></div>
-          ) : null}
-          <ul className="project-list">
-            {projects.map((project) => (
-              <li key={project.id} className={selectedProjectId === project.id ? "selected" : undefined}>
-                <div className="project-index">{project.title.slice(0, 1).toUpperCase()}</div>
-                <div>
-                  <strong>{project.title}</strong>
-                  <p>{project.author || "Independent production"} · {project.status}</p>
-                </div>
-                <button className="select-project" type="button" onClick={() => { setSelectedProjectId(project.id); getSource(project.id).then(setSource).catch(() => setSource(null)); }}>Open</button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </section>
-      {selectedProjectId ? <section className="import-desk">
-        <div><p className="eyebrow">Manuscript intake</p><h2>Bring in the working text</h2><p className="lede">TXT, Markdown, DOCX, and EPUB are normalized locally. The original file remains preserved beside the canonical text.</p></div>
-        <div className="import-card">
-          <label className="drop-zone"><input aria-label="Manuscript file" type="file" accept=".txt,.md,.markdown,.docx,.epub" onChange={handleFile} disabled={importing} /><strong>{importing ? "Preparing canonical text…" : "Choose a manuscript"}</strong><span>Rights-confirmed local import · 10 MB maximum</span></label>
-          {source ? <div className="source-result"><div className="source-heading"><strong>{source.originalFilename}</strong><span><button type="button" onClick={handleExtract} disabled={importing}>Extract structure</button><button type="button" onClick={handleReparse} disabled={importing}>Reparse</button></span></div><pre>{source.preview}</pre><ul className="warning-list">{source.warnings.length ? source.warnings.map((warning, index) => <li key={`${warning.message}-${index}`}><b>{warning.severity}</b><span>{warning.message}</span></li>) : <li><b>clear</b><span>No parser warnings.</span></li>}</ul></div> : <p className="import-placeholder">Select a project manuscript to inspect its source preview and parsing diagnostics.</p>}
-        </div>
-      </section> : null}
-      {chapters.length ? <section className="structure-view">
-        <div><p className="eyebrow">Structure viewer</p><h2>Editable story map</h2><p className="lede">Unresolved boundaries remain visible for editorial correction.</p></div>
-        <div className="structure-columns">
-          <div>{chapters.map((chapter) => <button className="tree-button" type="button" key={chapter.id} onClick={() => openChapter(chapter)}>{chapter.title || "Untitled"}<small>{chapter.status} · {Math.round(chapter.confidence * 100)}%</small></button>)}</div>
-          <div>{scenes.map((scene, index) => <button className="tree-button" type="button" key={scene.id} onClick={() => openScene(scene)}>Scene {index + 1}<small>{scene.status} · {Math.round(scene.confidence * 100)}%</small></button>)}</div>
-          <div className="segment-column" aria-live="polite">
-            {segmentEditStatus ? <p className="segment-edit-status">{segmentEditStatus}</p> : null}
-            {segments.map((segment) => <div className="segment-entry" key={segment.id}>
-              <button className={`segment-button${editingSegment?.id === segment.id ? " editing" : ""}`} type="button" onClick={() => beginSegmentEdit(segment)} aria-expanded={editingSegment?.id === segment.id}>
-                <span>{segment.textContent}</span><small>r{segment.revision} · {segment.speakerCandidate || "narration"}</small>
-              </button>
-              {editingSegment?.id === segment.id ? <div className="segment-editor">
-                <div className="segment-editor-heading"><div><p className="eyebrow">Edit segment</p><strong>Revision r{segment.revision + 1}</strong></div><span>{segmentDraft.length} characters</span></div>
-                <label htmlFor={`segment-editor-${segment.id}`}>Narration text</label>
-                <textarea id={`segment-editor-${segment.id}`} value={segmentDraft} onChange={(event) => { setSegmentDraft(event.target.value); setSegmentEditError(null); }} onKeyDown={(event) => {
-                  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); void saveSegmentEdit(); }
-                  if (event.key === "Escape" && !savingSegment) cancelSegmentEdit();
-                }} rows={8} autoFocus aria-describedby={`segment-editor-help-${segment.id}`} />
-                <p className="segment-editor-help" id={`segment-editor-help-${segment.id}`}>{hasUnsavedSegmentEdit ? `Saving creates revision r${segment.revision + 1}; revision r${segment.revision} remains in history.` : "Make a change to create a new revision."} <kbd>Ctrl</kbd> + <kbd>Enter</kbd> saves; <kbd>Esc</kbd> cancels.</p>
-                {segmentEditError ? <p className="segment-edit-error" role="alert">{segmentEditError}</p> : null}
-                <div className="segment-editor-actions"><button className="secondary" type="button" onClick={cancelSegmentEdit} disabled={savingSegment}>Cancel</button><button type="button" onClick={() => void saveSegmentEdit()} disabled={savingSegment || !segmentDraft.trim() || !hasUnsavedSegmentEdit}>{savingSegment ? "Saving revision…" : "Save revision"}</button></div>
-              </div> : null}
-            </div>)}
-          </div>
-        </div>
-      </section> : null}
-    </main>
-  );
+  return <main className="desk-shell"><div className="grain" aria-hidden="true" />
+    <header className="masthead"><a className="wordmark" href="#top"><span className="wordmark-mark">e</span><span>echodraft</span></a><p>{tts?.ready ? `${tts.provider} local runtime ready` : "TTS needs local setup"}</p></header>
+    <section className="hero" id="top"><div><p className="eyebrow">The production desk</p><h1>Stories, prepared<br />for their next voice.</h1><p className="lede">A local, segment-first studio for shaping a manuscript into a reviewable audiobook draft.</p></div><aside className="status-card"><span className="pulse" /><div><p>Production status</p><strong>{job?.status === "running" ? `Producing: ${String(job.progress.phase ?? "working")}` : selectedChapter ? `${status?.currentSegments ?? 0}/${status?.totalSegments ?? 0} segments current` : "Choose a chapter"}</strong></div><small>Files, renders, manifests, and exports remain on this machine.</small></aside></section>
+    {error ? <p className="notice error">{error}</p> : null}{notice ? <p className="notice success">{notice}</p> : null}
+    <section className="workspace"><form className="create-card" onSubmit={create}><p className="eyebrow">New project</p><h2>Open a production file</h2><label>Title<input aria-label="Title" value={title} onChange={(event) => setTitle(event.target.value)} required /></label><label>Author <span>optional</span><input value={author} onChange={(event) => setAuthor(event.target.value)} /></label><label className="rights-check"><input type="checkbox" checked={rights} onChange={(event) => setRights(event.target.checked)} /><span>I confirm I have the rights to create this audiobook draft.</span></label><button disabled={busy || !rights || !title.trim()}>Create project</button></form>
+      <section className="project-panel"><div className="panel-heading"><div><p className="eyebrow">Project library</p><h2>Your local productions</h2></div><span>{projects.length} projects</span></div><ul className="project-list">{projects.map((item) => <li key={item.id} className={item.id === selectedProjectId ? "selected" : undefined}><div className="project-index">{item.title.slice(0, 1).toUpperCase()}</div><div><strong>{item.title}</strong><p>{item.author || "Independent production"} · {item.status}</p></div><button className="select-project" type="button" onClick={() => void loadProject(item.id)}>Open</button></li>)}</ul></section>
+    </section>
+    {project ? <>
+      <section className="studio-section settings"><div><p className="eyebrow">01 / Voice setup</p><h2>Set the local voice room</h2><p className="lede">Use mock to verify workflow, or point Echodraft at a locally installed Kokoro adapter. Nothing is downloaded or uploaded.</p></div><div className="studio-card"><div className="field-row"><label>Provider<select value={tts?.provider ?? "mock"} onChange={(event) => setTts((current) => ({ ...(current ?? { ready: false, availableVoices: [] }), provider: event.target.value as "mock" | "kokoro" }))}><option value="mock">Mock (silent workflow audio)</option><option value="kokoro">Kokoro adapter</option></select></label>{tts?.provider === "kokoro" ? <><label>Executable<input value={tts.executable ?? ""} onChange={(event) => setTts({ ...tts, executable: event.target.value })} /></label><label>Model path<input value={tts.modelPath ?? ""} onChange={(event) => setTts({ ...tts, modelPath: event.target.value })} /></label><label>Voice registry<input value={tts.voiceRegistryPath ?? ""} onChange={(event) => setTts({ ...tts, voiceRegistryPath: event.target.value })} /></label></> : null}</div><button type="button" onClick={() => void saveTts()} disabled={busy}>Save and validate TTS</button>{tts ? <p className={tts.ready ? "capability ready" : "capability"}>{tts.ready ? `Ready: ${tts.availableVoices.join(", ") || "mock voices"}` : tts.message || "Configure a local adapter before production."}</p> : null}</div></section>
+      <section className="studio-section"><div><p className="eyebrow">Voice bible</p><h2>Give the title a stable narrator</h2><p className="lede">Character assignments and pronunciations are stored as editorial reference; this alpha does not yet apply them automatically during synthesis.</p></div><div className="studio-card"><form className="inline-form" onSubmit={addVoice}><input placeholder="Profile name" value={voiceName} onChange={(event) => setVoiceName(event.target.value)} /><input placeholder="Local provider voice ID" value={providerVoiceId} onChange={(event) => setProviderVoiceId(event.target.value)} /><button>Add voice</button></form><div className="voice-list">{voices.map((voice) => <article key={voice.id} className={narrator?.id === voice.id ? "voice-card selected-voice" : "voice-card"}><div><strong>{voice.name}</strong><small>{voice.providerVoiceId}</small></div><span><button type="button" className="small-button" onClick={() => void playPreview(voice.id)}>Preview</button><button type="button" className="small-button" onClick={() => void selectNarrator(voice.id)}>{narrator?.id === voice.id ? "Narrator" : "Set narrator"}</button><button type="button" className="small-button" disabled={narrator?.id === voice.id} onClick={() => void removeVoice(voice.id)}>Remove</button></span></article>)}</div><div className="reference-grid"><ReferenceForm label="Character reference" placeholder="Character name" items={characters.map((item) => item.displayName)} onSubmit={async (value) => { const item = await createCharacter(project.id, value); setCharacters((current) => [...current, item]); }} /><ReferenceForm label="Pronunciation reference" placeholder="Term / preferred wording" items={pronunciations.map((item) => item.replacementText ? `${item.term} → ${item.replacementText}` : item.term)} onSubmit={async (value) => { const [term, replacementText] = value.split("→").map((item) => item.trim()); const item = await createPronunciation(project.id, term, replacementText); setPronunciations((current) => [...current, item]); }} /></div></div></section>
+      <section className="import-desk"><div><p className="eyebrow">02 / Manuscript intake</p><h2>Bring in the working text</h2><p className="lede">TXT, Markdown, DOCX, and EPUB are normalized locally and the original stays beside the canonical text.</p></div><div className="import-card"><label className="drop-zone"><input aria-label="Manuscript file" type="file" accept=".txt,.md,.markdown,.docx,.epub" onChange={chooseFile} disabled={busy} /><strong>{busy ? "Working…" : "Choose a manuscript"}</strong><span>Rights-confirmed local import · 10 MB maximum</span></label>{source ? <div className="source-result"><div className="source-heading"><strong>{source.originalFilename}</strong><span><button type="button" onClick={() => void extract()} disabled={busy}>Extract structure</button><button type="button" onClick={() => { if (selectedProjectId) void reparseSource(selectedProjectId); }}>Reparse</button></span></div><pre>{source.preview}</pre></div> : <p className="import-placeholder">Select a manuscript to inspect its preview and parsing diagnostics.</p>}</div></section>
+      {chapters.length ? <section className="structure-view"><div><p className="eyebrow">03 / Structure & chapter production</p><h2>Editable story map</h2><p className="lede">Select a chapter, refine segments, set exceptions, then produce it in one local run.</p></div><div className="structure-columns"><div>{chapters.map((chapter) => <button className={selectedChapter?.id === chapter.id ? "tree-button active" : "tree-button"} type="button" key={chapter.id} onClick={() => void openChapter(chapter)}>{chapter.title || "Untitled"}<small>{chapter.status} · {Math.round(chapter.confidence * 100)}%</small></button>)}</div><div>{scenes.map((scene, index) => <button className="tree-button" type="button" key={scene.id} onClick={() => void listSegments(scene.id).then(setSegments)}>Scene {index + 1}<small>{scene.status} · {Math.round(scene.confidence * 100)}%</small></button>)}</div><div className="segment-column">{segments.map((segment) => <div className="segment-entry" key={segment.id}><button className="segment-button" type="button" onClick={() => { setEditing(segment); setDraft(segment.textContent); }}><span>{segment.textContent}</span><small>r{segment.revision} · {segment.speakerCandidate || "narration"}</small></button>{editing?.id === segment.id ? <div className="segment-editor"><textarea aria-label="Narration text" value={draft} onChange={(event) => setDraft(event.target.value)} rows={6} /><p className="segment-editor-help">{draft !== editing.textContent ? `Saving creates revision r${editing.revision + 1}; revision r${editing.revision} remains in history.` : "Make a change to create a new revision."}</p><div className="segment-editor-actions"><button className="secondary" type="button" onClick={() => setEditing(null)}>Cancel</button><button type="button" disabled={busy || draft === editing.textContent} onClick={() => void saveEdit()}>Save revision</button></div></div> : null}<label className="override-label">Voice override<select defaultValue="" onChange={(event) => void setOverride(segment.id, event.target.value)}><option value="">Use project narrator</option>{voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}</select></label></div>)}</div></div>{selectedChapter ? <div className="production-bar"><div><strong>{status?.reason || `${status?.currentSegments ?? 0}/${status?.totalSegments ?? 0} segments current`}</strong><small>Directions are saved with render manifests; current Kokoro adapters may not apply all delivery controls.</small></div><span><button type="button" disabled={busy || !status?.ready || job?.status === "running"} onClick={() => void produce(false)}>Produce chapter</button><button type="button" className="secondary" disabled={busy || !status?.ready} onClick={() => void produce(true)}>Force regenerate</button></span></div> : null}</section> : null}
+      {selectedChapter ? <section className="studio-section review"><div><p className="eyebrow">04 / Review & patch</p><h2>Listen, annotate, rebuild selectively</h2><p className="lede">The active chapter render is immutable. Patching creates new segment and chapter render lineage.</p></div><div className="studio-card">{status?.activeRender?.audioUrl ? <audio controls src={assetUrl(status.activeRender.audioUrl)} className="audio-player" /> : <p className="import-placeholder">Produce this chapter to create a playable local render.</p>}<div className="issue-list">{issues.filter((issue) => issue.chapterId === selectedChapter.id || issue.segmentId).map((issue) => <article className="issue-card" key={issue.id}><div><b>{issue.severity}</b><strong>{issue.title}</strong><p>{issue.description}</p></div><span><button type="button" className="small-button" onClick={() => void openIssue(issue)}>Discuss</button>{issue.segmentId ? <button type="button" className="small-button" onClick={() => void patch(issue)}>Patch</button> : null}{issue.status !== "resolved" ? <button type="button" className="small-button" onClick={() => void resolveIssue(issue)}>Resolve</button> : null}</span></article>)}</div>{activeIssue ? <div className="comment-box"><strong>{activeIssue.title}</strong>{comments.map((item) => <p key={item.id}>{item.body}</p>)}<form onSubmit={comment}><input name="comment" placeholder="Add a local review note" /><button>Add note</button></form></div> : null}</div></section> : null}
+      {chapters.length ? <section className="studio-section exports"><div><p className="eyebrow">05 / Export</p><h2>Package selected current chapters</h2><p className="lede">Exports include only the active assembly for every selected chapter and a provenance manifest.</p></div><div className="studio-card"><div className="chapter-checks">{chapters.map((chapter) => <label key={chapter.id}><input type="checkbox" checked={selectedExportIds.includes(chapter.id)} onChange={(event) => setSelectedExportIds((current) => event.target.checked ? [...current, chapter.id] : current.filter((id) => id !== chapter.id))} />{chapter.title || "Untitled"}</label>)}</div><div className="export-actions"><button type="button" disabled={!selectedExportIds.length} onClick={() => void exportSelected("wav")}>Export WAV ZIP</button><button type="button" disabled={!selectedExportIds.length} onClick={() => void exportSelected("mp3")}>Export MP3 ZIP</button></div>{exports.map((item) => <p className="export-row" key={item.id}><span>{item.format.toUpperCase()} package</span>{item.downloadUrl ? <a href={assetUrl(item.downloadUrl)}>Download ZIP</a> : null}</p>)}</div></section> : null}
+    </> : null}
+  </main>;
 }
+
+function ReferenceForm({ label, placeholder, items, onSubmit }: { label: string; placeholder: string; items: string[]; onSubmit: (value: string) => Promise<void> }) { const [value, setValue] = useState(""); return <div className="reference-card"><strong>{label}</strong><form onSubmit={(event) => { event.preventDefault(); if (value.trim()) void onSubmit(value.trim()).then(() => setValue("")); }}><input placeholder={placeholder} value={value} onChange={(event) => setValue(event.target.value)} /><button>Add</button></form>{items.map((item) => <small key={item}>{item}</small>)}</div>; }

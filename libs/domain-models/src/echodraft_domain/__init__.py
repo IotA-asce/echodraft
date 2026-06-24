@@ -25,6 +25,7 @@ from .models import (
     StructureRequest,
     VoiceProfile,
     VoiceProfileCreate,
+    VoiceProfileUpdate,
     AmbienceAsset,
     AmbienceAssetCreate,
     AmbienceCue,
@@ -44,6 +45,14 @@ from .models import (
     SegmentRenderRequest,
     ParserWarning,
     WarningSeverity,
+    TtsSettings,
+    TtsSettingsUpdate,
+    TtsTestRequest,
+    ProjectProductionSettings,
+    ProjectProductionSettingsUpdate,
+    SegmentProductionOverride,
+    SegmentProductionOverrideUpdate,
+    ChapterProductionStatus,
 )
 
 __all__ = [
@@ -73,6 +82,7 @@ __all__ = [
     "StructureRequest",
     "VoiceProfile",
     "VoiceProfileCreate",
+    "VoiceProfileUpdate",
     "AmbienceAsset",
     "AmbienceAssetCreate",
     "AmbienceCue",
@@ -92,4 +102,12 @@ __all__ = [
     "SegmentRenderRequest",
     "ParserWarning",
     "WarningSeverity",
+    "TtsSettings",
+    "TtsSettingsUpdate",
+    "TtsTestRequest",
+    "ProjectProductionSettings",
+    "ProjectProductionSettingsUpdate",
+    "SegmentProductionOverride",
+    "SegmentProductionOverrideUpdate",
+    "ChapterProductionStatus",
 ]

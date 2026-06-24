@@ -20,12 +20,14 @@ from .models import (
     CharacterRecord,
     CharacterVoiceAssignmentRecord,
     JobRecord,
+    ProjectProductionSettingsRecord,
     PronunciationEntryRecord,
     ProjectRecord,
     RightsDeclarationRecord,
     SceneRecord,
     SegmentRecord,
     SegmentRevisionRecord,
+    SegmentProductionOverrideRecord,
     SourceDocumentRecord,
     VoiceProfileRecord,
 )
@@ -155,6 +157,15 @@ class JobRepository:
                 record.finished_at = datetime.now(UTC)
             session.commit()
             return len(records)
+
+    def set_progress(self, job_id: str, progress: dict[str, object]) -> Job:
+        with self.database.session() as session:
+            record = session.get(JobRecord, job_id)
+            if not record:
+                raise KeyError(job_id)
+            record.progress_json = json.dumps(progress)
+            session.commit()
+            return _job(record)
 
     def transition(self, job_id: str, target: JobState, error_message: str | None = None) -> Job:
         allowed = {
@@ -369,7 +380,7 @@ class CastingRepository:
             )
 
     def create_voice(
-        self, project_id: str, name: str, backend: str, prompt: str | None
+        self, project_id: str, name: str, backend: str, provider_voice_id: str, prompt: str | None
     ) -> VoiceProfileRecord:
         with self.database.session() as s:
             record = VoiceProfileRecord(
@@ -377,11 +388,58 @@ class CastingRepository:
                 project_id=project_id,
                 name=name,
                 backend=backend,
+                provider_voice_id=provider_voice_id,
                 style_prompt=prompt,
             )
             s.add(record)
             s.commit()
             return record
+
+    def voice(self, voice_id: str) -> VoiceProfileRecord | None:
+        with self.database.session() as s:
+            return s.get(VoiceProfileRecord, voice_id)
+
+    def update_voice(
+        self, voice_id: str, name: str | None, provider_voice_id: str | None, prompt: str | None
+    ) -> VoiceProfileRecord | None:
+        with self.database.session() as s:
+            record = s.get(VoiceProfileRecord, voice_id)
+            if not record:
+                return None
+            if name is not None:
+                record.name = name
+            if provider_voice_id is not None:
+                record.provider_voice_id = provider_voice_id
+            if prompt is not None:
+                record.style_prompt = prompt
+            s.commit()
+            return record
+
+    def delete_voice(self, voice_id: str) -> bool:
+        with self.database.session() as s:
+            record = s.get(VoiceProfileRecord, voice_id)
+            if not record:
+                return False
+            assigned = s.scalar(
+                select(CharacterVoiceAssignmentRecord).where(
+                    CharacterVoiceAssignmentRecord.voice_profile_id == voice_id
+                )
+            )
+            narrator = s.scalar(
+                select(ProjectProductionSettingsRecord).where(
+                    ProjectProductionSettingsRecord.narrator_voice_profile_id == voice_id
+                )
+            )
+            overridden = s.scalar(
+                select(SegmentProductionOverrideRecord).where(
+                    SegmentProductionOverrideRecord.voice_profile_id == voice_id
+                )
+            )
+            if assigned or narrator or overridden:
+                raise ValueError("Voice profile is still used by production settings or an assignment.")
+            s.delete(record)
+            s.commit()
+            return True
 
     def assign(self, character_id: str, voice_id: str) -> None:
         with self.database.session() as s:
@@ -425,4 +483,62 @@ class CastingRepository:
             )
             s.add(record)
             s.commit()
+            return record
+
+
+class ProductionSettingsRepository:
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def get(self, project_id: str) -> ProjectProductionSettingsRecord:
+        with self.database.session() as session:
+            record = session.get(ProjectProductionSettingsRecord, project_id)
+            if record:
+                return record
+            record = ProjectProductionSettingsRecord(
+                project_id=project_id, narrator_voice_profile_id=None, default_direction_json=None
+            )
+            session.add(record)
+            session.commit()
+            return record
+
+    def update(
+        self, project_id: str, narrator_voice_profile_id: str | None, default_direction_json: str | None
+    ) -> ProjectProductionSettingsRecord:
+        with self.database.session() as session:
+            record = session.get(ProjectProductionSettingsRecord, project_id)
+            if not record:
+                record = ProjectProductionSettingsRecord(project_id=project_id)
+                session.add(record)
+            record.narrator_voice_profile_id = narrator_voice_profile_id
+            record.default_direction_json = default_direction_json
+            session.commit()
+            return record
+
+    def override(self, segment_id: str) -> SegmentProductionOverrideRecord | None:
+        with self.database.session() as session:
+            return session.get(SegmentProductionOverrideRecord, segment_id)
+
+    def overrides(self, segment_ids: list[str]) -> dict[str, SegmentProductionOverrideRecord]:
+        if not segment_ids:
+            return {}
+        with self.database.session() as session:
+            rows = session.scalars(
+                select(SegmentProductionOverrideRecord).where(
+                    SegmentProductionOverrideRecord.segment_id.in_(segment_ids)
+                )
+            )
+            return {row.segment_id: row for row in rows}
+
+    def update_override(
+        self, segment_id: str, voice_profile_id: str | None, direction_json: str | None
+    ) -> SegmentProductionOverrideRecord:
+        with self.database.session() as session:
+            record = session.get(SegmentProductionOverrideRecord, segment_id)
+            if not record:
+                record = SegmentProductionOverrideRecord(segment_id=segment_id)
+                session.add(record)
+            record.voice_profile_id = voice_profile_id
+            record.direction_json = direction_json
+            session.commit()
             return record

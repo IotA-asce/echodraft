@@ -36,9 +36,19 @@ from echodraft_domain import (
     VoicePreviewRequest,
     VoiceProfile,
     VoiceProfileCreate,
+    VoiceProfileUpdate,
+    TtsSettings,
+    TtsSettingsUpdate,
+    TtsTestRequest,
+    ProjectProductionSettings,
+    ProjectProductionSettingsUpdate,
+    SegmentProductionOverride,
+    SegmentProductionOverrideUpdate,
+    ChapterProductionStatus,
 )
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from .config import AppSettings
 from .container import AppContainer, build_container
@@ -50,6 +60,7 @@ from .rendering import SegmentRenderer
 from .assembly import ChapterAssembler
 from .review import ReviewService
 from .exporting import ExportService
+from .production import ProductionService
 
 logger = configure_logging()
 
@@ -65,6 +76,23 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    def artifact_url(project_id: str, absolute_path: str) -> str | None:
+        project = container.projects.get(project_id)
+        if not project:
+            return None
+        try:
+            relative = Path(absolute_path).resolve().relative_to(Path(project.artifact_path).resolve())
+        except ValueError:
+            return None
+        return f"/api/v1/projects/{project_id}/artifacts/{relative.as_posix()}"
+
+    def segment_render_with_url(project_id: str, render: SegmentRender) -> SegmentRender:
+        return render.model_copy(update={"audio_url": artifact_url(project_id, render.audio_path)})
+
+    def chapter_render_with_url(project_id: str, render: ChapterRender) -> ChapterRender:
+        path = render.mixed_audio_path or render.speech_path
+        return render.model_copy(update={"audio_url": artifact_url(project_id, path)})
 
     @app.middleware("http")
     async def request_logging(
@@ -90,6 +118,54 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     @app.get("/ready")
     def ready() -> dict[str, str]:
         return {"status": "ready", "storage": str(resolved_settings.artifact_root)}
+
+    @app.get("/api/v1/settings/tts", response_model=TtsSettings)
+    def get_tts_settings(request: Request) -> TtsSettings:
+        container: AppContainer = request.app.state.container
+        return container.tts_settings.status()
+
+    @app.put("/api/v1/settings/tts", response_model=TtsSettings)
+    def save_tts_settings(payload: TtsSettingsUpdate, request: Request) -> TtsSettings:
+        container: AppContainer = request.app.state.container
+        try:
+            saved = container.tts_settings.save(payload)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        container.tts_adapter = container.tts_settings.adapter()
+        return saved
+
+    @app.post("/api/v1/settings/tts/test", response_model=TtsSettings)
+    def test_tts_settings(payload: TtsTestRequest, request: Request) -> TtsSettings:
+        container: AppContainer = request.app.state.container
+        current = container.tts_settings.status()
+        if not current.ready:
+            raise HTTPException(status_code=422, detail=current.message or "TTS is not ready.")
+        voice = payload.voice_id or (current.available_voices[0] if current.available_voices else None)
+        if not voice:
+            raise HTTPException(status_code=422, detail="No local voice is available for a test.")
+        resolved_settings.artifact_root.mkdir(parents=True, exist_ok=True)
+        probe = resolved_settings.artifact_root / "tts-test.wav"
+        try:
+            from echodraft_domain import DirectionProfile
+
+            container.tts_adapter.preview(
+                payload.text, voice, probe, DirectionProfile(scopeType="system", scopeId="tts-test")
+            )
+            probe.unlink(missing_ok=True)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return current
+
+    @app.get("/api/v1/projects/{project_id}/artifacts/{artifact_path:path}")
+    def get_artifact(project_id: str, artifact_path: str, request: Request) -> FileResponse:
+        project = request.app.state.container.projects.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        root = Path(project.artifact_path).resolve()
+        target = (root / artifact_path).resolve()
+        if root not in target.parents or not target.is_file():
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        return FileResponse(target)
 
     @app.post("/api/v1/projects", response_model=Project, status_code=status.HTTP_201_CREATED)
     def create_project(payload: ProjectCreate, request: Request) -> Project:
@@ -257,6 +333,59 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             for item in request.app.state.container.structure.revisions(segment_id)
         ]
 
+    @app.get(
+        "/api/v1/projects/{project_id}/production-settings",
+        response_model=ProjectProductionSettings,
+    )
+    def get_production_settings(project_id: str, request: Request) -> ProjectProductionSettings:
+        try:
+            return ProductionService(request.app.state.container).settings(project_id)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.put(
+        "/api/v1/projects/{project_id}/production-settings",
+        response_model=ProjectProductionSettings,
+    )
+    def update_production_settings(
+        project_id: str, payload: ProjectProductionSettingsUpdate, request: Request
+    ) -> ProjectProductionSettings:
+        try:
+            return ProductionService(request.app.state.container).update_settings(
+                project_id, payload.narrator_voice_profile_id, payload.default_direction
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/projects/{project_id}/segments/{segment_id}/production-override",
+        response_model=SegmentProductionOverride,
+    )
+    def get_segment_override(
+        project_id: str, segment_id: str, request: Request
+    ) -> SegmentProductionOverride:
+        try:
+            return ProductionService(request.app.state.container).override(project_id, segment_id)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.put(
+        "/api/v1/projects/{project_id}/segments/{segment_id}/production-override",
+        response_model=SegmentProductionOverride,
+    )
+    def update_segment_override(
+        project_id: str,
+        segment_id: str,
+        payload: SegmentProductionOverrideUpdate,
+        request: Request,
+    ) -> SegmentProductionOverride:
+        try:
+            return ProductionService(request.app.state.container).update_override(
+                project_id, segment_id, payload.voice_profile_id, payload.direction
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
     @app.get("/api/v1/projects/{project_id}/characters", response_model=list[Character])
     def list_characters(project_id: str, request: Request) -> list[Character]:
         return [
@@ -305,6 +434,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                     "projectId": x.project_id,
                     "name": x.name,
                     "backend": x.backend,
+                    "providerVoiceId": x.provider_voice_id,
                     "stylePrompt": x.style_prompt,
                 }
             )
@@ -316,7 +446,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         project_id: str, payload: VoiceProfileCreate, request: Request
     ) -> VoiceProfile:
         x = request.app.state.container.casting.create_voice(
-            project_id, payload.name, payload.backend, payload.style_prompt
+            project_id, payload.name, payload.backend, payload.provider_voice_id, payload.style_prompt
         )
         return VoiceProfile.model_validate(
             {
@@ -324,9 +454,38 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 "projectId": x.project_id,
                 "name": x.name,
                 "backend": x.backend,
+                "providerVoiceId": x.provider_voice_id,
                 "stylePrompt": x.style_prompt,
             }
         )
+
+    @app.patch("/api/v1/voices/{voice_id}", response_model=VoiceProfile)
+    def update_voice(voice_id: str, payload: VoiceProfileUpdate, request: Request) -> VoiceProfile:
+        x = request.app.state.container.casting.update_voice(
+            voice_id, payload.name, payload.provider_voice_id, payload.style_prompt
+        )
+        if not x:
+            raise HTTPException(status_code=404, detail="Voice profile not found")
+        return VoiceProfile.model_validate(
+            {
+                "id": x.id,
+                "projectId": x.project_id,
+                "name": x.name,
+                "backend": x.backend,
+                "providerVoiceId": x.provider_voice_id,
+                "stylePrompt": x.style_prompt,
+            }
+        )
+
+    @app.delete("/api/v1/voices/{voice_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_voice(voice_id: str, request: Request) -> Response:
+        try:
+            deleted = request.app.state.container.casting.delete_voice(voice_id)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Voice profile not found")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.post("/api/v1/characters/{character_id}/assign-voice", status_code=200)
     def assign_voice(character_id: str, payload: AssignVoice, request: Request) -> dict[str, str]:
@@ -376,9 +535,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         project_id: str, payload: VoicePreviewRequest, request: Request
     ) -> VoicePreview:
         try:
-            return DirectionService(request.app.state.container).preview(
+            preview = DirectionService(request.app.state.container).preview(
                 project_id, payload.text, payload.voice_profile_id, payload.direction
             )
+            return preview.model_copy(update={"audio_url": artifact_url(project_id, preview.asset_path)})
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -390,7 +550,22 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     def generate_segment(
         project_id: str, segment_id: str, payload: SegmentRenderRequest, request: Request
     ) -> SegmentRender:
-        return SegmentRenderer(request.app.state.container).render(project_id, segment_id, payload)
+        return segment_render_with_url(
+            project_id, SegmentRenderer(request.app.state.container).render(project_id, segment_id, payload)
+        )
+
+    @app.get(
+        "/api/v1/projects/{project_id}/segments/{segment_id}/renders",
+        response_model=list[SegmentRender],
+    )
+    def list_segment_renders(project_id: str, segment_id: str, request: Request) -> list[SegmentRender]:
+        try:
+            return [
+                segment_render_with_url(project_id, item)
+                for item in SegmentRenderer(request.app.state.container).history(project_id, segment_id)
+            ]
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.post(
         "/api/v1/projects/{project_id}/chapters/{chapter_id}/assemble",
@@ -404,11 +579,55 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         payload: ChapterAssemblyRequest | None = None,
     ) -> ChapterRender:
         try:
-            return ChapterAssembler(request.app.state.container).assemble(
+            render = ChapterAssembler(request.app.state.container).assemble(
                 project_id, chapter_id, payload.render_mode if payload else "speech_only"
             )
+            return chapter_render_with_url(project_id, render)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/projects/{project_id}/chapters/{chapter_id}/production-status",
+        response_model=ChapterProductionStatus,
+    )
+    def chapter_production_status(
+        project_id: str, chapter_id: str, request: Request
+    ) -> ChapterProductionStatus:
+        try:
+            production_status = ProductionService(request.app.state.container).status(project_id, chapter_id)
+            return production_status.model_copy(
+                update={
+                    "active_render": chapter_render_with_url(project_id, production_status.active_render)
+                    if production_status.active_render
+                    else None
+                }
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post(
+        "/api/v1/projects/{project_id}/chapters/{chapter_id}/produce",
+        response_model=Job,
+        status_code=202,
+    )
+    def produce_chapter(
+        project_id: str,
+        chapter_id: str,
+        request: Request,
+        force: bool = False,
+    ) -> Job:
+        container: AppContainer = request.app.state.container
+        service = ProductionService(container)
+        try:
+            service.status(project_id, chapter_id)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return container.jobs.submit_with_job(
+            "chapter.produce",
+            lambda job_id: service.produce(project_id, chapter_id, job_id, force),
+            project_id,
+            chapter_id,
+        )
 
     @app.get(
         "/api/v1/projects/{project_id}/chapters/{chapter_id}/renders",
@@ -418,7 +637,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         project_id: str, chapter_id: str, request: Request
     ) -> list[ChapterRender]:
         try:
-            return ChapterAssembler(request.app.state.container).history(project_id, chapter_id)
+            return [
+                chapter_render_with_url(project_id, item)
+                for item in ChapterAssembler(request.app.state.container).history(project_id, chapter_id)
+            ]
         except ValueError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -430,7 +652,9 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         project_id: str, chapter_id: str, request: Request
     ) -> ChapterRender:
         try:
-            return ChapterAssembler(request.app.state.container).active(project_id, chapter_id)
+            return chapter_render_with_url(
+                project_id, ChapterAssembler(request.app.state.container).active(project_id, chapter_id)
+            )
         except ValueError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -503,9 +727,37 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     )
     def create_export(project_id: str, payload: ExportRequest, request: Request) -> ExportPackage:
         try:
-            return ExportService(request.app.state.container).export(project_id, payload)
+            package = ExportService(request.app.state.container).export(project_id, payload)
+            return package.model_copy(
+                update={"download_url": f"/api/v1/projects/{project_id}/exports/{package.id}/download"}
+            )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/v1/projects/{project_id}/exports", response_model=list[ExportPackage])
+    def list_exports(project_id: str, request: Request) -> list[ExportPackage]:
+        return [
+            item.model_copy(
+                update={"download_url": f"/api/v1/projects/{project_id}/exports/{item.id}/download"}
+            )
+            for item in ExportService(request.app.state.container).list(project_id)
+        ]
+
+    @app.get("/api/v1/projects/{project_id}/exports/{export_id}", response_model=ExportPackage)
+    def get_export(project_id: str, export_id: str, request: Request) -> ExportPackage:
+        package = ExportService(request.app.state.container).get(project_id, export_id)
+        if not package:
+            raise HTTPException(status_code=404, detail="Export not found")
+        return package.model_copy(
+            update={"download_url": f"/api/v1/projects/{project_id}/exports/{export_id}/download"}
+        )
+
+    @app.get("/api/v1/projects/{project_id}/exports/{export_id}/download")
+    def download_export(project_id: str, export_id: str, request: Request) -> FileResponse:
+        package = ExportService(request.app.state.container).get(project_id, export_id)
+        if not package or not package.archive_path or not Path(package.archive_path).is_file():
+            raise HTTPException(status_code=404, detail="Export archive not found")
+        return FileResponse(package.archive_path, filename=Path(package.archive_path).name)
 
     return app
 

@@ -224,6 +224,7 @@ class ExportPackageRecord(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     output_path: Mapped[str] = mapped_column(Text, nullable=False)
     manifest_path: Mapped[str] = mapped_column(Text, nullable=False)
+    archive_path: Mapped[str | None] = mapped_column(Text)
 
 
 class CharacterRecord(Base):
@@ -243,7 +244,22 @@ class VoiceProfileRecord(Base):
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     backend: Mapped[str] = mapped_column(String(100), nullable=False)
+    provider_voice_id: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     style_prompt: Mapped[str | None] = mapped_column(Text)
+
+
+class ProjectProductionSettingsRecord(Base):
+    __tablename__ = "project_production_settings"
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    narrator_voice_profile_id: Mapped[str | None] = mapped_column(ForeignKey("voice_profiles.id"))
+    default_direction_json: Mapped[str | None] = mapped_column(Text)
+
+
+class SegmentProductionOverrideRecord(Base):
+    __tablename__ = "segment_production_overrides"
+    segment_id: Mapped[str] = mapped_column(ForeignKey("segments.id"), primary_key=True)
+    voice_profile_id: Mapped[str | None] = mapped_column(ForeignKey("voice_profiles.id"))
+    direction_json: Mapped[str | None] = mapped_column(Text)
 
 
 class CharacterVoiceAssignmentRecord(Base):

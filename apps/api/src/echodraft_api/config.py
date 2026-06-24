@@ -11,6 +11,7 @@ class AppSettings:
     kokoro_executable: str | None = None
     kokoro_model_path: Path | None = None
     kokoro_voice_path: Path | None = None
+    tts_settings_path: Path = Path(".echodraft/tts-settings.json")
 
     @classmethod
     def from_environment(cls) -> "AppSettings":
@@ -31,4 +32,7 @@ class AppSettings:
                 if (value := os.getenv("ECHODRAFT_KOKORO_VOICE_PATH"))
                 else None
             ),
+            tts_settings_path=Path(
+                os.getenv("ECHODRAFT_TTS_SETTINGS_PATH", ".echodraft/tts-settings.json")
+            ).expanduser().resolve(),
         )

@@ -2,11 +2,12 @@ import hashlib
 import json
 import shutil
 import subprocess
+import zipfile
 from pathlib import Path
 from uuid import uuid4
 
 from echodraft_domain import ExportPackage, ExportRequest
-from echodraft_db.models import ChapterRenderRecord, ExportPackageRecord, IssueRecord
+from echodraft_db.models import ChapterRecord, ChapterRenderRecord, ExportPackageRecord, IssueRecord
 from sqlalchemy import select
 
 from .container import AppContainer
@@ -35,23 +36,28 @@ class ExportService:
             )
             if blocking:
                 raise ValueError("Resolve blocking review issues before export.")
-            query = (
-                select(ChapterRenderRecord)
-                .join_from(
-                    ChapterRenderRecord,
-                    __import__("echodraft_db.models", fromlist=["ChapterRecord"]).ChapterRecord,
+            chapters = list(
+                session.scalars(
+                    select(ChapterRecord)
+                    .where(ChapterRecord.project_id == project_id)
+                    .order_by(ChapterRecord.order_index)
                 )
-                .where(
-                    __import__(
-                        "echodraft_db.models", fromlist=["ChapterRecord"]
-                    ).ChapterRecord.project_id
-                    == project_id
-                )
-                .order_by(ChapterRenderRecord.id)
             )
-            renders = list(session.scalars(query))
-        if request.chapter_ids:
-            renders = [item for item in renders if item.chapter_id in request.chapter_ids]
+            if request.chapter_ids:
+                selected = set(request.chapter_ids)
+                chapters = [chapter for chapter in chapters if chapter.id in selected]
+            renders = []
+            for chapter in chapters:
+                active = session.scalar(
+                    select(ChapterRenderRecord)
+                    .where(
+                        ChapterRenderRecord.chapter_id == chapter.id,
+                        ChapterRenderRecord.status == "succeeded",
+                    )
+                    .order_by(ChapterRenderRecord.id.desc())
+                )
+                if active:
+                    renders.append(active)
         if not renders:
             raise ValueError("No assembled chapter renders are available.")
         export_id = f"export_{uuid4().hex[:16]}"
@@ -90,7 +96,7 @@ class ExportService:
             outputs.append(
                 {
                     "chapterRenderId": render.id,
-                    "path": str(target),
+                    "filename": target.name,
                     "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
                 }
             )
@@ -106,6 +112,11 @@ class ExportService:
                 indent=2,
             )
         )
+        archive = staging / "audiobook.zip"
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as package:
+            for output in outputs:
+                package.write(staging / output["filename"], output["filename"])
+            package.write(manifest, manifest.name)
         staging.replace(root)
         record = ExportPackageRecord(
             id=export_id,
@@ -113,7 +124,8 @@ class ExportService:
             format=export_format,
             status="succeeded",
             output_path=str(root),
-            manifest_path=str(manifest),
+            manifest_path=str(root / manifest.name),
+            archive_path=str(root / archive.name),
         )
         with self.container.structure.database.session() as s:
             s.add(record)
@@ -125,4 +137,35 @@ class ExportService:
             status="succeeded",
             outputPath=record.output_path,
             manifestPath=record.manifest_path,
+            archivePath=record.archive_path,
+        )
+
+    def list(self, project_id: str) -> list[ExportPackage]:
+        with self.container.structure.database.session() as session:
+            records = list(
+                session.scalars(
+                    select(ExportPackageRecord)
+                    .where(ExportPackageRecord.project_id == project_id)
+                    .order_by(ExportPackageRecord.id.desc())
+                )
+            )
+        return [self._model(record) for record in records]
+
+    def get(self, project_id: str, export_id: str) -> ExportPackage | None:
+        with self.container.structure.database.session() as session:
+            record = session.get(ExportPackageRecord, export_id)
+            if not record or record.project_id != project_id:
+                return None
+        return self._model(record)
+
+    @staticmethod
+    def _model(record: ExportPackageRecord) -> ExportPackage:
+        return ExportPackage(
+            id=record.id,
+            projectId=record.project_id,
+            format=record.format,
+            status=record.status,
+            outputPath=record.output_path,
+            manifestPath=record.manifest_path,
+            archivePath=record.archive_path,
         )

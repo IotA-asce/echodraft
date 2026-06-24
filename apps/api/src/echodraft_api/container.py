@@ -7,6 +7,7 @@ from echodraft_db import (
     Database,
     JobRepository,
     ProjectRepository,
+    ProductionSettingsRepository,
     ReviewRepository,
     SourceDocumentRepository,
     StructureRepository,
@@ -15,6 +16,7 @@ from echodraft_db import (
 from .artifacts import ArtifactStore
 from .config import AppSettings
 from .jobs import InProcessJobRunner
+from .tts_settings import TtsSettingsStore
 
 if TYPE_CHECKING:
     from .direction import TtsAdapter
@@ -31,6 +33,8 @@ class AppContainer:
     casting: CastingRepository
     review: ReviewRepository
     ambience: AmbienceRepository
+    production: ProductionSettingsRepository
+    tts_settings: TtsSettingsStore
     tts_adapter: "TtsAdapter"
     jobs: InProcessJobRunner
 
@@ -41,15 +45,8 @@ def build_container(settings: AppSettings) -> AppContainer:
     artifacts = ArtifactStore(settings.artifact_root)
     jobs_repository = JobRepository(database)
     jobs_repository.reconcile_interrupted()
-    from .direction import KokoroTtsAdapter, MockTtsAdapter
-
-    adapter = (
-        MockTtsAdapter()
-        if settings.tts_provider == "mock"
-        else KokoroTtsAdapter(
-            settings.kokoro_executable, settings.kokoro_model_path, settings.kokoro_voice_path
-        )
-    )
+    tts_settings = TtsSettingsStore(settings)
+    adapter = tts_settings.adapter()
     return AppContainer(
         settings=settings,
         artifacts=artifacts,
@@ -60,6 +57,8 @@ def build_container(settings: AppSettings) -> AppContainer:
         casting=CastingRepository(database),
         review=ReviewRepository(database),
         ambience=AmbienceRepository(database),
+        production=ProductionSettingsRepository(database),
+        tts_settings=tts_settings,
         tts_adapter=adapter,
         jobs=InProcessJobRunner(jobs_repository),
     )
