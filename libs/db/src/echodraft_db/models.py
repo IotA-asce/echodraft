@@ -216,6 +216,16 @@ class PatchAttemptRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class ExportPackageRecord(Base):
+    __tablename__ = "export_packages"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    format: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    output_path: Mapped[str] = mapped_column(Text, nullable=False)
+    manifest_path: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class CharacterRecord(Base):
     __tablename__ = "characters"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

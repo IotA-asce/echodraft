@@ -366,3 +366,10 @@ class ExportPackage(ApiModel):
     project_id: str = Field(alias="projectId")
     format: str
     status: str
+    output_path: str = Field(alias="outputPath")
+    manifest_path: str = Field(alias="manifestPath")
+
+
+class ExportRequest(ApiModel):
+    format: str = "wav"
+    chapter_ids: list[str] = Field(default_factory=list, alias="chapterIds")
