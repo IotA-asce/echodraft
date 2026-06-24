@@ -1,47 +1,57 @@
 # echodraft
 
-`echodraft` is a local-first AI audiobook production system. It turns a manuscript into a reviewable sequence of chapters, scenes, segments, voice renders, chapter stems, and export artifacts without sending manuscript or audio data to a cloud service by default.
+`echodraft` is a local-first AI audiobook production system. It turns a rights-cleared manuscript into editable chapters, scenes, segments, immutable voice renders, chapter stems, review patches, and export packages.
 
-The MVP is deliberately segment-first and manifest-driven: a segment is the smallest editable and renderable unit, render history is append-only, and a correction rerenders only the affected segment and chapter.
+The system is deliberately segment-first and manifest-driven:
 
-## What Is Implemented
+- a segment is the smallest editable and renderable unit;
+- source files, manifests, audio, and exports remain on the local filesystem;
+- render history is append-only;
+- correcting one line rerenders that segment and its owning chapter instead of regenerating the whole book.
 
-- Local project workspace backed by SQLite metadata and filesystem artifacts.
-- TXT, Markdown, DOCX, and EPUB manuscript ingestion with preserved originals and canonical text.
+> **Alpha software:** the ingestion, editing, rendering, assembly, patching, and WAV/MP3 export foundations are implemented. The dashboard does not yet expose every production action, and real Kokoro TTS requires a separately installed adapter-compatible command.
+
+## Capabilities
+
+- SQLite-backed local project metadata and filesystem-backed artifacts.
+- TXT, Markdown, DOCX, and EPUB manuscript ingestion.
+- Preserved originals, canonical text, parser warnings, and import manifests.
 - Chapter, scene, and sentence-safe segment extraction.
-- Character, voice, pronunciation, direction, and mock local TTS preview records.
-- Immutable segment renders and chapter speech assembly with manifests, waveform metadata, and validation reports.
-- Review issues, comments, QA findings, selective segment patching, and chapter reassembly.
-- Local WAV and MP3 export packages with checksums and export manifests.
-- Startup reconciliation for interrupted in-process jobs and recovery-oriented error messages.
+- Inline segment editing with immutable revision history.
+- Character, voice-profile, pronunciation, and direction records.
+- Deterministic mock TTS for pipeline development.
+- Bring-your-own local Kokoro adapter support.
+- Immutable segment renders and manifest-backed chapter assembly.
+- Review issues, comments, selective line patching, and chapter reassembly.
+- WAV and MP3 export packages with manifests and checksums.
+- Startup reconciliation for interrupted in-process jobs.
 
-## Current Limits
+## Current limitations
 
-- The default TTS backend is `mock` for tests and setup. A configured local Kokoro CLI can generate real WAV output; the repository does not bundle Kokoro models or voices.
-- WAV and MP3 exports are available through the local `ffmpeg` toolchain. M4B remains deferred.
-- The ambience data model and render modes exist, but source asset mixing and the related dashboard controls are not complete.
-- The web dashboard currently covers project creation, manuscript intake, structure browsing, and segment editing. Advanced production actions are available through the API.
+- The default `mock` TTS provider creates silent WAV files. It validates the production workflow but does not produce spoken audio.
+- Kokoro models, voices, and inference runtimes are not bundled or downloaded automatically.
+- The common Kokoro Python packages and third-party CLIs do not directly match Echodraft's current CLI adapter contract; real synthesis requires a compatible wrapper command.
+- The dashboard covers project creation, manuscript intake, structure browsing, and segment editing. Casting, preview, rendering, assembly, review, and export currently use the API at `http://localhost:8000/docs`.
+- Ambience schemas and render modes exist, but source-asset mixing and dashboard controls are incomplete.
+- WAV and MP3 exports are implemented. M4B is not.
+- PDF is not an ingestion format. Convert PDFs to Markdown, TXT, DOCX, or EPUB first.
 
-## Development Status
+## System requirements
 
-The staged MVP implementation (foundations through alpha hardening) is present on `main`. The current development baseline includes ingestion, structure extraction, casting and direction records, segment rendering, chapter assembly, review and selective patching, WAV/MP3 export packaging, and interrupted-job reconciliation.
+| Tool | Supported baseline | Purpose |
+| --- | --- | --- |
+| Git | Current stable | Clone and contribute |
+| Python | 3.12 recommended | API and pipeline services |
+| [uv](https://docs.astral.sh/uv/) | Current stable | Python/workspace management |
+| Node.js | 20 or later | Next.js dashboard |
+| npm | Bundled with Node.js | Frontend dependencies |
+| FFmpeg | Current stable with MP3 support | MP3 export |
 
-The project is an alpha rather than a finished studio application. The main remaining product work is real ambience asset mixing, dashboard controls for advanced production actions, M4B packaging, and external alpha validation. See [implement/README.md](implement/README.md) for the stage map and [plans/phase-roadmap.md](plans/phase-roadmap.md) for the broader roadmap.
+Python 3.12 is the known project baseline. Newer Python versions may satisfy the workspace metadata but can be incompatible with optional TTS packages. In particular, current Kokoro runtimes commonly require Python 3.12 or earlier.
 
-## Developer Setup
+## Install on Windows
 
-### Prerequisites
-
-- Python 3.12 or later.
-- [uv](https://docs.astral.sh/uv/).
-- Node.js 20 or later and npm.
-- `ffmpeg` with MP3 encoding support for MP3 exports.
-
-The API and dashboard can be developed on Windows, macOS, and Linux. The commands below use PowerShell on Windows; run them from the repository root.
-
-### Windows Prerequisites
-
-On Windows 10 or 11, install Git, Python, Node.js, `uv`, and `ffmpeg`. One convenient option is Windows Package Manager:
+Use Windows 10 or 11 and PowerShell. Windows Package Manager is the simplest option:
 
 ```powershell
 winget install --id Git.Git -e
@@ -51,7 +61,7 @@ winget install --id astral-sh.uv -e
 winget install --id Gyan.FFmpeg -e
 ```
 
-Close and reopen PowerShell after installation, then confirm the tools are on `PATH`:
+Close and reopen PowerShell, then verify the tools:
 
 ```powershell
 git --version
@@ -62,38 +72,82 @@ uv --version
 ffmpeg -version
 ```
 
-If the `python` command opens the Microsoft Store instead, disable the Python app execution aliases in Windows Settings or use the Python launcher (`py -3.12`) to confirm the installation. If `ffmpeg` is not found, reopen the terminal before changing `PATH` manually.
+If `python` opens the Microsoft Store, disable the Python app execution aliases in Windows Settings or use `py -3.12` to verify the installation.
 
-### Windows Install
+Clone and install Echodraft:
 
 ```powershell
-git clone <repository-url>
+git clone https://github.com/IotA-asce/echodraft.git
 Set-Location echodraft
 
-uv sync --group dev
+uv python install 3.12
+uv sync --python 3.12 --all-packages --group dev
 npm install
 Copy-Item .env.example .env
 ```
 
-The checked-in defaults keep SQLite data and generated artifacts under `.echodraft` in the repository. Windows Defender or another antivirus scanner may slow large local audio-artifact directories; exclude `.echodraft` only if you understand and accept the local security trade-off.
+The `--all-packages` flag is required. Without it, `uv sync` can install only the root development tools and remove the API workspace packages.
 
-### Windows Run
+## Install on macOS
 
-Start the API in one PowerShell window:
+Install [Homebrew](https://brew.sh/) if necessary, then run:
 
-```powershell
-uv run --package echodraft-api uvicorn echodraft_api.main:app --reload
+```bash
+brew install git python@3.12 uv node ffmpeg
+
+git clone https://github.com/IotA-asce/echodraft.git
+cd echodraft
+
+uv python install 3.12
+uv sync --python 3.12 --all-packages --group dev
+npm install
+cp .env.example .env
 ```
 
-Start the dashboard in a second PowerShell window:
+Apple Silicon works for normal Echodraft development. Optional Kokoro runtimes choose their own CPU, ONNX, PyTorch, or Metal acceleration strategy.
 
-```powershell
-npm run web:dev
+## Install on Linux
+
+Package names vary by distribution. The Debian/Ubuntu example is:
+
+```bash
+sudo apt update
+sudo apt install -y git curl ffmpeg
+
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Open `http://localhost:3000`. The API is available at `http://localhost:8000`; `Invoke-RestMethod http://localhost:8000/health` provides a quick liveness check.
+Install Node.js 20 or later from the [official Node.js download page](https://nodejs.org/en/download) or a trusted distribution package that provides a sufficiently recent version. Reopen the terminal if the `uv` installer changes `PATH`, then run:
 
-To override an API setting for the current PowerShell session, use environment variables before starting Uvicorn:
+```bash
+git clone https://github.com/IotA-asce/echodraft.git
+cd echodraft
+
+uv python install 3.12
+uv sync --python 3.12 --all-packages --group dev
+npm install
+cp .env.example .env
+```
+
+Fedora users can install the system tools with:
+
+```bash
+sudo dnf install -y git curl ffmpeg
+```
+
+## Configure the local workspace
+
+The checked-in `.env.example` contains the frontend URL and documents the default local paths:
+
+```dotenv
+ECHODRAFT_DATABASE_URL=sqlite:///./.echodraft/echodraft.db
+ECHODRAFT_ARTIFACT_ROOT=./.echodraft/projects
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+Next.js reads `NEXT_PUBLIC_API_URL` from `.env`. The API currently reads its settings from the process environment; it does not automatically load `.env`.
+
+The defaults work without exporting anything. To override them for the current PowerShell session:
 
 ```powershell
 $env:ECHODRAFT_DATABASE_URL = "sqlite:///./.echodraft/echodraft.db"
@@ -101,218 +155,101 @@ $env:ECHODRAFT_ARTIFACT_ROOT = ".\.echodraft\projects"
 $env:ECHODRAFT_TTS_PROVIDER = "mock"
 ```
 
-Next.js reads `NEXT_PUBLIC_API_URL` from `.env`. The API uses the same local defaults shown in `.env.example`; API overrides must be exported in the shell as above.
-
-Install `ffmpeg` on macOS:
+The Bash/zsh equivalent is:
 
 ```bash
-brew install ffmpeg
+export ECHODRAFT_DATABASE_URL='sqlite:///./.echodraft/echodraft.db'
+export ECHODRAFT_ARTIFACT_ROOT='./.echodraft/projects'
+export ECHODRAFT_TTS_PROVIDER='mock'
 ```
 
-Install `ffmpeg` on Debian/Ubuntu Linux:
+Do not enter Bash-style `NAME=value` commands directly into PowerShell. PowerShell environment variables use `$env:NAME = "value"`.
 
-```bash
-sudo apt update
-sudo apt install ffmpeg
-```
+## Run Echodraft
 
-For Fedora Linux:
-
-```bash
-sudo dnf install ffmpeg
-```
-
-### Install
-
-```bash
-git clone <repository-url>
-cd echodraft
-
-uv sync --group dev
-npm install
-cp .env.example .env
-```
-
-The default `.env` keeps all state local:
-
-```dotenv
-ECHODRAFT_DATABASE_URL=sqlite:///./.echodraft/echodraft.db
-ECHODRAFT_ARTIFACT_ROOT=./.echodraft/projects
-NEXT_PUBLIC_API_URL=http://localhost:8000
-ECHODRAFT_TTS_PROVIDER=mock
-```
-
-`ECHODRAFT_ARTIFACT_ROOT` stores source files, manifests, audio artifacts, exports, and logs. Audio binaries are never stored in the relational database.
-
-### Enable Local Kokoro TTS
-
-The default `mock` provider creates deterministic silent WAV fixtures. To use real local synthesis, install a Kokoro-compatible CLI for your operating system and explicitly register locally licensed model and voice files. No model is downloaded automatically.
-
-```dotenv
-ECHODRAFT_TTS_PROVIDER=kokoro
-ECHODRAFT_KOKORO_EXECUTABLE=kokoro-tts
-ECHODRAFT_KOKORO_MODEL_PATH=/absolute/path/to/kokoro-model.bin
-ECHODRAFT_KOKORO_VOICE_PATH=/absolute/path/to/voices.txt
-```
-
-The voice registry is a local text file containing one approved voice ID per line; retain the model and voice license/provenance outside the repository. The configured executable must support this invocation and write a non-empty WAV file:
-
-```bash
-kokoro-tts \
-  --model "$ECHODRAFT_KOKORO_MODEL_PATH" \
-  --voices "$ECHODRAFT_KOKORO_VOICE_PATH" \
-  --voice <voice-id> \
-  --text "Preview text" \
-  --output /tmp/preview.wav
-```
-
-On Windows, set absolute paths with PowerShell before starting the API. Quoted values are recommended when paths contain spaces:
-
-```powershell
-$env:ECHODRAFT_TTS_PROVIDER = "kokoro"
-$env:ECHODRAFT_KOKORO_EXECUTABLE = "C:\Tools\kokoro\kokoro-tts.exe"
-$env:ECHODRAFT_KOKORO_MODEL_PATH = "C:\Models\kokoro\model.bin"
-$env:ECHODRAFT_KOKORO_VOICE_PATH = "C:\Models\kokoro\voices.txt"
-```
-
-If the executable, model, registry, or requested voice is unavailable, preview and rendering fail with recovery guidance rather than falling back silently. Keep `ECHODRAFT_TTS_PROVIDER=mock` for CI and workflow development without local model files. The configured Kokoro executable must be available on `PATH` or set to an absolute executable path.
-
-### Run Locally
-
-Start the API in one terminal:
+Start the API from the repository root:
 
 ```bash
 uv run --package echodraft-api uvicorn echodraft_api.main:app --reload
 ```
 
-Start the Next.js dashboard in another terminal:
+Start the dashboard in a second terminal:
 
 ```bash
 npm run web:dev
 ```
 
-Open `http://localhost:3000`. The API is available at `http://localhost:8000`; use `GET /health` for liveness and `GET /ready` for local storage readiness.
+Open:
 
-## How to Use Echodraft
+- Dashboard: `http://localhost:3000`
+- Interactive API: `http://localhost:8000/docs`
+- API health: `http://localhost:8000/health`
+- Storage readiness: `http://localhost:8000/ready`
 
-Echodraft currently has two working surfaces:
-
-- The dashboard at `http://localhost:3000` covers project creation, manuscript import, structure extraction, browsing, and segment text editing.
-- The interactive API at `http://localhost:8000/docs` covers the complete production pipeline, including casting, voice direction, rendering, chapter assembly, review patches, and export.
-
-Keep the API running whenever you use either surface. All project metadata, source files, manifests, generated audio, and exports remain on the local machine unless you deliberately copy them elsewhere.
-
-### 1. Check the Local Runtime
-
-Open these endpoints before starting a project:
-
-- `GET http://localhost:8000/health` confirms that the API process is alive.
-- `GET http://localhost:8000/ready` confirms the artifact storage path is available.
-- `http://localhost:8000/docs` opens FastAPI's interactive Swagger interface, where requests can be tried without a separate API client.
-
-On PowerShell, the readiness check is:
+PowerShell health check:
 
 ```powershell
-Invoke-RestMethod http://localhost:8000/ready
+Invoke-RestMethod http://localhost:8000/health
 ```
 
-### 2. Create a Rights-Declared Project
+Linux/macOS health check:
 
-In the dashboard, enter a title and optional author, confirm that you have the rights to produce the audiobook draft, and select **Create project**. Echodraft rejects projects and imports without an explicit rights declaration.
-
-The API equivalent is `POST /api/v1/projects`:
-
-```json
-{
-  "title": "My Local Audiobook",
-  "author": "A. Writer",
-  "description": "Private working draft",
-  "rightsStatus": "declared"
-}
+```bash
+curl http://localhost:8000/health
 ```
 
-Save the returned project `id`. API paths below use placeholders such as `{project_id}`, `{chapter_id}`, and `{segment_id}`; replace each placeholder with an ID returned by an earlier request.
+## Production workflow
 
-### 3. Import a Manuscript
+### 1. Create a project
 
-Open the project in the dashboard and choose a manuscript. Supported source formats are:
+In the dashboard, enter a title and optional author, confirm that you have the rights to produce the audiobook, and select **Create project**. Echodraft rejects projects without a declared rights status.
 
-- plain text (`.txt`)
-- Markdown (`.md` or `.markdown`)
-- Word (`.docx`)
-- EPUB (`.epub`)
+### 2. Import a manuscript
 
-PDF is not a supported ingestion format. Convert a PDF to one of the supported text formats first, then review the converted text before importing it. The dashboard currently limits uploads to 10 MB.
+Open the project and choose a `.txt`, `.md`, `.markdown`, `.docx`, or `.epub` file. The dashboard accepts files up to 10 MB.
 
-The original manuscript is preserved, while a normalized canonical text file and an import manifest are created alongside it. Review the source preview and every parser warning before continuing. **Reparse** repeats normalization from the preserved original when parser behavior changes.
+Echodraft preserves the original, creates canonical text, and reports parser warnings. Review the preview before continuing. Use **Reparse** to repeat normalization from the preserved source.
 
-For API use, call `POST /api/v1/projects/{project_id}/source/import` as multipart form data with:
+Import and reparse operations return background jobs. In the API, poll `GET /api/v1/jobs/{job_id}` until the job is `succeeded`, `failed`, or `cancelled`.
 
-- `file`: the manuscript file
-- `rightsAcknowledged`: `true`
-- `parserVersion`: optional; defaults to the current ingestion parser
+### 3. Extract structure
 
-Import and reparse operations return a job. Poll `GET /api/v1/jobs/{job_id}` until `status` is `succeeded`, `failed`, or `cancelled`. If a job fails, inspect `errorMessage` before retrying.
-
-### 4. Extract and Review Structure
-
-Select **Extract structure** in the dashboard after a successful import. The default maximum segment size is 600 characters. The API request is `POST /api/v1/projects/{project_id}/structure/extract`:
-
-```json
-{
-  "maxSegmentChars": 600
-}
-```
-
-This is also a background job. Once it succeeds, work down the hierarchy:
+Select **Extract structure**. The default maximum segment size is 600 characters. The hierarchy can also be queried through:
 
 1. `GET /api/v1/projects/{project_id}/chapters`
 2. `GET /api/v1/chapters/{chapter_id}/scenes`
 3. `GET /api/v1/scenes/{scene_id}/segments`
 
-Clicking a segment in the dashboard opens an inline multiline editor with the next revision number, character count, save/cancel controls, and unsaved-change protection. Use `Ctrl+Enter` (or `Cmd+Enter` on macOS) to save and `Esc` to cancel. Saving creates a new segment revision rather than deleting the old text. Revision history is available from `GET /api/v1/segments/{segment_id}/revisions`.
+Markdown headings such as `## Chapter 1` produce the best chapter boundaries.
 
-Structure extraction uses Markdown headings as chapter signals, so clean chapter headings such as `## Chapter 1` produce the best results.
+### 4. Edit segments
 
-### 5. Configure Characters, Voices, and Pronunciation
+Select a segment to open the inline multiline editor. It displays the next revision number, character count, save/cancel controls, validation feedback, and unsaved-change protection.
+
+- `Ctrl+Enter` or `Cmd+Enter`: save a new revision
+- `Esc`: cancel the edit
+
+Saving never overwrites history. Previous text is available from `GET /api/v1/segments/{segment_id}/revisions`.
+
+### 5. Configure casting and pronunciation
 
 These actions currently use the interactive API:
 
 | Action | Endpoint |
 | --- | --- |
-| List or create characters | `GET/POST /api/v1/projects/{project_id}/characters` |
-| List or create voice profiles | `GET/POST /api/v1/projects/{project_id}/voices` |
-| Assign a voice to a character | `POST /api/v1/characters/{character_id}/assign-voice` |
-| List or add pronunciations | `GET/POST /api/v1/projects/{project_id}/pronunciations` |
-| Generate a short voice preview | `POST /api/v1/projects/{project_id}/voices/preview` |
+| List/create characters | `GET/POST /api/v1/projects/{project_id}/characters` |
+| List/create voice profiles | `GET/POST /api/v1/projects/{project_id}/voices` |
+| Assign a voice | `POST /api/v1/characters/{character_id}/assign-voice` |
+| List/create pronunciations | `GET/POST /api/v1/projects/{project_id}/pronunciations` |
+| Preview a voice | `POST /api/v1/projects/{project_id}/voices/preview` |
 
-For setup and tests, create a voice profile with `"backend": "mock"`. It produces deterministic silent WAV files and exercises the complete pipeline without a model. Use `"backend": "kokoro"` only after configuring the local Kokoro adapter described above.
+### 6. Render segments
 
-Direction is explicit and reusable. A conservative narration profile looks like:
-
-```json
-{
-  "scopeType": "segment",
-  "scopeId": "{segment_id}",
-  "pace": 1.0,
-  "intensity": 0.4,
-  "tone": "neutral",
-  "stylePrompt": "Clear, restrained audiobook narration",
-  "emphasis": false,
-  "whisper": false,
-  "noSfx": true
-}
-```
-
-Keep voice and pronunciation choices licensed and locally documented. Echodraft does not download models or grant rights to voices automatically.
-
-### 6. Render Segments
-
-Render each segment with `POST /api/v1/projects/{project_id}/segments/{segment_id}/generate`:
+Use `POST /api/v1/projects/{project_id}/segments/{segment_id}/generate`:
 
 ```json
 {
-  "voiceProfileId": "{voice_profile_id}",
+  "voiceProfileId": "mock-narrator",
   "direction": {
     "scopeType": "segment",
     "scopeId": "{segment_id}",
@@ -329,9 +266,9 @@ Render each segment with `POST /api/v1/projects/{project_id}/segments/{segment_i
 }
 ```
 
-Successful renders are immutable and content-addressed. Repeating an identical request reuses the matching successful render; set `force` to `true` only when a fresh render is intentionally required.
+For the current adapter, `voiceProfileId` is passed directly to the TTS command as the voice ID. Use `mock-narrator` for mock rendering or a voice ID registered in the configured Kokoro voice registry.
 
-### 7. Assemble a Chapter
+### 7. Assemble a chapter
 
 After every segment in a chapter has a successful render, call `POST /api/v1/projects/{project_id}/chapters/{chapter_id}/assemble`:
 
@@ -341,23 +278,21 @@ After every segment in a chapter has a successful render, call `POST /api/v1/pro
 }
 ```
 
-Use `speech_only` for the stable alpha workflow. The ambience schema and render modes exist, but real source-asset mixing is still incomplete.
+Use `speech_only` for the stable alpha workflow. List history with `GET /api/v1/projects/{project_id}/chapters/{chapter_id}/renders` and inspect the selected output with `GET /api/v1/projects/{project_id}/chapters/{chapter_id}/active-render`.
 
-Inspect chapter history with `GET /api/v1/projects/{project_id}/chapters/{chapter_id}/renders` and the selected output with `GET /api/v1/projects/{project_id}/chapters/{chapter_id}/active-render`. Each assembly creates a new manifest-backed record and preserves earlier chapter renders.
+### 8. Review and patch
 
-### 8. Review and Patch a Line
-
-Create and manage review issues with:
+Review endpoints:
 
 - `GET/POST /api/v1/projects/{project_id}/issues`
 - `PATCH /api/v1/issues/{issue_id}`
 - `GET/POST /api/v1/issues/{issue_id}/comments`
 
-To correct one line, call `POST /api/v1/projects/{project_id}/segments/{segment_id}/patch`. Supply the revised `textContent` when the words change, the voice and direction to use, and optionally the related `issueId`. The patch operation creates a new segment revision and render, then reassembles only the owning chapter. Previous segment and chapter renders remain available for comparison and rollback analysis.
+`POST /api/v1/projects/{project_id}/segments/{segment_id}/patch` creates a new segment revision and render, then reassembles only the owning chapter. Previous segment and chapter renders remain intact.
 
-### 9. Export WAV or MP3
+### 9. Export
 
-Once the selected chapters have active renders, call `POST /api/v1/projects/{project_id}/exports`:
+Create an export with `POST /api/v1/projects/{project_id}/exports`:
 
 ```json
 {
@@ -366,54 +301,245 @@ Once the selected chapters have active renders, call `POST /api/v1/projects/{pro
 }
 ```
 
-Use `"wav"` for an uncompressed working export or `"mp3"` for a distributable listening copy. MP3 export requires `ffmpeg` on `PATH`. M4B is not implemented.
+Use `wav` for uncompressed working files or `mp3` for listening copies. The response includes `outputPath` and `manifestPath`. Keep the manifest with the audio for provenance.
 
-The response includes `outputPath` and `manifestPath`. Retain the manifest with the exported audio: it records the selected chapter renders and supports later provenance checks.
+## TTS modes
 
-### 10. Find Local Project Files
+### Mock TTS: recommended first run
 
-With the default configuration:
+Mock TTS is built in and requires no model download:
 
-- SQLite metadata is stored at `.echodraft/echodraft.db`.
-- Project sources, canonical text, manifests, renders, exports, and logs are stored below `.echodraft/projects`.
-- Audio files are stored on the filesystem, never as relational database blobs.
+```powershell
+$env:ECHODRAFT_TTS_PROVIDER = "mock"
+```
 
-The API returns absolute artifact paths for generated records. Do not edit manifests or render history by hand while the API is running. To start from a clean disposable workspace, stop both servers and move the `.echodraft` directory somewhere safe; deleting it permanently removes all local project metadata and artifacts.
+```bash
+export ECHODRAFT_TTS_PROVIDER=mock
+```
 
-### Troubleshooting the Workflow
+It creates deterministic silent 16 kHz WAV files. Use it to validate ingestion, rendering, assembly, patching, and export before introducing a real model.
 
-- If the dashboard cannot connect, verify that the API is running and `NEXT_PUBLIC_API_URL` points to `http://localhost:8000`.
-- If an import or extraction appears stuck, inspect its job through `GET /api/v1/jobs/{job_id}`.
-- If Kokoro rendering fails, verify the executable, model, voice registry, and requested voice ID; Echodraft does not silently fall back to `mock`.
-- If chapter assembly fails, confirm every segment in that chapter has a successful render.
-- If MP3 export fails, run `ffmpeg -version` and confirm the installed build includes MP3 encoding support.
-- After an unexpected API restart, interrupted in-process jobs are marked failed. Restart the affected operation from its persisted source or render artifacts.
+### Kokoro: what must be downloaded
 
-### Validate Changes
+Yes, real Kokoro synthesis requires a runtime plus model and voice data. Echodraft intentionally does not download them automatically because model versions, licenses, storage locations, and hardware choices should remain explicit.
+
+Two upstream starting points are:
+
+- [Official `hexgrad/kokoro` Python inference library](https://github.com/hexgrad/kokoro), installed with `pip install kokoro`; it manages the official Kokoro-82M pipeline and uses `espeak-ng` for language fallback.
+- [`kokoro-onnx`](https://github.com/thewh1teagle/kokoro-onnx), a CPU/GPU-friendly ONNX runtime. Its maintainers publish `kokoro-v1.0.onnx` and `voices-v1.0.bin` release artifacts.
+
+The ONNX artifacts can be downloaded as follows.
+
+Windows PowerShell:
+
+```powershell
+$KokoroRoot = Join-Path $HOME ".local\share\echodraft\kokoro"
+New-Item -ItemType Directory -Force $KokoroRoot | Out-Null
+
+Invoke-WebRequest `
+  "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx" `
+  -OutFile (Join-Path $KokoroRoot "kokoro-v1.0.onnx")
+
+Invoke-WebRequest `
+  "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin" `
+  -OutFile (Join-Path $KokoroRoot "voices-v1.0.bin")
+```
+
+Linux/macOS:
+
+```bash
+KOKORO_ROOT="$HOME/.local/share/echodraft/kokoro"
+mkdir -p "$KOKORO_ROOT"
+
+curl -L \
+  "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx" \
+  -o "$KOKORO_ROOT/kokoro-v1.0.onnx"
+
+curl -L \
+  "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin" \
+  -o "$KOKORO_ROOT/voices-v1.0.bin"
+```
+
+Review the model and runtime licenses before production use. The Kokoro model is published under Apache 2.0; third-party wrappers have their own licenses and release policies.
+
+### Current Kokoro integration contract
+
+Downloading the files is necessary but not sufficient. Echodraft currently expects an executable that accepts this exact command:
+
+```text
+<executable> --model <model-path> --voices <registry.txt> --voice <voice-id> --text <text> --output <output.wav>
+```
+
+Requirements:
+
+1. The command must return exit code `0` on success.
+2. It must write a non-empty, valid WAV file to `--output`.
+3. `--model` points to the model used for synthesis.
+4. `--voices` points to a UTF-8 text registry containing one allowed voice ID per line.
+5. The requested `--voice` must appear in that registry.
+
+`voices-v1.0.bin` from `kokoro-onnx` is binary model data, not Echodraft's text registry. A wrapper must know where the binary voice data lives and translate Echodraft's command contract into the selected Kokoro runtime's Python or CLI API.
+
+Common upstream commands such as the third-party [`kokoro-tts`](https://github.com/nazdridoy/kokoro-tts) CLI use positional input/output files and keep ONNX assets in their working directory. They cannot be assigned directly to `ECHODRAFT_KOKORO_EXECUTABLE` unless wrapped to implement the contract above.
+
+Once a compatible wrapper exists, create a registry such as:
+
+```text
+# Locally approved Kokoro voice IDs
+af_heart
+af_sarah
+am_adam
+```
+
+Test the wrapper independently before starting Echodraft.
+
+PowerShell example:
+
+```powershell
+& "C:\Tools\echodraft-kokoro.exe" `
+  --model "$HOME\.local\share\echodraft\kokoro\kokoro-v1.0.onnx" `
+  --voices "$HOME\.local\share\echodraft\kokoro\voices.txt" `
+  --voice "af_heart" `
+  --text "Echodraft Kokoro test." `
+  --output "$env:TEMP\echodraft-kokoro-test.wav"
+```
+
+Linux/macOS example:
+
+```bash
+/usr/local/bin/echodraft-kokoro \
+  --model "$HOME/.local/share/echodraft/kokoro/kokoro-v1.0.onnx" \
+  --voices "$HOME/.local/share/echodraft/kokoro/voices.txt" \
+  --voice af_heart \
+  --text "Echodraft Kokoro test." \
+  --output /tmp/echodraft-kokoro-test.wav
+```
+
+Configure Echodraft only after that command succeeds.
+
+Windows PowerShell:
+
+```powershell
+$env:ECHODRAFT_TTS_PROVIDER = "kokoro"
+$env:ECHODRAFT_KOKORO_EXECUTABLE = "C:\Tools\echodraft-kokoro.exe"
+$env:ECHODRAFT_KOKORO_MODEL_PATH = "$HOME\.local\share\echodraft\kokoro\kokoro-v1.0.onnx"
+$env:ECHODRAFT_KOKORO_VOICE_PATH = "$HOME\.local\share\echodraft\kokoro\voices.txt"
+```
+
+Linux/macOS:
+
+```bash
+export ECHODRAFT_TTS_PROVIDER=kokoro
+export ECHODRAFT_KOKORO_EXECUTABLE=/usr/local/bin/echodraft-kokoro
+export ECHODRAFT_KOKORO_MODEL_PATH="$HOME/.local/share/echodraft/kokoro/kokoro-v1.0.onnx"
+export ECHODRAFT_KOKORO_VOICE_PATH="$HOME/.local/share/echodraft/kokoro/voices.txt"
+```
+
+Restart the API after changing provider settings. Echodraft fails with recovery guidance if the executable, model, registry, requested voice, or resulting WAV is invalid. It never silently falls back from Kokoro to mock.
+
+### Kokoro direction limitations
+
+The current adapter records direction fields in manifests, but the CLI call only guarantees model, voice, text, and output. Pace, intensity, tone, emphasis, and whisper are not reliably applied to synthesis yet. Treat real Kokoro support as an integration foundation, not a finished voice-direction system.
+
+## Local data and privacy
+
+Default storage:
+
+- SQLite metadata: `.echodraft/echodraft.db`
+- Project artifacts: `.echodraft/projects`
+- Source originals: project artifact directories
+- Segment and chapter audio: project artifact directories
+- Exports and manifests: project artifact directories
+
+Audio binaries are never stored in the relational database. Do not edit manifests or render history by hand while the API is running.
+
+`test-assets/` is intentionally ignored by Git. Keep private manuscripts, converted PDFs, and local-only fixtures there; never stage or commit them.
+
+## Troubleshooting
+
+### `Set-Location echodraft` fails on Windows
+
+Check the prompt. If it already ends in `\echodraft>`, you are already inside the repository and should not enter the directory again.
+
+### `uv sync` removes FastAPI and workspace packages
+
+Recreate the environment with all workspace packages:
+
+```powershell
+Remove-Item -Recurse -Force .venv
+uv sync --python 3.12 --all-packages --group dev
+```
+
+```bash
+rm -rf .venv
+uv sync --python 3.12 --all-packages --group dev
+```
+
+### PowerShell rejects `NAME=value`
+
+Use `$env:NAME = "value"`. Bash/zsh use `export NAME=value`.
+
+### Dashboard cannot reach the API
+
+Confirm the API is running and `.env` contains:
+
+```dotenv
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+Restart the dashboard after changing a `NEXT_PUBLIC_*` variable.
+
+### Import or extraction appears stuck
+
+Inspect `GET /api/v1/jobs/{job_id}`. Failed jobs include `errorMessage`. Jobs interrupted by an API restart are marked failed and should be restarted from persisted inputs.
+
+### Chapter assembly fails
+
+Every segment in the chapter must have a successful render.
+
+### MP3 export fails
+
+Run `ffmpeg -version` and confirm the build includes an MP3 encoder such as `libmp3lame`.
+
+### Kokoro fails before synthesis
+
+Verify:
+
+```text
+executable exists and is runnable
+model path exists
+voice registry exists and is UTF-8 text
+requested voice ID is in the registry
+wrapper writes a valid non-empty WAV
+```
+
+## Development and verification
+
+Run backend checks:
 
 ```bash
 uv run pytest
 uv run ruff check .
 uv run mypy apps/api/src libs/domain-models/src libs/db/src
+```
+
+Run frontend checks:
+
+```bash
 npm run web:lint
 npm run web:typecheck
 ```
 
-The same commands work in PowerShell. The browser smoke test is optional for documentation-only changes and requires Playwright's Chromium binary:
+Install the Playwright browser once, then run the smoke test:
 
-```powershell
+```bash
 npx playwright install chromium
 npm run web:test:smoke
 ```
 
-Run database migrations against a local SQLite database when persistence changes:
+Check migrations against a disposable database when persistence changes.
 
-```bash
-ECHODRAFT_DATABASE_URL=sqlite:///./.tmp/echodraft-migration.db \
-  uv run alembic -c libs/db/alembic.ini upgrade head
-```
-
-PowerShell equivalent:
+PowerShell:
 
 ```powershell
 $env:ECHODRAFT_DATABASE_URL = "sqlite:///./.tmp/echodraft-migration.db"
@@ -421,34 +547,33 @@ uv run alembic -c libs/db/alembic.ini upgrade head
 Remove-Item Env:ECHODRAFT_DATABASE_URL
 ```
 
-## Repository Layout
+Linux/macOS:
+
+```bash
+ECHODRAFT_DATABASE_URL=sqlite:///./.tmp/echodraft-migration.db \
+  uv run alembic -c libs/db/alembic.ini upgrade head
+```
+
+## Repository layout
 
 | Path | Responsibility |
 | --- | --- |
-| `apps/api` | FastAPI application, jobs, pipeline services, and HTTP contracts. |
-| `apps/web` | Next.js local dashboard. |
-| `libs/domain-models` | Shared Pydantic API/domain models. |
-| `libs/db` | SQLAlchemy models, repositories, and Alembic migrations. |
-| `docs` | Product, architecture, domain, API, and operating specifications. |
-| `plans` | Execution plans and roadmap. |
-| `implement` | Stage-by-stage implementation briefs. |
+| `apps/api` | FastAPI application and pipeline services |
+| `apps/web` | Next.js local dashboard |
+| `libs/domain-models` | Shared Pydantic API/domain models |
+| `libs/db` | SQLAlchemy repositories and Alembic migrations |
+| `docs` | Architecture, product, API, and operating specifications |
+| `plans` | Roadmap and execution plans |
+| `implement` | Stage-by-stage implementation briefs |
+| `test-assets` | Ignored local-only fixtures; never committed |
 
-## Engineering Rules
+## Engineering rules
 
 - Keep changes modular and local-first.
 - Preserve append-only segment and chapter render history.
 - Never put audio blobs in SQLite or another relational database.
 - Treat segments as the atomic editable and renderable unit.
 - Update manifests whenever pipeline inputs or outputs change.
+- Follow the branch, verification, commit, merge, and push workflow in [AGENTS.md](AGENTS.md).
 
-Read [docs/README.md](docs/README.md) for the documentation map and [AGENTS.md](AGENTS.md) for repository workflow requirements.
-
-
-## Future scopes
-
-Curation:
-- Small studio beta
-- publisher-grave v1
-
-voice expreience:
-- multi-voice
+See [docs/README.md](docs/README.md) for the documentation map, [docs/alpha-operations.md](docs/alpha-operations.md) for operating guidance, and [LICENSE](LICENSE) for repository licensing.
