@@ -9,7 +9,9 @@ class InProcessJobRunner:
     def __init__(self, repository: JobRepository) -> None:
         self.repository = repository
 
-    def enqueue(self, job_type: str, project_id: str | None = None, target_id: str | None = None) -> Job:
+    def enqueue(
+        self, job_type: str, project_id: str | None = None, target_id: str | None = None
+    ) -> Job:
         return self.repository.create(job_type, project_id, target_id)
 
     def run_inline(self, job_id: str, operation: Callable[[], None]) -> Job:
@@ -17,10 +19,23 @@ class InProcessJobRunner:
         try:
             operation()
         except Exception as error:
-            return self.repository.transition(job_id, JobState.FAILED, str(error))
+            return self.repository.transition(
+                job_id, JobState.FAILED, self._recovery_message(error)
+            )
         return self.repository.transition(job_id, JobState.SUCCEEDED)
 
-    def submit(self, job_type: str, operation: Callable[[], None], project_id: str | None = None) -> Job:
+    def submit(
+        self, job_type: str, operation: Callable[[], None], project_id: str | None = None
+    ) -> Job:
         job = self.enqueue(job_type, project_id)
         Thread(target=self.run_inline, args=(job.id, operation), daemon=True).start()
         return job
+
+    @staticmethod
+    def _recovery_message(error: Exception) -> str:
+        message = str(error)
+        if isinstance(error, (ValueError, KeyError)):
+            return f"validation: {message}. Review the request and retry."
+        if isinstance(error, OSError):
+            return f"filesystem: {message}. Check local storage permissions and retry."
+        return f"unexpected: {message}. Capture a debug bundle and retry the workflow."

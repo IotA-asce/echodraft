@@ -87,6 +87,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok", "mode": "local-first"}
 
+    @app.get("/ready")
+    def ready() -> dict[str, str]:
+        return {"status": "ready", "storage": str(resolved_settings.artifact_root)}
+
     @app.post("/api/v1/projects", response_model=Project, status_code=status.HTTP_201_CREATED)
     def create_project(payload: ProjectCreate, request: Request) -> Project:
         app_container: AppContainer = request.app.state.container
