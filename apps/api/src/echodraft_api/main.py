@@ -11,6 +11,8 @@ from echodraft_domain import (
     CharacterCreate,
     Comment,
     CommentCreate,
+    ExportPackage,
+    ExportRequest,
     Issue,
     IssueCreate,
     IssueUpdate,
@@ -47,6 +49,7 @@ from .direction import DirectionService
 from .rendering import SegmentRenderer
 from .assembly import ChapterAssembler
 from .review import ReviewService
+from .exporting import ExportService
 
 logger = configure_logging()
 
@@ -488,6 +491,15 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             return ReviewService(request.app.state.container).patch_segment(
                 project_id, segment_id, payload
             )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/v1/projects/{project_id}/exports", response_model=ExportPackage, status_code=202
+    )
+    def create_export(project_id: str, payload: ExportRequest, request: Request) -> ExportPackage:
+        try:
+            return ExportService(request.app.state.container).export(project_id, payload)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
