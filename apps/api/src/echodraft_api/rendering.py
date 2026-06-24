@@ -7,14 +7,13 @@ from echodraft_domain import SegmentRender, SegmentRenderRequest
 from echodraft_db.models import SegmentRenderRecord
 from sqlalchemy import select
 from .container import AppContainer
-from .direction import MockTtsAdapter
 from .review import ReviewService
 
 
 class SegmentRenderer:
     def __init__(self, container: AppContainer) -> None:
         self.container = container
-        self.adapter = MockTtsAdapter()
+        self.adapter = container.tts_adapter
 
     def render(
         self, project_id: str, segment_id: str, request: SegmentRenderRequest
@@ -36,7 +35,7 @@ class SegmentRenderer:
         root.mkdir(parents=True, exist_ok=True)
         audio = root / "speech.wav"
         metadata = root / "metadata.json"
-        self.adapter.preview(
+        provenance = self.adapter.preview(
             segment.normalized_text, request.voice_profile_id, audio, request.direction
         )
         with wave.open(str(audio)) as wav:
@@ -45,6 +44,7 @@ class SegmentRenderer:
             json.dumps(
                 {
                     **payload,
+                    "tts": provenance,
                     "renderKey": key,
                     "durationMs": duration,
                     "sampleRate": 16000,
