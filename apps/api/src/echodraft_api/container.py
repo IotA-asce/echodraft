@@ -35,6 +35,7 @@ def build_container(settings: AppSettings) -> AppContainer:
     database.create_schema()
     artifacts = ArtifactStore(settings.artifact_root)
     jobs_repository = JobRepository(database)
+    jobs_repository.reconcile_interrupted()
     return AppContainer(
         settings=settings,
         artifacts=artifacts,
