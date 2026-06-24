@@ -4,6 +4,7 @@ from .repository import (
     CastingRepository,
     JobRepository,
     ProjectRepository,
+    ProductionSettingsRepository,
     SourceDocumentRepository,
     StructureRepository,
 )
@@ -15,6 +16,7 @@ __all__ = [
     "CastingRepository",
     "JobRepository",
     "ProjectRepository",
+    "ProductionSettingsRepository",
     "ReviewRepository",
     "SourceDocumentRepository",
     "StructureRepository",

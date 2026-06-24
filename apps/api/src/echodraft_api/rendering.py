@@ -22,21 +22,37 @@ class SegmentRenderer:
         project = self.container.projects.get(project_id)
         if not segment or not project:
             raise ValueError("Segment or project not found.")
+        provider_voice_id = self._resolve_voice(request.voice_profile_id)
         payload = {
             "text": segment.normalized_text,
             "revision": segment.revision,
-            "voice": request.voice_profile_id,
+            "voice": provider_voice_id,
+            "voiceProfileId": request.voice_profile_id,
             "direction": request.direction.model_dump(by_alias=True),
             "format": request.output_format,
             "adapter": "mock-0.1",
         }
         key = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-        root = Path(project.artifact_path) / "audio" / "segments" / segment_id / key
+        if not request.force:
+            with self.container.structure.database.session() as session:
+                cached = session.scalar(
+                    select(SegmentRenderRecord)
+                    .where(
+                        SegmentRenderRecord.segment_id == segment_id,
+                        SegmentRenderRecord.render_key == key,
+                        SegmentRenderRecord.status == "succeeded",
+                    )
+                    .order_by(SegmentRenderRecord.id.desc())
+                )
+            if cached:
+                return self._model(cached)
+        render_id = f"rend_{uuid4().hex[:16]}"
+        root = Path(project.artifact_path) / "audio" / "segments" / segment_id / key / render_id
         root.mkdir(parents=True, exist_ok=True)
         audio = root / "speech.wav"
         metadata = root / "metadata.json"
         provenance = self.adapter.preview(
-            segment.normalized_text, request.voice_profile_id, audio, request.direction
+            segment.normalized_text, provider_voice_id, audio, request.direction
         )
         with wave.open(str(audio)) as wav:
             duration = int(wav.getnframes() / wav.getframerate() * 1000)
@@ -65,7 +81,7 @@ class SegmentRenderer:
                 .order_by(SegmentRenderRecord.id.desc())
             )
         record = SegmentRenderRecord(
-            id=f"rend_{uuid4().hex[:16]}",
+            id=render_id,
             segment_id=segment_id,
             render_key=key,
             status="succeeded",
@@ -87,5 +103,42 @@ class SegmentRenderer:
             audioPath=record.audio_path,
             metadataPath=record.metadata_path,
             durationMs=duration,
+            parentRenderId=record.parent_render_id,
+        )
+
+    def history(self, project_id: str, segment_id: str) -> list[SegmentRender]:
+        segment = self.container.structure.segment(segment_id)
+        if not segment:
+            raise ValueError("Segment not found.")
+        with self.container.structure.database.session() as session:
+            from echodraft_db.models import ChapterRecord, SceneRecord
+
+            scene = session.get(SceneRecord, segment.scene_id)
+            chapter = session.get(ChapterRecord, scene.chapter_id) if scene else None
+            if not chapter or chapter.project_id != project_id:
+                raise ValueError("Segment or project not found.")
+            records = list(
+                session.scalars(
+                    select(SegmentRenderRecord)
+                    .where(SegmentRenderRecord.segment_id == segment_id)
+                    .order_by(SegmentRenderRecord.id.desc())
+                )
+            )
+        return [self._model(record) for record in records]
+
+    def _resolve_voice(self, requested_voice: str) -> str:
+        profile = self.container.casting.voice(requested_voice)
+        return profile.provider_voice_id if profile and profile.provider_voice_id else requested_voice
+
+    @staticmethod
+    def _model(record: SegmentRenderRecord) -> SegmentRender:
+        return SegmentRender(
+            id=record.id,
+            segmentId=record.segment_id,
+            renderKey=record.render_key,
+            status=record.status,
+            audioPath=record.audio_path,
+            metadataPath=record.metadata_path,
+            durationMs=record.duration_ms,
             parentRenderId=record.parent_render_id,
         )

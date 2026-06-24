@@ -177,12 +177,20 @@ class VoiceProfile(ApiModel):
     project_id: str = Field(alias="projectId")
     name: str
     backend: str
+    provider_voice_id: str = Field(alias="providerVoiceId")
     style_prompt: str | None = Field(default=None, alias="stylePrompt")
 
 
 class VoiceProfileCreate(ApiModel):
     name: str
     backend: str
+    provider_voice_id: str = Field(min_length=1, alias="providerVoiceId")
+    style_prompt: str | None = Field(default=None, alias="stylePrompt")
+
+
+class VoiceProfileUpdate(ApiModel):
+    name: str | None = None
+    provider_voice_id: str | None = Field(default=None, alias="providerVoiceId")
     style_prompt: str | None = Field(default=None, alias="stylePrompt")
 
 
@@ -227,6 +235,51 @@ class VoicePreview(ApiModel):
     adapter: str
     model_version: str = Field(alias="modelVersion")
     direction: DirectionProfile
+    audio_url: str | None = Field(default=None, alias="audioUrl")
+
+
+class TtsSettings(ApiModel):
+    provider: str = "mock"
+    executable: str | None = None
+    model_path: str | None = Field(default=None, alias="modelPath")
+    voice_registry_path: str | None = Field(default=None, alias="voiceRegistryPath")
+    ready: bool = False
+    message: str | None = None
+    available_voices: list[str] = Field(default_factory=list, alias="availableVoices")
+
+
+class TtsSettingsUpdate(ApiModel):
+    provider: str
+    executable: str | None = None
+    model_path: str | None = Field(default=None, alias="modelPath")
+    voice_registry_path: str | None = Field(default=None, alias="voiceRegistryPath")
+
+
+class TtsTestRequest(ApiModel):
+    text: str = Field(default="Echodraft is ready to produce your audiobook.", min_length=1, max_length=1000)
+    voice_id: str | None = Field(default=None, alias="voiceId")
+
+
+class ProjectProductionSettings(ApiModel):
+    project_id: str = Field(alias="projectId")
+    narrator_voice_profile_id: str | None = Field(default=None, alias="narratorVoiceProfileId")
+    default_direction: DirectionProfile | None = Field(default=None, alias="defaultDirection")
+
+
+class ProjectProductionSettingsUpdate(ApiModel):
+    narrator_voice_profile_id: str | None = Field(default=None, alias="narratorVoiceProfileId")
+    default_direction: DirectionProfile | None = Field(default=None, alias="defaultDirection")
+
+
+class SegmentProductionOverride(ApiModel):
+    segment_id: str = Field(alias="segmentId")
+    voice_profile_id: str | None = Field(default=None, alias="voiceProfileId")
+    direction: DirectionProfile | None = None
+
+
+class SegmentProductionOverrideUpdate(ApiModel):
+    voice_profile_id: str | None = Field(default=None, alias="voiceProfileId")
+    direction: DirectionProfile | None = None
 
 
 class SegmentRenderRequest(ApiModel):
@@ -245,6 +298,7 @@ class SegmentRender(ApiModel):
     metadata_path: str = Field(alias="metadataPath")
     duration_ms: int = Field(alias="durationMs")
     parent_render_id: str | None = Field(default=None, alias="parentRenderId")
+    audio_url: str | None = Field(default=None, alias="audioUrl")
 
 
 class ChapterRender(ApiModel):
@@ -257,6 +311,7 @@ class ChapterRender(ApiModel):
     render_mode: str = Field(default="speech_only", alias="renderMode")
     ambience_stem_path: str | None = Field(default=None, alias="ambienceStemPath")
     mixed_audio_path: str | None = Field(default=None, alias="mixedAudioPath")
+    audio_url: str | None = Field(default=None, alias="audioUrl")
 
 
 class ChapterAssemblyRequest(ApiModel):
@@ -368,8 +423,19 @@ class ExportPackage(ApiModel):
     status: str
     output_path: str = Field(alias="outputPath")
     manifest_path: str = Field(alias="manifestPath")
+    archive_path: str | None = Field(default=None, alias="archivePath")
+    download_url: str | None = Field(default=None, alias="downloadUrl")
 
 
 class ExportRequest(ApiModel):
     format: str = "wav"
     chapter_ids: list[str] = Field(default_factory=list, alias="chapterIds")
+
+
+class ChapterProductionStatus(ApiModel):
+    chapter_id: str = Field(alias="chapterId")
+    ready: bool
+    reason: str | None = None
+    total_segments: int = Field(alias="totalSegments")
+    current_segments: int = Field(alias="currentSegments")
+    active_render: ChapterRender | None = Field(default=None, alias="activeRender")

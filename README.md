@@ -9,7 +9,7 @@ The system is deliberately segment-first and manifest-driven:
 - render history is append-only;
 - correcting one line rerenders that segment and its owning chapter instead of regenerating the whole book.
 
-> **Alpha software:** the ingestion, editing, rendering, assembly, patching, and WAV/MP3 export foundations are implemented. The dashboard does not yet expose every production action, and real Kokoro TTS requires a separately installed adapter-compatible command.
+> **Alpha software:** the dashboard covers the supported local production workflow from manuscript intake through chapter export. Real Kokoro TTS still requires a separately installed adapter-compatible command.
 
 ## Capabilities
 
@@ -31,7 +31,7 @@ The system is deliberately segment-first and manifest-driven:
 - The default `mock` TTS provider creates silent WAV files. It validates the production workflow but does not produce spoken audio.
 - Kokoro models, voices, and inference runtimes are not bundled or downloaded automatically.
 - The common Kokoro Python packages and third-party CLIs do not directly match Echodraft's current CLI adapter contract; real synthesis requires a compatible wrapper command.
-- The dashboard covers project creation, manuscript intake, structure browsing, and segment editing. Casting, preview, rendering, assembly, review, and export currently use the API at `http://localhost:8000/docs`.
+- The dashboard covers project creation, manuscript intake, structure browsing, voice setup, chapter production, review, patching, and WAV/MP3 export. The API documentation remains available for development and integration work.
 - Ambience schemas and render modes exist, but source-asset mixing and dashboard controls are incomplete.
 - WAV and MP3 exports are implemented. M4B is not.
 - PDF is not an ingestion format. Convert PDFs to Markdown, TXT, DOCX, or EPUB first.
@@ -231,77 +231,17 @@ Select a segment to open the inline multiline editor. It displays the next revis
 
 Saving never overwrites history. Previous text is available from `GET /api/v1/segments/{segment_id}/revisions`.
 
-### 5. Configure casting and pronunciation
+### 5. Configure voices in the dashboard
 
-These actions currently use the interactive API:
+Open **Voice setup** in the selected project. Choose `mock` to exercise the pipeline with silent WAVs, or choose **Kokoro adapter** and enter paths to a preinstalled executable, model, and UTF-8 voice registry. Select **Save and validate TTS** before creating voice profiles.
 
-| Action | Endpoint |
-| --- | --- |
-| List/create characters | `GET/POST /api/v1/projects/{project_id}/characters` |
-| List/create voice profiles | `GET/POST /api/v1/projects/{project_id}/voices` |
-| Assign a voice | `POST /api/v1/characters/{character_id}/assign-voice` |
-| List/create pronunciations | `GET/POST /api/v1/projects/{project_id}/pronunciations` |
-| Preview a voice | `POST /api/v1/projects/{project_id}/voices/preview` |
+Create a profile using a display name and the provider voice ID, preview it, and choose one stable narrator for the project. Segment-level voice overrides are available from the structure view. Character and pronunciation records are retained in the voice bible as editorial reference; current alpha synthesis does not automatically apply them.
 
-### 6. Render segments
+### 6. Produce, review, and export in the dashboard
 
-Use `POST /api/v1/projects/{project_id}/segments/{segment_id}/generate`:
+Select a chapter, then choose **Produce chapter**. Echodraft renders only missing or stale segments, assembles a new immutable speech-only chapter render, and exposes a local audio player. **Force regenerate** creates fresh render lineage even when the source and settings are unchanged.
 
-```json
-{
-  "voiceProfileId": "mock-narrator",
-  "direction": {
-    "scopeType": "segment",
-    "scopeId": "{segment_id}",
-    "pace": 1.0,
-    "intensity": 0.4,
-    "tone": "neutral",
-    "stylePrompt": "Clear, restrained audiobook narration",
-    "emphasis": false,
-    "whisper": false,
-    "noSfx": true
-  },
-  "outputFormat": "wav",
-  "force": false
-}
-```
-
-For the current adapter, `voiceProfileId` is passed directly to the TTS command as the voice ID. Use `mock-narrator` for mock rendering or a voice ID registered in the configured Kokoro voice registry.
-
-### 7. Assemble a chapter
-
-After every segment in a chapter has a successful render, call `POST /api/v1/projects/{project_id}/chapters/{chapter_id}/assemble`:
-
-```json
-{
-  "renderMode": "speech_only"
-}
-```
-
-Use `speech_only` for the stable alpha workflow. List history with `GET /api/v1/projects/{project_id}/chapters/{chapter_id}/renders` and inspect the selected output with `GET /api/v1/projects/{project_id}/chapters/{chapter_id}/active-render`.
-
-### 8. Review and patch
-
-Review endpoints:
-
-- `GET/POST /api/v1/projects/{project_id}/issues`
-- `PATCH /api/v1/issues/{issue_id}`
-- `GET/POST /api/v1/issues/{issue_id}/comments`
-
-`POST /api/v1/projects/{project_id}/segments/{segment_id}/patch` creates a new segment revision and render, then reassembles only the owning chapter. Previous segment and chapter renders remain intact.
-
-### 9. Export
-
-Create an export with `POST /api/v1/projects/{project_id}/exports`:
-
-```json
-{
-  "format": "mp3",
-  "chapterIds": ["{chapter_id}"]
-}
-```
-
-Use `wav` for uncompressed working files or `mp3` for listening copies. The response includes `outputPath` and `manifestPath`. Keep the manifest with the audio for provenance.
+Use **Review & patch** to read automated QA findings, leave local comments, resolve issues, and selectively patch a segment before rebuilding its owning chapter. Select one or more chapters under **Export** to create a WAV or MP3 ZIP package. Every ZIP contains only the active render per selected chapter plus an export manifest and checksum data.
 
 ## TTS modes
 

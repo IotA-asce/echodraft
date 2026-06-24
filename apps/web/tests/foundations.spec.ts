@@ -41,3 +41,32 @@ test("creates a local project from the dashboard", async ({ page }) => {
   expect(createdDirectories).toHaveLength(1);
   expect(existsSync(path.join(artifactRoot, createdDirectories[0], "manifests"))).toBeTruthy();
 });
+
+test("produces and exports a chapter entirely from the dashboard", async ({ page }) => {
+  const title = `Production Desk ${Date.now()}`;
+  await page.goto("/");
+  await page.getByLabel("Title").fill(title);
+  await page.getByLabel(/I confirm I have the rights/).check();
+  await page.getByRole("button", { name: "Create project" }).click();
+  await page.getByLabel("Manuscript file").setInputFiles({
+    name: "chapter.txt", mimeType: "text/plain", buffer: Buffer.from("Chapter 1: Arrival\n\nA complete local production test sentence.")
+  });
+  await page.getByRole("button", { name: "Extract structure" }).click();
+  const structure = page.locator(".structure-columns");
+  await structure.locator(":scope > div").first().getByRole("button").first().click();
+
+  await page.getByPlaceholder("Profile name").fill("Mock narrator");
+  await page.getByPlaceholder("Local provider voice ID").fill("mock-narrator");
+  await page.getByRole("button", { name: "Add voice" }).click();
+  await page.getByRole("button", { name: "Set narrator" }).click();
+  await page.getByRole("button", { name: "Produce chapter" }).click();
+  await expect(page.getByText("Chapter production completed. Review the active render below.")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator("audio")).toHaveAttribute("src", /artifacts/);
+
+  await page.locator(".chapter-checks input[type=checkbox]").first().check();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export WAV ZIP" }).click();
+  await expect(page.getByRole("link", { name: "Download ZIP" })).toBeVisible({ timeout: 10_000 });
+  await page.getByRole("link", { name: "Download ZIP" }).click();
+  expect((await download).suggestedFilename()).toBe("audiobook.zip");
+});

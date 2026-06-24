@@ -129,7 +129,9 @@ class DirectionService:
             Path(project.artifact_path) / "audio" / "previews" / f"preview_{uuid4().hex[:12]}.wav"
         )
         path.parent.mkdir(parents=True, exist_ok=True)
-        metadata = self.adapter.preview(text, voice_id, path, direction)
+        profile = self.container.casting.voice(voice_id)
+        provider_voice_id = profile.provider_voice_id if profile and profile.provider_voice_id else voice_id
+        metadata = self.adapter.preview(text, provider_voice_id, path, direction)
         manifest = Path(project.artifact_path) / "manifests" / "direction_manifest.json"
         manifest.write_text(
             json.dumps(

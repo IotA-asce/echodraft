@@ -31,6 +31,17 @@ class InProcessJobRunner:
         Thread(target=self.run_inline, args=(job.id, operation), daemon=True).start()
         return job
 
+    def submit_with_job(
+        self,
+        job_type: str,
+        operation: Callable[[str], None],
+        project_id: str | None = None,
+        target_id: str | None = None,
+    ) -> Job:
+        job = self.enqueue(job_type, project_id, target_id)
+        Thread(target=self.run_inline, args=(job.id, lambda: operation(job.id)), daemon=True).start()
+        return job
+
     @staticmethod
     def _recovery_message(error: Exception) -> str:
         message = str(error)
