@@ -9,6 +9,7 @@ dependencies = [
   "beautifulsoup4>=4.13.0",
   "ebooklib>=0.19",
   "python-docx>=1.2.0",
+  "pypdf>=5.0.0",
   "python-multipart>=0.0.20",
   "uvicorn[standard]>=0.35.0",
 ]

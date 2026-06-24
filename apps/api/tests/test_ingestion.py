@@ -5,6 +5,10 @@ from pathlib import Path
 
 from docx import Document
 from ebooklib import epub
+import pytest
+
+import echodraft_api.ingestion as ingestion
+from echodraft_api.ingestion import IngestionError, IngestionService
 
 
 def project_id(client) -> str:
@@ -47,6 +51,29 @@ def epub_bytes(tmp_path: Path) -> bytes:
     return target.read_bytes()
 
 
+def pdf_bytes(text: str) -> bytes:
+    content = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream",
+    ]
+    result = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for number, payload in enumerate(objects, start=1):
+        offsets.append(len(result))
+        result.extend(f"{number} 0 obj\n".encode() + payload + b"\nendobj\n")
+    xref = len(result)
+    result.extend(f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode())
+    result.extend(b"".join(f"{offset:010d} 00000 n \n".encode() for offset in offsets[1:]))
+    result.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    )
+    return bytes(result)
+
+
 def import_bytes(client, project: str, name: str, data: bytes, mime: str = "application/octet-stream") -> dict:
     response = client.post(
         f"/api/v1/projects/{project}/source/import",
@@ -76,6 +103,72 @@ def test_markdown_docx_and_epub_import(client, tmp_path: Path) -> None:
         assert client.get(f"/api/v1/projects/{project}/source").json()["preview"]
 
 
+def test_pdf_import_extracts_text_and_preserves_manifest(client) -> None:
+    project = project_id(client)
+    job = import_bytes(
+        client,
+        project,
+        "story.pdf",
+        pdf_bytes("A PDF manuscript line with enough readable characters."),
+        "application/pdf",
+    )
+    assert job["status"] == "succeeded", job["errorMessage"]
+    source = client.get(f"/api/v1/projects/{project}/source").json()
+    assert source["mimeType"] == "application/pdf"
+    assert "A PDF manuscript line with enough readable characters." in source["preview"]
+    assert Path(source["originalPath"]).suffix == ".pdf"
+
+
+def test_pdf_ocr_candidates_and_failures(app, monkeypatch, tmp_path: Path) -> None:
+    class FakePage:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def extract_text(self) -> str:
+            return self.text
+
+    class FakeReader:
+        is_encrypted = False
+
+        def __init__(self, pages: list[FakePage]) -> None:
+            self.pages = pages
+
+    service = IngestionService(app.state.container)
+    monkeypatch.setattr(
+        ingestion,
+        "PdfReader",
+        lambda _: FakeReader([FakePage("A readable page with sufficient extracted text."), FakePage("")]),
+    )
+    monkeypatch.setattr(IngestionService, "_require_ocr_tools", staticmethod(lambda: None))
+    monkeypatch.setattr(
+        IngestionService, "_ocr_page", staticmethod(lambda _pdf, _root, page: f"OCR page {page} text.")
+    )
+    text, warnings = service._extract_pdf(tmp_path / "mixed.pdf")
+    assert "A readable page with sufficient extracted text." in text and "OCR page 2 text." in text
+    assert warnings[0].source_range == "page 2"
+
+    monkeypatch.undo()
+    monkeypatch.setattr(ingestion, "PdfReader", lambda _: FakeReader([FakePage("")]))
+    monkeypatch.setattr(ingestion.shutil, "which", lambda _: None)
+    with pytest.raises(IngestionError, match="pdftoppm"):
+        service._extract_pdf(tmp_path / "needs-ocr.pdf")
+
+    monkeypatch.undo()
+    monkeypatch.setattr(ingestion, "PdfReader", lambda _: FakeReader([FakePage("")]))
+    monkeypatch.setattr(
+        ingestion.shutil, "which", lambda command: "/usr/bin/pdftoppm" if command == "pdftoppm" else None
+    )
+    with pytest.raises(IngestionError, match="Tesseract"):
+        service._extract_pdf(tmp_path / "needs-tesseract.pdf")
+
+    monkeypatch.undo()
+    monkeypatch.setattr(
+        ingestion, "PdfReader", lambda _: FakeReader([FakePage("") for _ in range(151)])
+    )
+    with pytest.raises(IngestionError, match="150 pages"):
+        service._extract_pdf(tmp_path / "too-many.pdf")
+
+
 def test_ocr_warning_and_failed_parse_preserve_original(client) -> None:
     project = project_id(client)
     assert import_bytes(client, project, "ocr.txt", "Bad � text".encode())["status"] == "succeeded"
@@ -87,6 +180,9 @@ def test_ocr_warning_and_failed_parse_preserve_original(client) -> None:
     source = client.get(f"/api/v1/projects/{project}/source").json()
     assert source["status"] == "failed"
     assert Path(source["originalPath"]).exists()
+    project = project_id(client)
+    failed = import_bytes(client, project, "broken.pdf", b"not a pdf", "application/pdf")
+    assert failed["status"] == "failed"
 
 
 def test_reparse_preserves_prior_manifest(client) -> None:

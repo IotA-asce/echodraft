@@ -2,6 +2,8 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
+import tempfile
 import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,6 +12,8 @@ from uuid import uuid4
 from bs4 import BeautifulSoup
 from docx import Document
 from ebooklib import ITEM_DOCUMENT, epub  # type: ignore[import-untyped]
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 from echodraft_db.models import SourceDocumentRecord
 from echodraft_domain import ParserWarning, RightsStatus, WarningSeverity
 
@@ -17,7 +21,16 @@ from .container import AppContainer
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 PARSER_VERSION = "ingestion-0.1.0"
-SUPPORTED = {".txt": "text/plain", ".md": "text/markdown", ".markdown": "text/markdown", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".epub": "application/epub+zip"}
+MIN_PDF_TEXT_CHARS = 20
+MAX_PDF_OCR_PAGES = 150
+SUPPORTED = {
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".epub": "application/epub+zip",
+    ".pdf": "application/pdf",
+}
 
 
 class IngestionError(ValueError):
@@ -33,7 +46,7 @@ class IngestionService:
             raise KeyError(project_id)
         suffix = Path(filename).suffix.lower()
         if suffix not in SUPPORTED:
-            raise IngestionError("Unsupported file type. Use TXT, Markdown, DOCX, or EPUB.")
+            raise IngestionError("Unsupported file type. Use TXT, Markdown, DOCX, EPUB, or PDF.")
         if not data:
             raise IngestionError("The selected manuscript is empty.")
         if len(data) > MAX_UPLOAD_BYTES:
@@ -110,7 +123,112 @@ class IngestionService:
                 raise
             except Exception as error:
                 raise IngestionError(f"Unreadable EPUB: {error}") from error
+        if suffix == ".pdf":
+            return self._extract_pdf(path)
         raise IngestionError("Unsupported file type.")
+
+    def _extract_pdf(self, path: Path) -> tuple[str, list[ParserWarning]]:
+        try:
+            reader = PdfReader(str(path))
+        except PdfReadError as error:
+            raise IngestionError(f"Unreadable PDF: {error}") from error
+        except Exception as error:
+            raise IngestionError(f"Unreadable PDF: {error}") from error
+        if reader.is_encrypted:
+            raise IngestionError("Unreadable PDF: password-protected PDFs are not supported.")
+
+        warnings: list[ParserWarning] = []
+        pages: list[str] = []
+        ocr_pages: list[int] = []
+        try:
+            for page_number, page in enumerate(reader.pages, start=1):
+                extracted = page.extract_text() or ""
+                pages.append(extracted.strip())
+                if len(re.sub(r"\s+", "", extracted)) < MIN_PDF_TEXT_CHARS:
+                    ocr_pages.append(page_number)
+        except Exception as error:
+            raise IngestionError(f"Unreadable PDF text content: {error}") from error
+
+        if len(ocr_pages) > MAX_PDF_OCR_PAGES:
+            raise IngestionError(
+                f"PDF requires OCR for {len(ocr_pages)} pages; the local OCR limit is "
+                f"{MAX_PDF_OCR_PAGES} pages. Split or OCR the document before importing."
+            )
+        if ocr_pages:
+            self._require_ocr_tools()
+            with tempfile.TemporaryDirectory(prefix="echodraft-pdf-ocr-") as temporary:
+                temporary_root = Path(temporary)
+                for page_number in ocr_pages:
+                    pages[page_number - 1] = self._ocr_page(path, temporary_root, page_number)
+                    if pages[page_number - 1].strip():
+                        warnings.append(
+                            ParserWarning(
+                                severity=WarningSeverity.INFO,
+                                sourceRange=f"page {page_number}",
+                                message="Text was extracted with local OCR.",
+                                suggestedAction="Review this page for OCR errors before generation.",
+                            )
+                        )
+                    else:
+                        warnings.append(
+                            ParserWarning(
+                                severity=WarningSeverity.WARNING,
+                                sourceRange=f"page {page_number}",
+                                message="No readable text was found after local OCR.",
+                                suggestedAction="Check the scan quality or OCR this page before import.",
+                            )
+                        )
+        text = "\n\n".join(page for page in pages if page.strip())
+        if not text.strip():
+            raise IngestionError("Unreadable PDF: no readable text was found after extraction and OCR.")
+        return text, warnings
+
+    @staticmethod
+    def _require_ocr_tools() -> None:
+        if not shutil.which("pdftoppm"):
+            raise IngestionError(
+                "PDF OCR requires Poppler's pdftoppm command. Install Poppler and add it to PATH."
+            )
+        if not shutil.which("tesseract"):
+            raise IngestionError(
+                "PDF OCR requires Tesseract with English language data. Install tesseract-ocr and add it to PATH."
+            )
+
+    @staticmethod
+    def _ocr_page(pdf_path: Path, temporary_root: Path, page_number: int) -> str:
+        image_stem = temporary_root / f"page-{page_number}"
+        rendered = subprocess.run(
+            [
+                "pdftoppm",
+                "-f",
+                str(page_number),
+                "-l",
+                str(page_number),
+                "-r",
+                "200",
+                "-png",
+                "-singlefile",
+                str(pdf_path),
+                str(image_stem),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        image_path = image_stem.with_suffix(".png")
+        if rendered.returncode or not image_path.is_file():
+            detail = rendered.stderr.strip() or "Poppler did not create a page image."
+            raise IngestionError(f"PDF OCR failed while rendering page {page_number}: {detail}")
+        recognized = subprocess.run(
+            ["tesseract", str(image_path), "stdout", "-l", "eng"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if recognized.returncode:
+            detail = recognized.stderr.strip() or "Tesseract did not return text."
+            raise IngestionError(f"PDF OCR failed on page {page_number}: {detail}")
+        return recognized.stdout.strip()
 
     def _normalize(self, text: str) -> tuple[str, list[ParserWarning]]:
         warnings: list[ParserWarning] = []
