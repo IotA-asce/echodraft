@@ -6,7 +6,9 @@ export type Chapter = { id: string; title?: string | null; status: string; confi
 export type Scene = { id: string; status: string; confidence: number };
 export type Segment = { id: string; textContent: string; revision: number; status: string; speakerCandidate?: string | null };
 export type Direction = { scopeType: string; scopeId: string; pace: number; intensity: number; tone: string; stylePrompt?: string | null; emphasis: boolean; whisper: boolean; noSfx: boolean };
-export type TtsSettings = { provider: "mock" | "kokoro"; executable?: string | null; modelPath?: string | null; voiceRegistryPath?: string | null; ready: boolean; message?: string | null; availableVoices: string[] };
+export type TtsSettings = { provider: "mock" | "kokoro"; setupMode?: "managed_onnx" | "custom_adapter" | null; executable?: string | null; runtimeRoot?: string | null; pythonPath?: string | null; modelPath?: string | null; voicesDataPath?: string | null; voiceRegistryPath?: string | null; ready: boolean; message?: string | null; availableVoices: string[] };
+export type KokoroSetupStep = { phase: string; label: string; status: string; message?: string | null };
+export type KokoroSetupStatus = { platform: string; state: "not_started" | "incomplete" | "failed" | "ready" | "active"; setupMode: "managed_onnx"; runtimeRoot: string; pythonPath: string; executable: string; modelPath: string; voicesDataPath: string; voiceRegistryPath: string; ready: boolean; message?: string | null; nextAction: string; availableVoices: string[]; steps: KokoroSetupStep[] };
 export type VoiceProfile = { id: string; projectId: string; name: string; backend: string; providerVoiceId: string; stylePrompt?: string | null };
 export type ProductionSettings = { projectId: string; narratorVoiceProfileId?: string | null; defaultDirection?: Direction | null };
 export type SegmentOverride = { segmentId: string; voiceProfileId?: string | null; direction?: Direction | null };
@@ -49,6 +51,8 @@ export const updateSegment = (id: string, textContent: string) => request<Segmen
 export const getTtsSettings = () => request<TtsSettings>("/api/v1/settings/tts");
 export const saveTtsSettings = (payload: Omit<TtsSettings, "ready" | "message" | "availableVoices">) => request<TtsSettings>("/api/v1/settings/tts", json("PUT", payload));
 export const testTtsSettings = () => request<TtsSettings>("/api/v1/settings/tts/test", json("POST", {}));
+export const getKokoroSetup = () => request<KokoroSetupStatus>("/api/v1/settings/tts/kokoro/setup");
+export const installKokoroSetup = (payload: { confirmNetworkDownload: boolean; confirmThirdPartyLicense: boolean; repair?: boolean }) => request<Job>("/api/v1/settings/tts/kokoro/setup/install", json("POST", payload));
 export const listVoices = (projectId: string) => request<VoiceProfile[]>(`/api/v1/projects/${projectId}/voices`);
 export const createVoice = (projectId: string, payload: { name: string; backend: string; providerVoiceId: string; stylePrompt?: string }) => request<VoiceProfile>(`/api/v1/projects/${projectId}/voices`, json("POST", payload));
 export const deleteVoice = (voiceId: string) => request<void>(`/api/v1/voices/${voiceId}`, { method: "DELETE" });

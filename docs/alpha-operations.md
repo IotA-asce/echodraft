@@ -3,6 +3,7 @@
 ## Recovery
 
 - Jobs interrupted by an application restart are marked failed; restart the workflow from its persisted source, render, or chapter artifact.
+- Kokoro setup runs as a local job. If it fails, use the dashboard's **Repair setup** action after checking network access, disk capacity, and whether Python can create virtual environments and install wheels.
 - Chapter production runs expose per-segment progress in the dashboard. Retry a failed chapter after correcting its local adapter, narrator selection, or source segment; valid prior renders are retained.
 - Validation errors require correcting the request. Filesystem errors require checking local disk capacity and permissions.
 - Do not include manuscript text or generated audio in bug reports unless the tester explicitly consents.
@@ -16,5 +17,6 @@ Use `blocking` for an inability to import, render, assemble, patch, or export. I
 - In-process jobs cannot resume mid-operation.
 - MP3 export requires local FFmpeg with an MP3 encoder. M4B remains unsupported.
 - Ambience asset mixing remains intentionally deferred; speech-only output is the stable alpha path.
-- Mock TTS is intentionally silent. Current Kokoro support validates a local wrapper and applies the selected voice ID, but direction controls are retained as manifest notes and may not alter synthesis.
+- Mock TTS is intentionally silent. Managed Kokoro ONNX setup downloads local runtime assets only after explicit user action and applies the selected voice ID; direction controls are retained as manifest notes and may not alter synthesis.
+- Managed Kokoro setup is CPU-oriented. GPU/provider tuning and automatic OS package manager repair are out of scope.
 - Text PDFs import directly. Scanned PDFs require `pdftoppm` from Poppler and English Tesseract data on `PATH`; OCR runs locally at 200 DPI and is capped at 150 low-text pages per import.

@@ -13,6 +13,7 @@ def settings(tmp_path: Path) -> AppSettings:
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         artifact_root=tmp_path / "artifacts",
         tts_settings_path=tmp_path / "tts-settings.json",
+        kokoro_runtime_root=tmp_path / "kokoro" / "managed-onnx-v1",
     )
 
 

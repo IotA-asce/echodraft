@@ -71,3 +71,134 @@ test("produces and exports a chapter entirely from the dashboard", async ({ page
   await page.getByRole("link", { name: "Download ZIP" }).click();
   expect((await download).suggestedFilename()).toBe("audiobook.zip");
 });
+
+test("guides managed Kokoro setup and narrator selection", async ({ page }) => {
+  let kokoroReady = false;
+  let jobPolls = 0;
+  const setupSteps = [
+    "checking_python",
+    "creating_runtime",
+    "installing_packages",
+    "downloading_model",
+    "downloading_voice_data",
+    "building_voice_registry",
+    "validating_preview",
+    "saving_settings",
+    "completed"
+  ];
+
+  await page.route(/\/api\/v1\/settings\/tts$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(kokoroReady ? {
+        provider: "kokoro",
+        setupMode: "managed_onnx",
+        executable: "/tmp/echodraft-kokoro",
+        runtimeRoot: "/tmp/echodraft-kokoro-runtime",
+        pythonPath: "/tmp/echodraft-kokoro-runtime/venv/bin/python",
+        modelPath: "/tmp/echodraft-kokoro-runtime/kokoro-v1.0.onnx",
+        voicesDataPath: "/tmp/echodraft-kokoro-runtime/voices-v1.0.bin",
+        voiceRegistryPath: "/tmp/echodraft-kokoro-runtime/voices.txt",
+        ready: true,
+        message: "Kokoro voice system is ready.",
+        availableVoices: ["af_heart", "af_sarah"]
+      } : {
+        provider: "mock",
+        ready: true,
+        message: null,
+        availableVoices: ["mock-narrator", "mock-character"]
+      })
+    });
+  });
+  await page.route(/\/api\/v1\/settings\/tts\/kokoro\/setup$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        platform: "Darwin",
+        state: kokoroReady ? "active" : "not_started",
+        setupMode: "managed_onnx",
+        runtimeRoot: "/tmp/echodraft-kokoro-runtime",
+        pythonPath: "/tmp/echodraft-kokoro-runtime/venv/bin/python",
+        executable: "/tmp/echodraft-kokoro-runtime/echodraft_kokoro_onnx.py",
+        modelPath: "/tmp/echodraft-kokoro-runtime/kokoro-v1.0.onnx",
+        voicesDataPath: "/tmp/echodraft-kokoro-runtime/voices-v1.0.bin",
+        voiceRegistryPath: "/tmp/echodraft-kokoro-runtime/voices.txt",
+        ready: kokoroReady,
+        message: kokoroReady ? "Kokoro voice system is ready." : "Kokoro has not been set up on this machine yet.",
+        nextAction: kokoroReady ? "Create a narrator from one of the available Kokoro voices." : "Select Set up Kokoro voice system to install local Kokoro ONNX assets.",
+        availableVoices: kokoroReady ? ["af_heart", "af_sarah"] : [],
+        steps: setupSteps.map((phase) => ({ phase, label: phase.replaceAll("_", " "), status: kokoroReady ? "done" : "pending" }))
+      })
+    });
+  });
+  await page.route(/\/api\/v1\/settings\/tts\/kokoro\/setup\/install$/, async (route) => {
+    jobPolls = 0;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ id: "job_kokoro_setup", status: "queued", progress: { phase: "checking_python", step: 1, total: 9 } })
+    });
+  });
+  await page.route(/\/api\/v1\/jobs\/job_kokoro_setup$/, async (route) => {
+    jobPolls += 1;
+    if (jobPolls < 2) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ id: "job_kokoro_setup", status: "running", progress: { phase: "installing_packages", message: "Installing Kokoro ONNX into the local runtime.", step: 3, total: 9 } })
+      });
+      return;
+    }
+    kokoroReady = true;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ id: "job_kokoro_setup", status: "succeeded", progress: { phase: "completed", message: "Kokoro voice system is ready.", step: 9, total: 9 } })
+    });
+  });
+  await page.route(/\/api\/v1\/projects\/[^/]+\/voices\/preview$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ assetPath: "/tmp/preview.wav", audioUrl: "/api/v1/projects/test/artifacts/audio/previews/kokoro.wav" })
+    });
+  });
+  await page.route(/\/api\/v1\/projects\/test\/artifacts\/audio\/previews\/kokoro\.wav$/, async (route) => {
+    await route.fulfill({ contentType: "audio/wav", body: silentWav() });
+  });
+
+  const title = `Kokoro Setup ${Date.now()}`;
+  await page.goto("/");
+  await page.getByLabel("Title").fill(title);
+  await page.getByLabel(/I confirm I have the rights/).check();
+  await page.getByRole("button", { name: "Create project" }).click();
+  await page.getByRole("listitem").filter({ hasText: title }).getByRole("button", { name: "Open" }).click();
+
+  await page.getByLabel("Provider").selectOption("kokoro");
+  await expect(page.getByText("Set up Kokoro voice system", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Download and install Kokoro locally" }).click();
+  await expect(page.getByText(/Installing Kokoro ONNX/)).toBeVisible();
+  await expect(page.getByText("Kokoro voice system is ready. Choose a voice and set your narrator.")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("af_heart")).toBeVisible();
+
+  await page.getByRole("button", { name: "Preview" }).first().click();
+  await page.getByRole("button", { name: "Set narrator" }).first().click();
+  await expect(page.getByRole("button", { name: "Narrator", exact: true }).first()).toBeVisible();
+});
+
+function silentWav() {
+  const sampleRate = 16_000;
+  const samples = sampleRate / 5;
+  const dataSize = samples * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write("RIFF", 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write("WAVE", 8);
+  buffer.write("fmt ", 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(dataSize, 40);
+  return buffer;
+}
