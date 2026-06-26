@@ -37,6 +37,8 @@ from echodraft_domain import (
     VoiceProfile,
     VoiceProfileCreate,
     VoiceProfileUpdate,
+    KokoroSetupInstallRequest,
+    KokoroSetupStatus,
     TtsSettings,
     TtsSettingsUpdate,
     TtsTestRequest,
@@ -61,6 +63,7 @@ from .assembly import ChapterAssembler
 from .review import ReviewService
 from .exporting import ExportService
 from .production import ProductionService
+from .kokoro_setup import ManagedKokoroSetupService
 
 logger = configure_logging()
 
@@ -160,6 +163,36 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return current
+
+    @app.get("/api/v1/settings/tts/kokoro/setup", response_model=KokoroSetupStatus)
+    def get_kokoro_setup(request: Request) -> KokoroSetupStatus:
+        container: AppContainer = request.app.state.container
+        return ManagedKokoroSetupService(
+            container.settings, container.tts_settings, container.jobs_repository
+        ).status()
+
+    @app.post("/api/v1/settings/tts/kokoro/setup/install", response_model=Job)
+    def install_kokoro_setup(payload: KokoroSetupInstallRequest, request: Request) -> Job:
+        if not payload.confirm_network_download or not payload.confirm_third_party_license:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Confirm the local network download and third-party Kokoro package/model "
+                    "setup before installing."
+                ),
+            )
+        container: AppContainer = request.app.state.container
+
+        def operation(job_id: str) -> None:
+            service = ManagedKokoroSetupService(
+                container.settings, container.tts_settings, container.jobs_repository
+            )
+            service.install(job_id, repair=payload.repair)
+            container.tts_adapter = container.tts_settings.adapter()
+
+        return container.jobs.submit_with_job(
+            "kokoro_setup", operation, project_id=None, target_id="managed_onnx"
+        )
 
     @app.get("/api/v1/projects/{project_id}/artifacts/{artifact_path:path}")
     def get_artifact(project_id: str, artifact_path: str, request: Request) -> FileResponse:

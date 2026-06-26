@@ -15,11 +15,80 @@ tags:
   - name: Casting
   - name: Pronunciation
   - name: Rendering
+  - name: Settings
   - name: Jobs
   - name: Review
   - name: Exports
   - name: Rights
 paths:
+  /api/v1/settings/tts:
+    get:
+      tags: [Settings]
+      summary: Get active local TTS settings and readiness
+      responses:
+        "200":
+          description: Active TTS settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TtsSettings"
+    put:
+      tags: [Settings]
+      summary: Save local TTS settings after validation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TtsSettingsUpdate"
+      responses:
+        "200":
+          description: TTS settings saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TtsSettings"
+
+  /api/v1/settings/tts/kokoro/setup:
+    get:
+      tags: [Settings]
+      summary: Report managed Kokoro ONNX setup status
+      description: >
+        Reports whether the local managed Kokoro runtime is not started,
+        incomplete, failed, ready, or active. Managed setup is local-only and
+        stores runtime files under `.echodraft/kokoro/managed-onnx-v1` by
+        default.
+      responses:
+        "200":
+          description: Managed Kokoro setup status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KokoroSetupStatus"
+
+  /api/v1/settings/tts/kokoro/setup/install:
+    post:
+      tags: [Settings]
+      summary: Start managed Kokoro ONNX setup
+      description: >
+        Starts a local setup job that creates the Kokoro runtime, installs
+        Kokoro ONNX packages, downloads model and voice assets, builds the
+        voice registry, validates a preview, and saves settings only after
+        validation succeeds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KokoroSetupInstallRequest"
+      responses:
+        "200":
+          description: Setup job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatus"
+
   /api/v1/projects:
     get:
       tags: [Projects]
@@ -856,6 +925,150 @@ components:
       schema:
         type: string
   schemas:
+    TtsSettings:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [mock, kokoro]
+        setupMode:
+          type:
+            - string
+            - "null"
+          enum: [managed_onnx, custom_adapter, null]
+        executable:
+          type:
+            - string
+            - "null"
+        runtimeRoot:
+          type:
+            - string
+            - "null"
+        pythonPath:
+          type:
+            - string
+            - "null"
+        modelPath:
+          type:
+            - string
+            - "null"
+        voicesDataPath:
+          type:
+            - string
+            - "null"
+        voiceRegistryPath:
+          type:
+            - string
+            - "null"
+        ready:
+          type: boolean
+        message:
+          type:
+            - string
+            - "null"
+        availableVoices:
+          type: array
+          items:
+            type: string
+    TtsSettingsUpdate:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          enum: [mock, kokoro]
+        setupMode:
+          type:
+            - string
+            - "null"
+          enum: [managed_onnx, custom_adapter, null]
+        executable:
+          type:
+            - string
+            - "null"
+        runtimeRoot:
+          type:
+            - string
+            - "null"
+        pythonPath:
+          type:
+            - string
+            - "null"
+        modelPath:
+          type:
+            - string
+            - "null"
+        voicesDataPath:
+          type:
+            - string
+            - "null"
+        voiceRegistryPath:
+          type:
+            - string
+            - "null"
+    KokoroSetupStatus:
+      type: object
+      properties:
+        platform:
+          type: string
+        state:
+          type: string
+          enum: [not_started, incomplete, failed, ready, active]
+        setupMode:
+          type: string
+          enum: [managed_onnx]
+        runtimeRoot:
+          type: string
+        pythonPath:
+          type: string
+        executable:
+          type: string
+        modelPath:
+          type: string
+        voicesDataPath:
+          type: string
+        voiceRegistryPath:
+          type: string
+        ready:
+          type: boolean
+        message:
+          type:
+            - string
+            - "null"
+        nextAction:
+          type: string
+        availableVoices:
+          type: array
+          items:
+            type: string
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/KokoroSetupStep"
+    KokoroSetupStep:
+      type: object
+      properties:
+        phase:
+          type: string
+        label:
+          type: string
+        status:
+          type: string
+          enum: [pending, done, failed]
+        message:
+          type:
+            - string
+            - "null"
+    KokoroSetupInstallRequest:
+      type: object
+      required: [confirmNetworkDownload, confirmThirdPartyLicense]
+      properties:
+        confirmNetworkDownload:
+          type: boolean
+        confirmThirdPartyLicense:
+          type: boolean
+        repair:
+          type: boolean
     Project:
       type: object
       properties:
@@ -992,7 +1205,7 @@ components:
           type: string
         backend:
           type: string
-        baseVoiceId:
+        providerVoiceId:
           type: string
         stylePrompt:
           type: string
@@ -1189,13 +1402,13 @@ components:
           type: string
     CreateVoiceProfileRequest:
       type: object
-      required: [name, backend]
+      required: [name, backend, providerVoiceId]
       properties:
         name:
           type: string
         backend:
           type: string
-        baseVoiceId:
+        providerVoiceId:
           type: string
         stylePrompt:
           type: string
@@ -1208,6 +1421,8 @@ components:
       type: object
       properties:
         name:
+          type: string
+        providerVoiceId:
           type: string
         stylePrompt:
           type: string

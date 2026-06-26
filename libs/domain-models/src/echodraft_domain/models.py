@@ -240,8 +240,12 @@ class VoicePreview(ApiModel):
 
 class TtsSettings(ApiModel):
     provider: str = "mock"
+    setup_mode: str | None = Field(default=None, alias="setupMode")
     executable: str | None = None
+    runtime_root: str | None = Field(default=None, alias="runtimeRoot")
+    python_path: str | None = Field(default=None, alias="pythonPath")
     model_path: str | None = Field(default=None, alias="modelPath")
+    voices_data_path: str | None = Field(default=None, alias="voicesDataPath")
     voice_registry_path: str | None = Field(default=None, alias="voiceRegistryPath")
     ready: bool = False
     message: str | None = None
@@ -250,14 +254,48 @@ class TtsSettings(ApiModel):
 
 class TtsSettingsUpdate(ApiModel):
     provider: str
+    setup_mode: str | None = Field(default=None, alias="setupMode")
     executable: str | None = None
+    runtime_root: str | None = Field(default=None, alias="runtimeRoot")
+    python_path: str | None = Field(default=None, alias="pythonPath")
     model_path: str | None = Field(default=None, alias="modelPath")
+    voices_data_path: str | None = Field(default=None, alias="voicesDataPath")
     voice_registry_path: str | None = Field(default=None, alias="voiceRegistryPath")
 
 
 class TtsTestRequest(ApiModel):
     text: str = Field(default="Echodraft is ready to produce your audiobook.", min_length=1, max_length=1000)
     voice_id: str | None = Field(default=None, alias="voiceId")
+
+
+class KokoroSetupStep(ApiModel):
+    phase: str
+    label: str
+    status: str
+    message: str | None = None
+
+
+class KokoroSetupStatus(ApiModel):
+    platform: str
+    state: str
+    setup_mode: str = Field(alias="setupMode")
+    runtime_root: str = Field(alias="runtimeRoot")
+    python_path: str = Field(alias="pythonPath")
+    executable: str
+    model_path: str = Field(alias="modelPath")
+    voices_data_path: str = Field(alias="voicesDataPath")
+    voice_registry_path: str = Field(alias="voiceRegistryPath")
+    ready: bool
+    message: str | None = None
+    next_action: str = Field(alias="nextAction")
+    available_voices: list[str] = Field(default_factory=list, alias="availableVoices")
+    steps: list[KokoroSetupStep] = Field(default_factory=list)
+
+
+class KokoroSetupInstallRequest(ApiModel):
+    confirm_network_download: bool = Field(alias="confirmNetworkDownload")
+    confirm_third_party_license: bool = Field(alias="confirmThirdPartyLicense")
+    repair: bool = False
 
 
 class ProjectProductionSettings(ApiModel):

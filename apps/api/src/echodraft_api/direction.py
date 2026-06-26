@@ -114,6 +114,97 @@ class KokoroTtsAdapter(TtsAdapter):
         }
 
 
+class ManagedKokoroOnnxAdapter(TtsAdapter):
+    def __init__(
+        self,
+        python_path: Path | None,
+        wrapper_path: Path | None,
+        model_path: Path | None,
+        voices_data_path: Path | None,
+        voice_registry_path: Path | None,
+    ) -> None:
+        self.python_path = python_path
+        self.wrapper_path = wrapper_path
+        self.model_path = model_path
+        self.voices_data_path = voices_data_path
+        self.voice_registry_path = voice_registry_path
+
+    def readiness(self) -> str | None:
+        if not self.python_path or not self.python_path.is_file():
+            return "Kokoro setup is incomplete. Open Voice setup and run Set up Kokoro voice system."
+        if not self.wrapper_path or not self.wrapper_path.is_file():
+            return "Kokoro setup is missing its local helper. Run Repair setup from Voice setup."
+        if not self.model_path or not self.model_path.is_file():
+            return "Kokoro model is missing. Run Repair setup from Voice setup."
+        if not self.voices_data_path or not self.voices_data_path.is_file():
+            return "Kokoro voice data is missing. Run Repair setup from Voice setup."
+        if not self.voice_registry_path or not self.voice_registry_path.is_file():
+            return "Kokoro voice list is missing. Run Repair setup from Voice setup."
+        return None
+
+    def list_voices(self) -> list[str]:
+        if self.readiness():
+            return []
+        assert self.voice_registry_path is not None
+        return [
+            line.strip()
+            for line in self.voice_registry_path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+
+    def preview(
+        self, text: str, voice_id: str, output: Path, direction: DirectionProfile
+    ) -> dict[str, object]:
+        if error := self.readiness():
+            raise ValueError(error)
+        assert self.python_path is not None
+        assert self.wrapper_path is not None
+        assert self.model_path is not None
+        assert self.voices_data_path is not None
+        assert self.voice_registry_path is not None
+        if voice_id not in self.list_voices():
+            raise ValueError(f"Kokoro voice '{voice_id}' is not registered locally.")
+        command = [
+            str(self.python_path),
+            str(self.wrapper_path),
+            "--model",
+            str(self.model_path),
+            "--voices-data",
+            str(self.voices_data_path),
+            "--voice-registry",
+            str(self.voice_registry_path),
+            "--voice",
+            voice_id,
+            "--text",
+            text,
+            "--output",
+            str(output),
+        ]
+        completed = subprocess.run(
+            command, capture_output=True, text=True, timeout=180, check=False
+        )
+        if completed.returncode:
+            raise ValueError(
+                f"Kokoro synthesis failed: {completed.stderr.strip() or completed.stdout.strip()}"
+            )
+        try:
+            with wave.open(str(output), "rb") as audio:
+                if audio.getnframes() == 0:
+                    raise ValueError("Kokoro returned an empty WAV file.")
+                sample_rate = audio.getframerate()
+        except wave.Error as wave_error:
+            raise ValueError(f"Kokoro produced malformed WAV output: {wave_error}") from wave_error
+        return {
+            "provider": "kokoro",
+            "setupMode": "managed_onnx",
+            "modelVersion": hashlib.sha256(self.model_path.read_bytes()).hexdigest()[:16],
+            "voiceId": voice_id,
+            "sampleRate": sample_rate,
+            "effectiveDirection": {"pace": direction.pace},
+            "unsupportedDirection": ["intensity", "tone", "emphasis", "whisper"],
+        }
+
+
 class DirectionService:
     def __init__(self, container: AppContainer) -> None:
         self.container = container

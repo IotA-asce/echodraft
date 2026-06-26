@@ -9,7 +9,7 @@ The system is deliberately segment-first and manifest-driven:
 - render history is append-only;
 - correcting one line rerenders that segment and its owning chapter instead of regenerating the whole book.
 
-> **Alpha software:** the dashboard covers the supported local production workflow from manuscript intake through chapter export. Real Kokoro TTS still requires a separately installed adapter-compatible command.
+> **Alpha software:** the dashboard covers the supported local production workflow from manuscript intake through chapter export. Real Kokoro TTS can be set up locally from the dashboard using the managed Kokoro ONNX flow.
 
 ## Capabilities
 
@@ -20,7 +20,7 @@ The system is deliberately segment-first and manifest-driven:
 - Inline segment editing with immutable revision history.
 - Character, voice-profile, pronunciation, and direction records.
 - Deterministic mock TTS for pipeline development.
-- Bring-your-own local Kokoro adapter support.
+- Managed local Kokoro ONNX setup plus advanced bring-your-own adapter support.
 - Immutable segment renders and manifest-backed chapter assembly.
 - Review issues, comments, selective line patching, and chapter reassembly.
 - WAV and MP3 export packages with manifests and checksums.
@@ -29,8 +29,8 @@ The system is deliberately segment-first and manifest-driven:
 ## Current limitations
 
 - The default `mock` TTS provider creates silent WAV files. It validates the production workflow but does not produce spoken audio.
-- Kokoro models, voices, and inference runtimes are not bundled or downloaded automatically.
-- The common Kokoro Python packages and third-party CLIs do not directly match Echodraft's current CLI adapter contract; real synthesis requires a compatible wrapper command.
+- Kokoro models, voices, and inference runtimes are not bundled; the dashboard downloads them only when the user starts managed Kokoro setup.
+- Managed Kokoro setup is CPU-oriented. GPU/provider tuning remains out of scope.
 - The dashboard covers project creation, manuscript intake, structure browsing, voice setup, chapter production, review, patching, and WAV/MP3 export. The API documentation remains available for development and integration work.
 - Ambience schemas and render modes exist, but source-asset mixing and dashboard controls are incomplete.
 - WAV and MP3 exports are implemented. M4B is not.
@@ -251,9 +251,9 @@ Saving never overwrites history. Previous text is available from `GET /api/v1/se
 
 ### 5. Configure voices in the dashboard
 
-Open **Voice setup** in the selected project. Choose `mock` to exercise the pipeline with silent WAVs, or choose **Kokoro adapter** and enter paths to a preinstalled executable, model, and UTF-8 voice registry. Select **Save and validate TTS** before creating voice profiles.
+Open **Voice setup** in the selected project. Choose `mock` to exercise the pipeline with silent WAVs, or choose **Kokoro managed voice system** and select **Download and install Kokoro locally**. The dashboard creates the local runtime, downloads Kokoro ONNX assets, builds the voice list, validates a preview, and then exposes available voices as selectable cards.
 
-Create a profile using a display name and the provider voice ID, preview it, and choose one stable narrator for the project. Segment-level voice overrides are available from the structure view. Character and pronunciation records are retained in the voice bible as editorial reference; current alpha synthesis does not automatically apply them.
+Preview a voice and choose one stable narrator for the project. Segment-level voice overrides are available from the structure view. Character and pronunciation records are retained in the voice bible as editorial reference; current alpha synthesis does not automatically apply them.
 
 ### 6. Produce, review, and export in the dashboard
 
@@ -277,52 +277,26 @@ export ECHODRAFT_TTS_PROVIDER=mock
 
 It creates deterministic silent 16 kHz WAV files. Use it to validate ingestion, rendering, assembly, patching, and export before introducing a real model.
 
-### Kokoro: what must be downloaded
+### Kokoro managed setup
 
-Yes, real Kokoro synthesis requires a runtime plus model and voice data. Echodraft intentionally does not download them automatically because model versions, licenses, storage locations, and hardware choices should remain explicit.
+Real Kokoro synthesis is set up from the dashboard. Open **Voice setup**, choose **Kokoro managed voice system**, and select **Download and install Kokoro locally**. The API starts a local setup job with progress for Python runtime creation, package install, model download, voice data download, voice list generation, preview validation, and settings save.
 
-Two upstream starting points are:
+Managed setup stores files under `.echodraft/kokoro/managed-onnx-v1` by default:
 
-- [Official `hexgrad/kokoro` Python inference library](https://github.com/hexgrad/kokoro), installed with `pip install kokoro`; it manages the official Kokoro-82M pipeline and uses `espeak-ng` for language fallback.
-- [`kokoro-onnx`](https://github.com/thewh1teagle/kokoro-onnx), a CPU/GPU-friendly ONNX runtime. Its maintainers publish `kokoro-v1.0.onnx` and `voices-v1.0.bin` release artifacts.
+- a local Python virtual environment;
+- `kokoro-onnx==0.4.7` and `soundfile`;
+- `kokoro-v1.0.onnx`;
+- `voices-v1.0.bin`;
+- an Echodraft helper script;
+- `voices.txt`, generated from the local Kokoro ONNX voice list.
 
-The ONNX artifacts can be downloaded as follows.
+The managed path is CPU-oriented for this release. GPU/provider tuning remains out of scope. The setup job uses network access only after the user selects the install button. Manuscripts, generated audio, and project metadata are not uploaded.
 
-Windows PowerShell:
+If setup fails, the dashboard shows one recovery action. Use **Repair setup** after checking network access, disk space, and whether the Python environment can create virtual environments and install wheels.
 
-```powershell
-$KokoroRoot = Join-Path $HOME ".local\share\echodraft\kokoro"
-New-Item -ItemType Directory -Force $KokoroRoot | Out-Null
+### Advanced custom Kokoro adapter
 
-Invoke-WebRequest `
-  "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx" `
-  -OutFile (Join-Path $KokoroRoot "kokoro-v1.0.onnx")
-
-Invoke-WebRequest `
-  "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin" `
-  -OutFile (Join-Path $KokoroRoot "voices-v1.0.bin")
-```
-
-Linux/macOS:
-
-```bash
-KOKORO_ROOT="$HOME/.local/share/echodraft/kokoro"
-mkdir -p "$KOKORO_ROOT"
-
-curl -L \
-  "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx" \
-  -o "$KOKORO_ROOT/kokoro-v1.0.onnx"
-
-curl -L \
-  "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin" \
-  -o "$KOKORO_ROOT/voices-v1.0.bin"
-```
-
-Review the model and runtime licenses before production use. The Kokoro model is published under Apache 2.0; third-party wrappers have their own licenses and release policies.
-
-### Current Kokoro integration contract
-
-Downloading the files is necessary but not sufficient. Echodraft currently expects an executable that accepts this exact command:
+The dashboard still has an **Advanced custom adapter** section for users who already maintain a compatible wrapper. Echodraft expects an executable that accepts this exact command:
 
 ```text
 <executable> --model <model-path> --voices <registry.txt> --voice <voice-id> --text <text> --output <output.wav>
@@ -393,7 +367,7 @@ export ECHODRAFT_KOKORO_MODEL_PATH="$HOME/.local/share/echodraft/kokoro/kokoro-v
 export ECHODRAFT_KOKORO_VOICE_PATH="$HOME/.local/share/echodraft/kokoro/voices.txt"
 ```
 
-Restart the API after changing provider settings. Echodraft fails with recovery guidance if the executable, model, registry, requested voice, or resulting WAV is invalid. It never silently falls back from Kokoro to mock.
+Echodraft fails with recovery guidance if the executable, model, registry, requested voice, or resulting WAV is invalid. It never silently falls back from Kokoro to mock.
 
 ### Kokoro direction limitations
 
