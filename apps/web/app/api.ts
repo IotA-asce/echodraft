@@ -9,6 +9,9 @@ export type Direction = { scopeType: string; scopeId: string; pace: number; inte
 export type TtsSettings = { provider: "mock" | "kokoro"; setupMode?: "managed_onnx" | "custom_adapter" | null; executable?: string | null; runtimeRoot?: string | null; pythonPath?: string | null; modelPath?: string | null; voicesDataPath?: string | null; voiceRegistryPath?: string | null; ready: boolean; message?: string | null; availableVoices: string[] };
 export type KokoroSetupStep = { phase: string; label: string; status: string; message?: string | null };
 export type KokoroSetupStatus = { platform: string; state: "not_started" | "incomplete" | "failed" | "ready" | "active"; setupMode: "managed_onnx"; runtimeRoot: string; pythonPath: string; executable: string; modelPath: string; voicesDataPath: string; voiceRegistryPath: string; ready: boolean; message?: string | null; nextAction: string; availableVoices: string[]; steps: KokoroSetupStep[] };
+export type LocalAiCatalogItem = { modelKey: string; displayName: string; capability: string; provider: string; installType: string; required: boolean; sizeMb?: number | null; licenseSummary?: string | null; licenseNote?: string | null; description?: string | null; status: string; health: string; installPath?: string | null; lastVerifiedAt?: string | null };
+export type LocalAiInstallation = { id: string; modelKey: string; displayName: string; capability: string; provider: string; version?: string | null; installPath?: string | null; status: string; installedAt?: string | null; lastVerifiedAt?: string | null; sizeBytes?: number | null; licenseSummary?: string | null; errorMessage?: string | null };
+export type LocalAiInstallJob = { id: string; jobId: string; modelKey: string; status: string; progressPercent: number; currentStep?: string | null; logsPath?: string | null; startedAt?: string | null; completedAt?: string | null; errorMessage?: string | null };
 export type VoiceProfile = { id: string; projectId: string; name: string; backend: string; providerVoiceId: string; stylePrompt?: string | null };
 export type ProductionSettings = { projectId: string; narratorVoiceProfileId?: string | null; defaultDirection?: Direction | null };
 export type SegmentOverride = { segmentId: string; voiceProfileId?: string | null; direction?: Direction | null };
@@ -53,6 +56,11 @@ export const saveTtsSettings = (payload: Omit<TtsSettings, "ready" | "message" |
 export const testTtsSettings = () => request<TtsSettings>("/api/v1/settings/tts/test", json("POST", {}));
 export const getKokoroSetup = () => request<KokoroSetupStatus>("/api/v1/settings/tts/kokoro/setup");
 export const installKokoroSetup = (payload: { confirmNetworkDownload: boolean; confirmThirdPartyLicense: boolean; repair?: boolean }) => request<Job>("/api/v1/settings/tts/kokoro/setup/install", json("POST", payload));
+export const listLocalAiCatalog = () => request<LocalAiCatalogItem[]>("/api/v1/local-ai/catalog");
+export const listLocalAiInstalled = () => request<LocalAiInstallation[]>("/api/v1/local-ai/installed");
+export const getLocalAiInstallJob = (jobId: string) => request<LocalAiInstallJob>(`/api/v1/local-ai/jobs/${jobId}`);
+export const installLocalAiModel = (modelKey: string, payload: { confirmNetworkDownload: boolean; confirmThirdPartyLicense: boolean; confirmSystemInstall: boolean; repair?: boolean }) => request<Job>(`/api/v1/local-ai/models/${modelKey}/install`, json("POST", payload));
+export const verifyLocalAiModel = (modelKey: string) => request<LocalAiInstallation>(`/api/v1/local-ai/models/${modelKey}/verify`, json("POST"));
 export const listVoices = (projectId: string) => request<VoiceProfile[]>(`/api/v1/projects/${projectId}/voices`);
 export const createVoice = (projectId: string, payload: { name: string; backend: string; providerVoiceId: string; stylePrompt?: string }) => request<VoiceProfile>(`/api/v1/projects/${projectId}/voices`, json("POST", payload));
 export const deleteVoice = (voiceId: string) => request<void>(`/api/v1/voices/${voiceId}`, { method: "DELETE" });

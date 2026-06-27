@@ -298,6 +298,70 @@ class KokoroSetupInstallRequest(ApiModel):
     repair: bool = False
 
 
+class LocalAiModelCatalogItem(ApiModel):
+    model_key: str = Field(alias="modelKey")
+    display_name: str = Field(alias="displayName")
+    capability: str
+    provider: str
+    install_type: str = Field(alias="installType")
+    required: bool = False
+    size_mb: int | None = Field(default=None, alias="sizeMb")
+    license_summary: str | None = Field(default=None, alias="licenseSummary")
+    license_note: str | None = Field(default=None, alias="licenseNote")
+    description: str | None = None
+    status: str = "not_installed"
+    health: str = "unknown"
+    install_path: str | None = Field(default=None, alias="installPath")
+    last_verified_at: datetime | None = Field(default=None, alias="lastVerifiedAt")
+
+
+class LocalAiInstallation(ApiModel):
+    id: str
+    model_key: str = Field(alias="modelKey")
+    display_name: str = Field(alias="displayName")
+    capability: str
+    provider: str
+    version: str | None = None
+    install_path: str | None = Field(default=None, alias="installPath")
+    status: str
+    installed_at: datetime | None = Field(default=None, alias="installedAt")
+    last_verified_at: datetime | None = Field(default=None, alias="lastVerifiedAt")
+    size_bytes: int | None = Field(default=None, alias="sizeBytes")
+    license_summary: str | None = Field(default=None, alias="licenseSummary")
+    error_message: str | None = Field(default=None, alias="errorMessage")
+
+
+class LocalAiInstallJob(ApiModel):
+    id: str
+    job_id: str = Field(alias="jobId")
+    model_key: str = Field(alias="modelKey")
+    status: str
+    progress_percent: int = Field(default=0, alias="progressPercent")
+    current_step: str | None = Field(default=None, alias="currentStep")
+    logs_path: str | None = Field(default=None, alias="logsPath")
+    started_at: datetime | None = Field(default=None, alias="startedAt")
+    completed_at: datetime | None = Field(default=None, alias="completedAt")
+    error_message: str | None = Field(default=None, alias="errorMessage")
+
+
+class LocalAiInstallRequest(ApiModel):
+    confirm_network_download: bool = Field(default=False, alias="confirmNetworkDownload")
+    confirm_third_party_license: bool = Field(default=False, alias="confirmThirdPartyLicense")
+    confirm_system_install: bool = Field(default=False, alias="confirmSystemInstall")
+    repair: bool = False
+
+
+class LocalAiHealth(ApiModel):
+    model_key: str = Field(alias="modelKey")
+    status: str
+    ready: bool
+    message: str
+    version: str | None = None
+    install_path: str | None = Field(default=None, alias="installPath")
+    checked_at: datetime = Field(alias="checkedAt")
+    details: dict[str, object] = Field(default_factory=dict)
+
+
 class ProjectProductionSettings(ApiModel):
     project_id: str = Field(alias="projectId")
     narrator_voice_profile_id: str | None = Field(default=None, alias="narratorVoiceProfileId")

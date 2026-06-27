@@ -15,6 +15,7 @@ tags:
   - name: Casting
   - name: Pronunciation
   - name: Rendering
+  - name: Local AI
   - name: Settings
   - name: Jobs
   - name: Review
@@ -88,6 +89,122 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobStatus"
+
+  /api/v1/local-ai/catalog:
+    get:
+      tags: [Local AI]
+      summary: List local model and tool catalog entries with health
+      responses:
+        "200":
+          description: Local AI catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LocalAiCatalogItem"
+
+  /api/v1/local-ai/installed:
+    get:
+      tags: [Local AI]
+      summary: List persisted local model and tool installation records
+      responses:
+        "200":
+          description: Installed local capabilities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LocalAiInstallation"
+
+  /api/v1/local-ai/models/{model_key}/install:
+    post:
+      tags: [Local AI]
+      summary: Start a local model or system-tool install job
+      parameters:
+        - name: model_key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocalAiInstallRequest"
+      responses:
+        "202":
+          description: Install job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatus"
+
+  /api/v1/local-ai/models/{model_key}:
+    delete:
+      tags: [Local AI]
+      summary: Remove an app-managed local model entry
+      parameters:
+        - name: model_key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: App-managed model entry removed
+
+  /api/v1/local-ai/models/{model_key}/verify:
+    post:
+      tags: [Local AI]
+      summary: Verify and persist one local capability health record
+      parameters:
+        - name: model_key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Installation status after verification
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalAiInstallation"
+
+  /api/v1/local-ai/models/{model_key}/health:
+    get:
+      tags: [Local AI]
+      summary: Check current health for one local capability
+      parameters:
+        - name: model_key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Local capability health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalAiHealth"
+
+  /api/v1/local-ai/jobs/{jobId}:
+    get:
+      tags: [Local AI]
+      summary: Get local model install job metadata
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Local AI install job metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalAiInstallJob"
 
   /api/v1/projects:
     get:
@@ -1003,6 +1120,148 @@ components:
             - string
             - "null"
         voiceRegistryPath:
+          type:
+            - string
+            - "null"
+    LocalAiCatalogItem:
+      type: object
+      properties:
+        modelKey:
+          type: string
+        displayName:
+          type: string
+        capability:
+          type: string
+        provider:
+          type: string
+        installType:
+          type: string
+        required:
+          type: boolean
+        sizeMb:
+          type:
+            - integer
+            - "null"
+        licenseSummary:
+          type:
+            - string
+            - "null"
+        description:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+        health:
+          type: string
+        installPath:
+          type:
+            - string
+            - "null"
+        lastVerifiedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    LocalAiInstallation:
+      type: object
+      properties:
+        id:
+          type: string
+        modelKey:
+          type: string
+        displayName:
+          type: string
+        capability:
+          type: string
+        provider:
+          type: string
+        version:
+          type:
+            - string
+            - "null"
+        installPath:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+        installedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        lastVerifiedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        sizeBytes:
+          type:
+            - integer
+            - "null"
+        errorMessage:
+          type:
+            - string
+            - "null"
+    LocalAiInstallRequest:
+      type: object
+      properties:
+        confirmNetworkDownload:
+          type: boolean
+        confirmThirdPartyLicense:
+          type: boolean
+        confirmSystemInstall:
+          type: boolean
+        repair:
+          type: boolean
+    LocalAiHealth:
+      type: object
+      properties:
+        modelKey:
+          type: string
+        status:
+          type: string
+        ready:
+          type: boolean
+        message:
+          type: string
+        version:
+          type:
+            - string
+            - "null"
+        installPath:
+          type:
+            - string
+            - "null"
+        checkedAt:
+          type: string
+          format: date-time
+        details:
+          type: object
+          additionalProperties: true
+    LocalAiInstallJob:
+      type: object
+      properties:
+        id:
+          type: string
+        jobId:
+          type: string
+        modelKey:
+          type: string
+        status:
+          type: string
+        progressPercent:
+          type: integer
+        currentStep:
+          type:
+            - string
+            - "null"
+        logsPath:
+          type:
+            - string
+            - "null"
+        errorMessage:
           type:
             - string
             - "null"

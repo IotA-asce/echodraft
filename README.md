@@ -36,6 +36,7 @@ Echodraft can currently:
 * edit individual segments with immutable revision history;
 * configure narrator/voice settings through the dashboard;
 * run deterministic mock TTS for pipeline validation;
+* inspect and verify local tools/models in Model Center;
 * set up a local Kokoro ONNX voice system from the dashboard;
 * render missing or stale segment audio;
 * assemble immutable chapter renders;
@@ -68,6 +69,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | Structure extraction                | Working         | Chapters, scenes, and segments                                                             |
 | Segment editing                     | Working         | Saves new revisions instead of overwriting history                                         |
 | Mock TTS                            | Working         | Silent WAVs for validating the full workflow                                               |
+| Model Center                        | Alpha           | Catalog, health checks, install jobs, and OS package-manager install commands              |
 | Managed Kokoro setup                | Alpha           | Local CPU-oriented ONNX flow from the dashboard                                            |
 | Character/voice records             | Partial         | Editorial records exist; alpha synthesis does not fully automate character delivery        |
 | Review and patching                 | Working         | Segment-level patch loop with chapter reassembly                                           |

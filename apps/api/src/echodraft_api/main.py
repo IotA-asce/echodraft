@@ -39,6 +39,11 @@ from echodraft_domain import (
     VoiceProfileUpdate,
     KokoroSetupInstallRequest,
     KokoroSetupStatus,
+    LocalAiHealth,
+    LocalAiInstallation,
+    LocalAiInstallJob,
+    LocalAiInstallRequest,
+    LocalAiModelCatalogItem,
     TtsSettings,
     TtsSettingsUpdate,
     TtsTestRequest,
@@ -64,6 +69,7 @@ from .review import ReviewService
 from .exporting import ExportService
 from .production import ProductionService
 from .kokoro_setup import ManagedKokoroSetupService
+from .local_ai import LocalAiService
 
 logger = configure_logging()
 
@@ -193,6 +199,66 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         return container.jobs.submit_with_job(
             "kokoro_setup", operation, project_id=None, target_id="managed_onnx"
         )
+
+    @app.get("/api/v1/local-ai/catalog", response_model=list[LocalAiModelCatalogItem])
+    def get_local_ai_catalog(request: Request) -> list[LocalAiModelCatalogItem]:
+        return LocalAiService(request.app.state.container).catalog()
+
+    @app.get("/api/v1/local-ai/installed", response_model=list[LocalAiInstallation])
+    def get_local_ai_installed(request: Request) -> list[LocalAiInstallation]:
+        return LocalAiService(request.app.state.container).installations()
+
+    @app.post("/api/v1/local-ai/models/{model_key}/install", response_model=Job, status_code=202)
+    def install_local_ai_model(
+        model_key: str, payload: LocalAiInstallRequest, request: Request
+    ) -> Job:
+        container: AppContainer = request.app.state.container
+        service = LocalAiService(container)
+        try:
+            service.health(model_key)
+            service.validate_install_request(model_key, payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Local AI catalog item not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return container.jobs.submit_with_job(
+            "local_ai.install",
+            lambda job_id: LocalAiService(container).install(job_id, model_key, payload),
+            project_id=None,
+            target_id=model_key,
+        )
+
+    @app.post(
+        "/api/v1/local-ai/models/{model_key}/verify", response_model=LocalAiInstallation
+    )
+    def verify_local_ai_model(model_key: str, request: Request) -> LocalAiInstallation:
+        try:
+            return LocalAiService(request.app.state.container).verify(model_key)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Local AI catalog item not found") from error
+
+    @app.delete("/api/v1/local-ai/models/{model_key}", status_code=204)
+    def uninstall_local_ai_model(model_key: str, request: Request) -> None:
+        try:
+            LocalAiService(request.app.state.container).uninstall(model_key)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Local AI catalog item not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/api/v1/local-ai/models/{model_key}/health", response_model=LocalAiHealth)
+    def get_local_ai_health(model_key: str, request: Request) -> LocalAiHealth:
+        try:
+            return LocalAiService(request.app.state.container).health(model_key)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Local AI catalog item not found") from error
+
+    @app.get("/api/v1/local-ai/jobs/{job_id}", response_model=LocalAiInstallJob)
+    def get_local_ai_install_job(job_id: str, request: Request) -> LocalAiInstallJob:
+        install_job = LocalAiService(request.app.state.container).install_job(job_id)
+        if not install_job:
+            raise HTTPException(status_code=404, detail="Local AI install job not found")
+        return install_job
 
     @app.get("/api/v1/projects/{project_id}/artifacts/{artifact_path:path}")
     def get_artifact(project_id: str, artifact_path: str, request: Request) -> FileResponse:

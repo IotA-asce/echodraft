@@ -1,0 +1,96 @@
+models:
+  poppler:
+    display_name: Poppler PDF Tools
+    capability: pdf_rendering
+    provider: system
+    install_type: system_tool
+    required: true
+    command: pdftoppm
+    version_args: ["-v"]
+    size_mb: 80
+    license_summary: GPL-compatible utilities; verify distribution obligations for packaged builds.
+    description: Required to render PDF pages for OCR and page-level review.
+    packages:
+      homebrew: poppler
+      apt: poppler-utils
+      winget: oschwartz10612.Poppler
+
+  tesseract:
+    display_name: Tesseract OCR
+    capability: ocr
+    provider: system
+    install_type: system_tool
+    required: true
+    command: tesseract
+    version_args: ["--version"]
+    size_mb: 120
+    license_summary: Apache-2.0
+    description: Baseline local OCR engine for scanned manuscript pages.
+    packages:
+      homebrew: tesseract
+      apt: tesseract-ocr
+      winget: UB-Mannheim.TesseractOCR
+
+  ffmpeg:
+    display_name: FFmpeg
+    capability: audio_processing
+    provider: system
+    install_type: system_tool
+    required: true
+    command: ffmpeg
+    version_args: ["-version"]
+    size_mb: 180
+    license_summary: LGPL/GPL build dependent; verify codec distribution obligations.
+    description: Local audio conversion, MP3 export, future mixing, and loudness workflows.
+    packages:
+      homebrew: ffmpeg
+      apt: ffmpeg
+      winget: Gyan.FFmpeg
+
+  ollama:
+    display_name: Ollama Runtime
+    capability: local_llm_runtime
+    provider: ollama
+    install_type: system_tool
+    required: true
+    command: ollama
+    version_args: ["--version"]
+    size_mb: 900
+    license_summary: MIT for runtime; model licenses vary.
+    description: First supported local LLM runtime for schema-first extraction.
+    packages:
+      homebrew: ollama
+      apt: ollama
+      winget: Ollama.Ollama
+
+  qwen3_4b_ollama:
+    display_name: Qwen3 4B via Ollama
+    capability: local_llm
+    provider: ollama
+    install_type: ollama_model
+    required: false
+    ollama_model: qwen3:4b
+    size_mb: 2600
+    license_summary: Model license varies by upstream release; review before commercial use.
+    description: Default small local model candidate for structured manuscript extraction.
+
+  qwen3_embedding_ollama:
+    display_name: Qwen3 Embedding via Ollama
+    capability: embeddings
+    provider: ollama
+    install_type: ollama_model
+    required: false
+    ollama_model: qwen3-embedding
+    size_mb: 700
+    license_summary: Model license varies by upstream release; review before commercial use.
+    description: Local embedding model for alias grouping and future review assistance.
+
+  kokoro_82m_onnx:
+    display_name: Kokoro 82M ONNX
+    capability: tts
+    provider: kokoro_onnx
+    install_type: kokoro_managed
+    required: true
+    size_mb: 350
+    license_summary: Model and package licenses are third-party; review before commercial distribution.
+    description: Managed local TTS runtime already used by the alpha voice setup.

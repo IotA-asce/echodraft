@@ -39,6 +39,39 @@ class JobRecord(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class ModelInstallationRecord(Base):
+    __tablename__ = "model_installations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    model_key: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    capability: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider: Mapped[str] = mapped_column(String(100), nullable=False)
+    version: Mapped[str | None] = mapped_column(String(200))
+    install_path: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    installed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    size_bytes: Mapped[int | None] = mapped_column()
+    license_summary: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class ModelInstallJobRecord(Base):
+    __tablename__ = "model_install_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
+    model_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    progress_percent: Mapped[int] = mapped_column(nullable=False, default=0)
+    current_step: Mapped[str | None] = mapped_column(String(200))
+    logs_path: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
 class RightsDeclarationRecord(Base):
     __tablename__ = "rights_declarations"
 

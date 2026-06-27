@@ -6,6 +6,7 @@ from echodraft_db import (
     CastingRepository,
     Database,
     JobRepository,
+    LocalAiRepository,
     ProjectRepository,
     ProductionSettingsRepository,
     ReviewRepository,
@@ -34,6 +35,7 @@ class AppContainer:
     review: ReviewRepository
     ambience: AmbienceRepository
     production: ProductionSettingsRepository
+    local_ai: LocalAiRepository
     tts_settings: TtsSettingsStore
     tts_adapter: "TtsAdapter"
     jobs: InProcessJobRunner
@@ -58,6 +60,7 @@ def build_container(settings: AppSettings) -> AppContainer:
         review=ReviewRepository(database),
         ambience=AmbienceRepository(database),
         production=ProductionSettingsRepository(database),
+        local_ai=LocalAiRepository(database),
         tts_settings=tts_settings,
         tts_adapter=adapter,
         jobs=InProcessJobRunner(jobs_repository),

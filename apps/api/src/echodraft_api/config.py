@@ -13,6 +13,7 @@ class AppSettings:
     kokoro_voices_data_path: Path | None = None
     kokoro_voice_path: Path | None = None
     kokoro_runtime_root: Path = Path(".echodraft/kokoro/managed-onnx-v1")
+    local_ai_root: Path = Path(".echodraft/local-ai")
     tts_settings_path: Path = Path(".echodraft/tts-settings.json")
 
     @classmethod
@@ -41,6 +42,9 @@ class AppSettings:
             ),
             kokoro_runtime_root=Path(
                 os.getenv("ECHODRAFT_KOKORO_RUNTIME_ROOT", ".echodraft/kokoro/managed-onnx-v1")
+            ).expanduser().resolve(),
+            local_ai_root=Path(
+                os.getenv("ECHODRAFT_LOCAL_AI_ROOT", ".echodraft/local-ai")
             ).expanduser().resolve(),
             tts_settings_path=Path(
                 os.getenv("ECHODRAFT_TTS_SETTINGS_PATH", ".echodraft/tts-settings.json")
