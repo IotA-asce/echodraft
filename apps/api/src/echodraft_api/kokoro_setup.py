@@ -63,7 +63,7 @@ class ManagedKokoroPaths:
 
     @property
     def wrapper(self) -> Path:
-        return self.root / "echodraft_kokoro_onnx.py"
+        return self.root / "echodraft_kokoro_onnx"
 
     @property
     def model(self) -> Path:
@@ -360,6 +360,8 @@ class ManagedKokoroSetupService:
         return steps
 
     def _write_wrapper(self) -> None:
+        if self.paths.wrapper.is_file() and self.paths.wrapper.read_text(encoding="utf-8") == WRAPPER_SOURCE:
+            return
         self.paths.wrapper.write_text(WRAPPER_SOURCE, encoding="utf-8")
         if os.name != "nt":
             self.paths.wrapper.chmod(0o755)
