@@ -143,6 +143,13 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   expect(structureStyles.overflowY).toBe("hidden");
   await expect.poll(async () => structure.locator(":scope > div").first().evaluate((element) => window.getComputedStyle(element).overflowY)).toBe("auto");
   await expect.poll(async () => structure.locator(":scope > div").nth(2).evaluate((element) => window.getComputedStyle(element).overflowY)).toBe("auto");
+  const structureGap = await page.locator(".structure-view").evaluate((section) => {
+    const columns = section.querySelector(".structure-columns")?.getBoundingClientRect();
+    const production = section.querySelector(".production-bar")?.getBoundingClientRect();
+    return columns && production ? production.top - columns.bottom : Number.NaN;
+  });
+  expect(structureGap).toBeGreaterThanOrEqual(18);
+  expect(structureGap).toBeLessThan(48);
 
   await page.getByRole("button", { name: "Produce chapter" }).click();
   const productionPlayer = page.locator(".structure-view .chapter-audio-player");
