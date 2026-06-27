@@ -100,13 +100,16 @@ class ProductionService:
                 totalSegments=len(segments), currentSegments=0, activeRender=self._active(project_id, chapter_id),
             )
         overrides = self.container.production.overrides([segment.id for segment in segments])
+        speaker_voices = self.container.speaker_attributions.resolved_voice_profiles(
+            [segment.id for segment in segments]
+        )
         current = 0
         with self.container.structure.database.session() as session:
             for segment in segments:
                 requested_voice = (
                     overrides[segment.id].voice_profile_id
                     if segment.id in overrides and overrides[segment.id].voice_profile_id
-                    else settings.narrator_voice_profile_id
+                    else speaker_voices.get(segment.id, settings.narrator_voice_profile_id)
                 )
                 latest = session.scalar(
                     select(SegmentRenderRecord)
@@ -135,10 +138,17 @@ class ProductionService:
         assert settings.narrator_voice_profile_id
         segments = self._segments(chapter_id)
         overrides = self.container.production.overrides([segment.id for segment in segments])
+        speaker_voices = self.container.speaker_attributions.resolved_voice_profiles(
+            [segment.id for segment in segments]
+        )
         renderer = SegmentRenderer(self.container)
         for index, segment in enumerate(segments, 1):
             override = overrides.get(segment.id)
-            voice = override.voice_profile_id if override and override.voice_profile_id else settings.narrator_voice_profile_id
+            voice = (
+                override.voice_profile_id
+                if override and override.voice_profile_id
+                else speaker_voices.get(segment.id, settings.narrator_voice_profile_id)
+            )
             direction = (
                 DirectionProfile.model_validate(json.loads(override.direction_json))
                 if override and override.direction_json

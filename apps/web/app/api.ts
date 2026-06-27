@@ -9,6 +9,7 @@ export type StructureParserWarning = { id: string; projectId: string; sourceDocu
 export type Chapter = { id: string; title?: string | null; status: string; confidence: number; parserEvidence?: Record<string, unknown>; userLocked: boolean; lockReason?: string | null };
 export type Scene = { id: string; status: string; confidence: number; parserEvidence?: Record<string, unknown>; userLocked: boolean; lockReason?: string | null };
 export type Segment = { id: string; sceneId: string; textContent: string; revision: number; status: string; speakerCandidate?: string | null; segmentType: string; parserEvidence?: Record<string, unknown>; userLocked: boolean; lockReason?: string | null };
+export type SpeakerAttribution = { id: string; projectId: string; segmentId: string; characterId?: string | null; speakerName?: string | null; method: string; evidence: Record<string, unknown>; confidence: number; status: string; userLocked: boolean; voiceProfileId?: string | null; createdAt: string; updatedAt: string };
 export type Direction = { scopeType: string; scopeId: string; pace: number; intensity: number; tone: string; stylePrompt?: string | null; emphasis: boolean; whisper: boolean; noSfx: boolean };
 export type TtsSettings = { provider: "mock" | "kokoro"; setupMode?: "managed_onnx" | "custom_adapter" | null; executable?: string | null; runtimeRoot?: string | null; pythonPath?: string | null; modelPath?: string | null; voicesDataPath?: string | null; voiceRegistryPath?: string | null; ready: boolean; message?: string | null; availableVoices: string[] };
 export type KokoroSetupStep = { phase: string; label: string; status: string; message?: string | null };
@@ -84,6 +85,9 @@ export const updateSegment = (id: string, textContent: string) => request<Segmen
 export const setStructureLock = (scopeType: "chapter" | "scene" | "segment", scopeId: string, payload: { locked: boolean; reason?: string | null }) => request<Chapter | Scene | Segment>(`/api/v1/structure-locks/${scopeType}/${scopeId}`, json("PUT", payload));
 export const splitSegment = (id: string, splitOffset: number) => request<Segment>(`/api/v1/segments/${id}/split`, json("POST", { splitOffset }));
 export const mergeSegment = (id: string, nextSegmentId: string) => request<Segment>(`/api/v1/segments/${id}/merge`, json("POST", { nextSegmentId }));
+export const listSpeakerAttributions = (projectId: string, status?: string) => request<SpeakerAttribution[]>(`/api/v1/projects/${projectId}/speaker-attributions${status ? `?status=${encodeURIComponent(status)}` : ""}`);
+export const runSpeakerAttribution = (projectId: string, payload: { useLocalLlm?: boolean; model?: string } = {}) => request<Job>(`/api/v1/projects/${projectId}/speaker-attributions/run`, json("POST", payload));
+export const updateSpeakerAttribution = (attributionId: string, payload: { characterId?: string | null; speakerName?: string | null; status?: string; userLocked?: boolean }) => request<SpeakerAttribution>(`/api/v1/speaker-attributions/${attributionId}`, json("PATCH", payload));
 
 export const getTtsSettings = () => request<TtsSettings>("/api/v1/settings/tts");
 export const saveTtsSettings = (payload: Omit<TtsSettings, "ready" | "message" | "availableVoices">) => request<TtsSettings>("/api/v1/settings/tts", json("PUT", payload));

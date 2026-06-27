@@ -461,6 +461,23 @@ class CharacterVoiceAssignmentRecord(Base):
     voice_profile_id: Mapped[str] = mapped_column(ForeignKey("voice_profiles.id"))
 
 
+class SpeakerAttributionRecord(Base):
+    __tablename__ = "speaker_attributions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    segment_id: Mapped[str] = mapped_column(ForeignKey("segments.id"), unique=True, index=True)
+    character_id: Mapped[str | None] = mapped_column(ForeignKey("characters.id"), index=True)
+    speaker_name: Mapped[str | None] = mapped_column(String(200))
+    method: Mapped[str] = mapped_column(String(64), nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class PronunciationEntryRecord(Base):
     __tablename__ = "pronunciation_entries"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

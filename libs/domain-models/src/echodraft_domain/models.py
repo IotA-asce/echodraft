@@ -308,6 +308,34 @@ class Segment(ApiModel):
     revision: int
 
 
+class SpeakerAttribution(ApiModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    segment_id: str = Field(alias="segmentId")
+    character_id: str | None = Field(default=None, alias="characterId")
+    speaker_name: str | None = Field(default=None, alias="speakerName")
+    method: str
+    evidence: dict[str, object] = Field(default_factory=dict)
+    confidence: float
+    status: str
+    user_locked: bool = Field(default=False, alias="userLocked")
+    voice_profile_id: str | None = Field(default=None, alias="voiceProfileId")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+
+class SpeakerAttributionUpdate(ApiModel):
+    character_id: str | None = Field(default=None, alias="characterId")
+    speaker_name: str | None = Field(default=None, alias="speakerName")
+    status: str | None = None
+    user_locked: bool | None = Field(default=None, alias="userLocked")
+
+
+class SpeakerAttributionRunRequest(ApiModel):
+    use_local_llm: bool = Field(default=False, alias="useLocalLlm")
+    model: str = "qwen3:4b"
+
+
 class SegmentRevision(ApiModel):
     id: str
     segment_id: str = Field(alias="segmentId")
