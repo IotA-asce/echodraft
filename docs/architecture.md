@@ -57,9 +57,10 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
 ## Service boundaries
 ### Ingestion
 - import manuscript files
+- clean page markers, repeated headers/footers, broken wraps, and simple hyphenation before normalization
 - normalize text
 - persist PDF page images/text/OCR metadata when available
-- detect chapters
+- persist clean-text review issues separately from canonical manuscript text
 - persist canonical manuscript references
 
 ### Narrative
@@ -109,21 +110,22 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
 
 ## Processing pipeline
 1. Import source
-2. Normalize manuscript
-3. Split chapters
-4. Split scenes
-5. Extract segments
-6. Build character registry
-7. Assign speaker candidates
-8. Assign voice profiles
-9. Apply pronunciation rules
-10. Apply direction rules
-11. Generate segment audio
-12. Assemble speech stem
-13. Layer ambience when enabled
-14. Run QA checks
-15. Review and patch
-16. Export package
+2. Extract source text and page/OCR metadata
+3. Clean and normalize manuscript
+4. Split chapters
+5. Split scenes
+6. Extract segments
+7. Build character registry
+8. Assign speaker candidates
+9. Assign voice profiles
+10. Apply pronunciation rules
+11. Apply direction rules
+12. Generate segment audio
+13. Assemble speech stem
+14. Layer ambience when enabled
+15. Run QA checks
+16. Review and patch
+17. Export package
 
 ## Stage outputs
 ### Ingestion
@@ -131,6 +133,7 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
 - source page records and page artifacts for PDF imports
 - OCR run/results when scanned pages require local OCR
 - canonical span mappings from source pages to selected text
+- cleaning manifest and clean-text review issues
 - source manifest
 
 ### Structure

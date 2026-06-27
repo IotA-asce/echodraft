@@ -114,6 +114,33 @@ Key columns:
 - `extraction_method` TEXT NOT NULL
 - `confidence` REAL NOT NULL
 
+### `cleaning_runs`
+Purpose: metadata for deterministic clean-text passes performed before canonical normalization.
+
+Key columns:
+- `id` TEXT PK
+- `source_document_id` FK
+- `status` TEXT NOT NULL
+- `manifest_path` TEXT nullable
+- `started_at` DATETIME NOT NULL
+- `completed_at` DATETIME nullable
+- `error_message` TEXT nullable
+
+### `text_cleanliness_issues`
+Purpose: reviewable applied cleaning decisions and open suspicious-text findings.
+
+Key columns:
+- `id` TEXT PK
+- `source_document_id` FK
+- `canonical_span_start` INTEGER NOT NULL
+- `canonical_span_end` INTEGER NOT NULL
+- `issue_type` TEXT NOT NULL
+- `severity` TEXT NOT NULL
+- `suggested_fix` TEXT nullable
+- `confidence` REAL NOT NULL
+- `status` TEXT NOT NULL
+- `resolved_by_user` BOOLEAN NOT NULL
+
 ### `chapters`
 Purpose: chapter-level structure.
 
@@ -380,22 +407,24 @@ Key columns:
 4. `ocr_runs`
 5. `ocr_page_results`
 6. `canonical_spans`
-7. `chapters`
-8. `scenes`
-9. `characters`
-10. `voice_profiles`
-11. `character_voice_assignments`
-12. `pronunciation_entries`
-13. `segments`
-14. `segment_renders`
-15. `chapter_renders`
-16. `issues`
-17. `comments`
-18. `exports`
-19. `jobs`
-20. `model_installations`
-21. `model_install_jobs`
-22. `rights_declarations`
+7. `cleaning_runs`
+8. `text_cleanliness_issues`
+9. `chapters`
+10. `scenes`
+11. `characters`
+12. `voice_profiles`
+13. `character_voice_assignments`
+14. `pronunciation_entries`
+15. `segments`
+16. `segment_renders`
+17. `chapter_renders`
+18. `issues`
+19. `comments`
+20. `exports`
+21. `jobs`
+22. `model_installations`
+23. `model_install_jobs`
+24. `rights_declarations`
 
 ## Lifecycle semantics
 - `segments.current_render_id` points to the active immutable render.

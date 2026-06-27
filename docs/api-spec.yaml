@@ -206,6 +206,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/LocalAiInstallJob"
 
+  /api/v1/sources/{source_id}:
+    get:
+      tags: [Source]
+      summary: Get one source document and canonical preview
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Source document with canonical preview when available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceDocument"
+
   /api/v1/sources/{source_id}/pages:
     get:
       tags: [Source]
@@ -248,6 +266,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SourcePage"
+
+  /api/v1/sources/{source_id}/cleaning-issues:
+    get:
+      tags: [Source]
+      summary: List clean-text review issues for a source document
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Clean-text review issue records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TextCleanlinessIssue"
+
+  /api/v1/sources/{source_id}/cleaning-runs:
+    get:
+      tags: [Source]
+      summary: List clean-text runs for a source document
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Clean-text run records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CleaningRun"
+
+  /api/v1/cleaning-issues/{issue_id}:
+    patch:
+      tags: [Source]
+      summary: Update clean-text review issue state
+      parameters:
+        - name: issue_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TextCleanlinessIssueUpdate"
+      responses:
+        "200":
+          description: Updated clean-text review issue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TextCleanlinessIssue"
 
   /api/v1/projects:
     get:
@@ -1984,3 +2066,60 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ParserWarning"
+    CleaningRun:
+      type: object
+      properties:
+        id:
+          type: string
+        sourceDocumentId:
+          type: string
+        status:
+          type: string
+        manifestPath:
+          type:
+            - string
+            - "null"
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        errorMessage:
+          type:
+            - string
+            - "null"
+    TextCleanlinessIssue:
+      type: object
+      properties:
+        id:
+          type: string
+        sourceDocumentId:
+          type: string
+        canonicalSpanStart:
+          type: integer
+        canonicalSpanEnd:
+          type: integer
+        issueType:
+          type: string
+        severity:
+          type: string
+        suggestedFix:
+          type:
+            - string
+            - "null"
+        confidence:
+          type: number
+        status:
+          type: string
+        resolvedByUser:
+          type: boolean
+    TextCleanlinessIssueUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+        resolvedByUser:
+          type: boolean

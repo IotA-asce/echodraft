@@ -146,6 +146,34 @@ class CanonicalSpan(ApiModel):
     confidence: float
 
 
+class CleaningRun(ApiModel):
+    id: str
+    source_document_id: str = Field(alias="sourceDocumentId")
+    status: str
+    manifest_path: str | None = Field(default=None, alias="manifestPath")
+    started_at: datetime = Field(alias="startedAt")
+    completed_at: datetime | None = Field(default=None, alias="completedAt")
+    error_message: str | None = Field(default=None, alias="errorMessage")
+
+
+class TextCleanlinessIssue(ApiModel):
+    id: str
+    source_document_id: str = Field(alias="sourceDocumentId")
+    canonical_span_start: int = Field(alias="canonicalSpanStart")
+    canonical_span_end: int = Field(alias="canonicalSpanEnd")
+    issue_type: str = Field(alias="issueType")
+    severity: str
+    suggested_fix: str | None = Field(default=None, alias="suggestedFix")
+    confidence: float
+    status: str
+    resolved_by_user: bool = Field(default=False, alias="resolvedByUser")
+
+
+class TextCleanlinessIssueUpdate(ApiModel):
+    status: str | None = None
+    resolved_by_user: bool | None = Field(default=None, alias="resolvedByUser")
+
+
 class StructureRequest(ApiModel):
     max_segment_chars: int = Field(default=600, ge=120, le=2000, alias="maxSegmentChars")
 

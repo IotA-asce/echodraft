@@ -31,7 +31,7 @@ Echodraft can currently:
 
 * create local audiobook projects with explicit rights acknowledgement;
 * ingest TXT, Markdown, DOCX, EPUB, and PDF manuscripts;
-* preserve source originals, PDF page metadata, canonical text, parser warnings, and import manifests;
+* preserve source originals, PDF page metadata, clean-text decisions, canonical text, parser warnings, and import manifests;
 * split manuscripts into chapters, scenes, and sentence-safe segments;
 * edit individual segments with immutable revision history;
 * configure narrator/voice settings through the dashboard;
@@ -66,6 +66,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | Project creation                    | Working         | Dashboard requires rights acknowledgement                                                  |
 | TXT / Markdown / DOCX / EPUB import | Working         | Local ingestion and canonical text generation                                              |
 | PDF import                          | Alpha           | Page-aware text/OCR selection; scanned pages require Poppler + Tesseract English OCR        |
+| Clean Text Review                   | Alpha           | Page-marker cleanup and suspicious OCR-token review before structure extraction             |
 | Structure extraction                | Working         | Chapters, scenes, and segments                                                             |
 | Segment editing                     | Working         | Saves new revisions instead of overwriting history                                         |
 | Mock TTS                            | Working         | Silent WAVs for validating the full workflow                                               |
@@ -376,7 +377,7 @@ Echodraft rejects projects without a declared rights status.
 
 Open the project and import a `.txt`, `.md`, `.markdown`, `.docx`, `.epub`, or `.pdf` file.
 
-Echodraft preserves the original, creates canonical text, and reports parser warnings. Review the preview before continuing.
+Echodraft preserves the original, applies deterministic clean-text rules, creates canonical text, and reports parser warnings. Review the preview and Clean Text Review issues before continuing.
 
 Use **Reparse** to repeat normalization from the preserved source.
 

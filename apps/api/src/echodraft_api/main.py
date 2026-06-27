@@ -9,6 +9,7 @@ from echodraft_domain import (
     ChapterRender,
     Character,
     CharacterCreate,
+    CleaningRun,
     Comment,
     CommentCreate,
     ExportPackage,
@@ -33,6 +34,8 @@ from echodraft_domain import (
     SourceDocument,
     SourcePage,
     StructureRequest,
+    TextCleanlinessIssue,
+    TextCleanlinessIssueUpdate,
     VoicePreview,
     VoicePreviewRequest,
     VoiceProfile,
@@ -382,6 +385,16 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             source.preview = Path(source.canonical_path).read_text(encoding="utf-8")[:6000]
         return source
 
+    @app.get("/api/v1/sources/{source_id}", response_model=SourceDocument)
+    def get_source_by_id(source_id: str, request: Request) -> SourceDocument:
+        container: AppContainer = request.app.state.container
+        source = container.sources.get(source_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Source document not found")
+        if source.canonical_path and Path(source.canonical_path).exists():
+            source.preview = Path(source.canonical_path).read_text(encoding="utf-8")[:6000]
+        return source
+
     def source_page_with_url(source: SourceDocument, page: SourcePage) -> SourcePage:
         return page.model_copy(
             update={
@@ -412,6 +425,42 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         if not page:
             raise HTTPException(status_code=404, detail="Source page not found")
         return source_page_with_url(source, page)
+
+    @app.get(
+        "/api/v1/sources/{source_id}/cleaning-issues",
+        response_model=list[TextCleanlinessIssue],
+    )
+    def list_cleaning_issues(
+        source_id: str, request: Request
+    ) -> list[TextCleanlinessIssue]:
+        container: AppContainer = request.app.state.container
+        if not container.sources.get(source_id):
+            raise HTTPException(status_code=404, detail="Source document not found")
+        return container.source_artifacts.cleanliness_issues(source_id)
+
+    @app.get(
+        "/api/v1/sources/{source_id}/cleaning-runs",
+        response_model=list[CleaningRun],
+    )
+    def list_cleaning_runs(source_id: str, request: Request) -> list[CleaningRun]:
+        container: AppContainer = request.app.state.container
+        if not container.sources.get(source_id):
+            raise HTTPException(status_code=404, detail="Source document not found")
+        return container.source_artifacts.cleaning_runs(source_id)
+
+    @app.patch(
+        "/api/v1/cleaning-issues/{issue_id}", response_model=TextCleanlinessIssue
+    )
+    def update_cleaning_issue(
+        issue_id: str, payload: TextCleanlinessIssueUpdate, request: Request
+    ) -> TextCleanlinessIssue:
+        container: AppContainer = request.app.state.container
+        issue = container.source_artifacts.update_cleanliness_issue(
+            issue_id, payload.status, payload.resolved_by_user
+        )
+        if not issue:
+            raise HTTPException(status_code=404, detail="Cleaning issue not found")
+        return issue
 
     @app.post(
         "/api/v1/projects/{project_id}/structure/extract", response_model=Job, status_code=202
