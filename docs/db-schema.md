@@ -273,6 +273,39 @@ Indexes:
 - `(project_id, status)`
 - `job_type`
 
+### `model_installations`
+Purpose: persisted verification snapshots for local tools and models managed by Model Center.
+
+Key columns:
+- `id` TEXT PK
+- `model_key` TEXT UNIQUE
+- `display_name` TEXT NOT NULL
+- `capability` TEXT NOT NULL
+- `provider` TEXT NOT NULL
+- `version` TEXT nullable
+- `install_path` TEXT nullable
+- `status` TEXT NOT NULL
+- `installed_at` DATETIME nullable
+- `last_verified_at` DATETIME nullable
+- `size_bytes` INTEGER nullable
+- `license_summary` TEXT nullable
+- `error_message` TEXT nullable
+
+### `model_install_jobs`
+Purpose: Model Center install-job details and log locations linked to generic jobs.
+
+Key columns:
+- `id` TEXT PK
+- `job_id` FK
+- `model_key` TEXT NOT NULL
+- `status` TEXT NOT NULL
+- `progress_percent` INTEGER NOT NULL
+- `current_step` TEXT nullable
+- `logs_path` TEXT nullable
+- `started_at` DATETIME nullable
+- `completed_at` DATETIME nullable
+- `error_message` TEXT nullable
+
 ### `rights_declarations`
 Purpose: rights assertion and export gating.
 
@@ -302,7 +335,9 @@ Key columns:
 13. `comments`
 14. `exports`
 15. `jobs`
-16. `rights_declarations`
+16. `model_installations`
+17. `model_install_jobs`
+18. `rights_declarations`
 
 ## Lifecycle semantics
 - `segments.current_render_id` points to the active immutable render.

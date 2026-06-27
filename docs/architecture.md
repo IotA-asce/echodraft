@@ -47,6 +47,7 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
         +--> QA Module
         +--> Review Module
         +--> Export Module
+        +--> Local AI / Model Center
         |
         +--> SQLite
         +--> Local Artifact Store
@@ -80,6 +81,12 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
 - expose backend-agnostic synthesis contracts
 - generate per-segment audio
 - persist alignment, waveform, and diagnostics
+
+### Local AI / Model Center
+- maintain the local model and tool catalog
+- install and verify supported local system tools and model runtimes
+- report capability health to ingestion, LLM, TTS, and audio workflows
+- persist installation state and setup logs
 
 ### Audio assembly
 - order active segment renders

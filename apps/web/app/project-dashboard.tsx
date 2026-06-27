@@ -3,14 +3,15 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import {
   addComment, assetUrl, createCharacter, createExport, createProject, createPronunciation, createVoice, deleteVoice,
-  extractStructure, getJob, getKokoroSetup, getProductionSettings, getProductionStatus, getSource, getTtsSettings,
-  installKokoroSetup,
+  extractStructure, getJob, getKokoroSetup, getLocalAiInstallJob, getProductionSettings, getProductionStatus,
+  getSource, getTtsSettings, installKokoroSetup, installLocalAiModel,
   importSource, listCharacters, listChapters, listComments, listExports, listIssues, listPronunciations,
-  listProjects, listScenes, listSegments, listVoices, patchSegment, previewVoice, produceChapter,
+  listLocalAiCatalog, listProjects, listScenes, listSegments, listVoices, patchSegment, previewVoice, produceChapter,
   reparseSource, saveProductionSettings, saveSegmentOverride, saveTtsSettings, testTtsSettings,
-  updateIssue, updateSegment, type Chapter, type Character, type Comment, type Direction, type ExportPackage,
-  type Issue, type Job, type KokoroSetupStatus, type ProductionSettings, type ProductionStatus, type Pronunciation, type Project,
-  type Scene, type Segment, type SourceDocument, type TtsSettings, type VoiceProfile,
+  updateIssue, updateSegment, verifyLocalAiModel, type Chapter, type Character, type Comment, type Direction,
+  type ExportPackage, type Issue, type Job, type KokoroSetupStatus, type LocalAiCatalogItem, type LocalAiInstallJob,
+  type ProductionSettings, type ProductionStatus, type Pronunciation, type Project, type Scene, type Segment,
+  type SourceDocument, type TtsSettings, type VoiceProfile,
 } from "./api";
 
 const directionFor = (scopeType: string, scopeId: string): Direction => ({ scopeType, scopeId, pace: 1, intensity: 0.4, tone: "neutral", stylePrompt: "Clear, restrained audiobook narration", emphasis: false, whisper: false, noSfx: true });
@@ -30,6 +31,7 @@ export function ProjectDashboard() {
   const [editing, setEditing] = useState<Segment | null>(null); const [draft, setDraft] = useState("");
   const [tts, setTts] = useState<TtsSettings | null>(null); const [selectedTtsProvider, setSelectedTtsProvider] = useState<TtsSettings["provider"]>("mock"); const [kokoroSetup, setKokoroSetup] = useState<KokoroSetupStatus | null>(null); const [voices, setVoices] = useState<VoiceProfile[]>([]); const [production, setProduction] = useState<ProductionSettings | null>(null);
   const [status, setStatus] = useState<ProductionStatus | null>(null); const [job, setJob] = useState<Job | null>(null); const [setupJob, setSetupJob] = useState<Job | null>(null);
+  const [localAiCatalog, setLocalAiCatalog] = useState<LocalAiCatalogItem[]>([]); const [localAiJob, setLocalAiJob] = useState<Job | null>(null); const [localAiInstallJob, setLocalAiInstallJob] = useState<LocalAiInstallJob | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]); const [comments, setComments] = useState<Comment[]>([]); const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
   const [exports, setExports] = useState<ExportPackage[]>([]); const [characters, setCharacters] = useState<Character[]>([]); const [pronunciations, setPronunciations] = useState<Pronunciation[]>([]);
   const [notice, setNotice] = useState<string | null>(null); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
@@ -40,7 +42,7 @@ export function ProjectDashboard() {
   const narrator = voices.find((item) => item.id === production?.narratorVoiceProfileId) ?? null;
   const kokoroVoices = kokoroSetup?.availableVoices.length ? kokoroSetup.availableVoices : (tts?.provider === "kokoro" ? tts.availableVoices : []);
 
-  useEffect(() => { listProjects().then(setProjects).catch((cause) => setError(messageOf(cause))); getTtsSettings().then((next) => { setTts(next); setSelectedTtsProvider(next.provider); }).catch((cause) => setError(messageOf(cause))); getKokoroSetup().then(setKokoroSetup).catch((cause) => setError(messageOf(cause))); }, []);
+  useEffect(() => { listProjects().then(setProjects).catch((cause) => setError(messageOf(cause))); getTtsSettings().then((next) => { setTts(next); setSelectedTtsProvider(next.provider); }).catch((cause) => setError(messageOf(cause))); getKokoroSetup().then(setKokoroSetup).catch((cause) => setError(messageOf(cause))); void refreshLocalAi(); }, []);
   useEffect(() => {
     if (!job || !["queued", "running"].includes(job.status)) return;
     const timer = window.setTimeout(() => {
@@ -72,6 +74,28 @@ export function ProjectDashboard() {
     }, 750);
     return () => window.clearTimeout(timer);
   }, [setupJob]);
+  useEffect(() => {
+    if (!localAiJob || !["queued", "running"].includes(localAiJob.status)) return;
+    const timer = window.setTimeout(() => {
+      void Promise.allSettled([getJob(localAiJob.id), getLocalAiInstallJob(localAiJob.id)]).then((settled) => {
+        const [nextJob, nextInstallJob] = settled;
+        if (nextJob.status === "fulfilled") {
+          setLocalAiJob(nextJob.value);
+          if (nextJob.value.status === "succeeded") {
+            void refreshLocalAi();
+            void refreshTtsSetup({ syncProvider: true });
+            setNotice("Local AI setup completed and was verified.");
+          }
+          if (nextJob.value.status === "failed") {
+            setError(nextJob.value.errorMessage ?? "Local AI setup failed.");
+            void refreshLocalAi();
+          }
+        }
+        if (nextInstallJob.status === "fulfilled") setLocalAiInstallJob(nextInstallJob.value);
+      }).catch((cause) => setError(messageOf(cause)));
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [localAiJob]);
 
   async function loadProject(projectId: string) {
     setSelectedProjectId(projectId); setError(null); setNotice(null); setSelectedChapter(null); setScenes([]); setSegments([]);
@@ -83,6 +107,7 @@ export function ProjectDashboard() {
     if (nextCharacters.status === "fulfilled") setCharacters(nextCharacters.value); if (nextPronunciations.status === "fulfilled") setPronunciations(nextPronunciations.value);
   }
   async function waitFor(jobId: string, projectId: string) { for (let i = 0; i < 80; i += 1) { const next = await getJob(jobId); if (next.status === "succeeded") return; if (next.status === "failed" || next.status === "cancelled") throw new Error(next.errorMessage || "Background task failed."); await new Promise((resolve) => setTimeout(resolve, 250)); } throw new Error("The task is taking longer than expected."); }
+  async function refreshLocalAi() { try { setLocalAiCatalog(await listLocalAiCatalog()); } catch (cause) { setError(messageOf(cause)); } }
   async function refreshProduction(projectId: string, chapterId: string) { try { const [nextStatus, nextIssues] = await Promise.all([getProductionStatus(projectId, chapterId), listIssues(projectId)]); setStatus(nextStatus); setIssues(nextIssues); } catch (cause) { setStatus(null); setError(messageOf(cause)); } }
   async function refreshTtsSetup(options?: { syncProvider?: boolean }) { const [nextTts, nextSetup] = await Promise.all([getTtsSettings(), getKokoroSetup()]); setTts(nextTts); setKokoroSetup(nextSetup); if (options?.syncProvider || nextTts.provider === "kokoro") setSelectedTtsProvider(nextTts.provider); }
 
@@ -92,6 +117,8 @@ export function ProjectDashboard() {
   async function openChapter(chapter: Chapter) { if (!selectedProjectId) return; setSelectedChapter(chapter); setStatus(null); try { const nextScenes = await listScenes(chapter.id); setScenes(nextScenes); setSegments(nextScenes[0] ? await listSegments(nextScenes[0].id) : []); await refreshProduction(selectedProjectId, chapter.id); } catch (cause) { setScenes([]); setSegments([]); setError(messageOf(cause)); } }
   async function saveEdit() { if (!editing || !draft.trim()) return; setBusy(true); try { const updated = await updateSegment(editing.id, draft.trim()); setSegments((current) => current.map((item) => item.id === updated.id ? updated : item)); setEditing(null); setNotice(`Revision r${updated.revision} saved. It will be rendered during the next chapter run.`); if (selectedProjectId && selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
   async function saveTts() { if (!tts) return; setBusy(true); try { const saved = await saveTtsSettings({ provider: selectedTtsProvider, setupMode: selectedTtsProvider === "kokoro" ? tts.setupMode : null, executable: tts.executable, runtimeRoot: tts.runtimeRoot, pythonPath: tts.pythonPath, modelPath: tts.modelPath, voicesDataPath: tts.voicesDataPath, voiceRegistryPath: tts.voiceRegistryPath }); setTts(saved); setSelectedTtsProvider(saved.provider); await testTtsSettings(); await refreshTtsSetup({ syncProvider: true }); setNotice("Local TTS settings saved and validated."); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
+  async function installLocalAi(item: LocalAiCatalogItem) { setBusy(true); try { const next = await installLocalAiModel(item.modelKey, { confirmNetworkDownload: true, confirmThirdPartyLicense: true, confirmSystemInstall: true, repair: item.status === "failed" }); setLocalAiJob(next); setLocalAiInstallJob(null); setNotice(`${item.displayName} setup is running locally.`); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
+  async function verifyLocalAi(item: LocalAiCatalogItem) { setBusy(true); try { await verifyLocalAiModel(item.modelKey); await refreshLocalAi(); setNotice(`${item.displayName} health was checked.`); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
   async function startKokoroSetup() { setSelectedTtsProvider("kokoro"); setBusy(true); try { const next = await installKokoroSetup({ confirmNetworkDownload: true, confirmThirdPartyLicense: true, repair: kokoroSetup?.state === "failed" || kokoroSetup?.state === "incomplete" }); setSetupJob(next); setNotice("Kokoro setup is running locally. This can take several minutes on the first run."); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
   async function addVoice(event: FormEvent) { event.preventDefault(); if (!selectedProjectId || !voiceName.trim() || !providerVoiceId.trim()) return; try { const voice = await createVoice(selectedProjectId, { name: voiceName.trim(), backend: selectedTtsProvider, providerVoiceId: providerVoiceId.trim() }); setVoices((current) => [...current, voice]); setVoiceName(""); setProviderVoiceId(""); } catch (cause) { setError(messageOf(cause)); } }
   async function ensureKokoroVoice(voiceId: string) { if (!selectedProjectId) return null; const existing = voices.find((voice) => voice.providerVoiceId === voiceId && voice.backend === "kokoro"); if (existing) return existing; const created = await createVoice(selectedProjectId, { name: `Kokoro ${voiceId}`, backend: "kokoro", providerVoiceId: voiceId }); setVoices((current) => [...current, created]); return created; }
@@ -112,6 +139,7 @@ export function ProjectDashboard() {
     <header className="masthead"><a className="wordmark" href="#top"><span className="wordmark-mark">e</span><span>echodraft</span></a><p>{tts?.ready ? `${tts.provider} local runtime ready` : "TTS needs local setup"}</p></header>
     <section className="hero" id="top"><div><p className="eyebrow">The production desk</p><h1>Stories, prepared<br />for their next voice.</h1><p className="lede">A local, segment-first studio for shaping a manuscript into a reviewable audiobook draft.</p></div><aside className="status-card"><span className="pulse" /><div><p>Production status</p><strong>{setupJob?.status === "running" ? `Kokoro setup: ${String(setupJob.progress.phase ?? "working")}` : job?.status === "running" ? `Producing: ${String(job.progress.phase ?? "working")}` : selectedChapter ? `${status?.currentSegments ?? 0}/${status?.totalSegments ?? 0} segments current` : "Choose a chapter"}</strong></div><small>Files, renders, manifests, and exports remain on this machine.</small></aside></section>
     {error ? <p className="notice error">{error}</p> : null}{notice ? <p className="notice success">{notice}</p> : null}
+    <ModelCenter catalog={localAiCatalog} job={localAiJob} installJob={localAiInstallJob} busy={busy} onInstall={installLocalAi} onVerify={verifyLocalAi} />
     <section className="workspace"><form className="create-card" onSubmit={create}><p className="eyebrow">New project</p><h2>Open a production file</h2><label>Title<input aria-label="Title" value={title} onChange={(event) => setTitle(event.target.value)} required /></label><label>Author <span>optional</span><input value={author} onChange={(event) => setAuthor(event.target.value)} /></label><label className="rights-check"><input type="checkbox" checked={rights} onChange={(event) => setRights(event.target.checked)} /><span>I confirm I have the rights to create this audiobook draft.</span></label><button disabled={busy || !rights || !title.trim()}>Create project</button></form>
       <section className="project-panel"><div className="panel-heading"><div><p className="eyebrow">Project library</p><h2>Your local productions</h2></div><span>{projects.length} projects</span></div><ul className="project-list">{projects.map((item) => <li key={item.id} className={item.id === selectedProjectId ? "selected" : undefined}><div className="project-index">{item.title.slice(0, 1).toUpperCase()}</div><div><strong>{item.title}</strong><p>{item.author || "Independent production"} · {item.status}</p></div><button className="select-project" type="button" onClick={() => void loadProject(item.id)}>Open</button></li>)}</ul></section>
     </section>
@@ -146,4 +174,27 @@ function ChapterAudioPlayer({ chapter, activeRender, job, provider }: { chapter:
   const progress = chapterJobProgress(job);
   const renderMode = activeRender?.renderMode ? activeRender.renderMode.replaceAll("_", " ") : "speech only";
   return <article className="chapter-audio-player" aria-label="Active chapter audio"><div className="chapter-audio-heading"><div><p className="eyebrow">Active chapter audio</p><h3>{chapter.title || "Untitled chapter"}</h3></div><small>{activeRender ? `${renderMode} · ${formatDuration(activeRender.durationMs)}` : "No active render"}</small></div>{progress ? <div className="chapter-progress" aria-live="polite"><div className="chapter-progress-row"><span>{progress.label}</span><span>{progress.percent}%</span></div><progress aria-label="Chapter production progress" className="chapter-progress-bar" value={progress.percent} max={100} /><p className="chapter-progress-detail">{progress.detail}</p></div> : activeRender?.audioUrl ? <><audio controls src={assetUrl(activeRender.audioUrl)} className="audio-player" />{provider === "mock" ? <p className="chapter-audio-note">Mock TTS creates silent workflow audio.</p> : null}</> : <p className="import-placeholder">Produce this chapter to create playable audio.</p>}</article>;
+}
+
+function capabilityLabel(value: string) {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function modelStatus(item: LocalAiCatalogItem) {
+  if (item.health === "ready") return "Ready";
+  if (item.status === "failed") return "Failed";
+  if (item.health === "missing") return "Missing";
+  if (item.health === "unavailable") return "Unavailable";
+  return item.status.replaceAll("_", " ");
+}
+
+function ModelCenter({ catalog, job, installJob, busy, onInstall, onVerify }: { catalog: LocalAiCatalogItem[]; job: Job | null; installJob: LocalAiInstallJob | null; busy: boolean; onInstall: (item: LocalAiCatalogItem) => Promise<void>; onVerify: (item: LocalAiCatalogItem) => Promise<void> }) {
+  const required = catalog.filter((item) => item.required);
+  const readyRequired = required.filter((item) => item.health === "ready").length;
+  const running = job && ["queued", "running"].includes(job.status);
+  const activeKey = installJob?.modelKey;
+  const groups = ["pdf_rendering", "ocr", "local_llm_runtime", "local_llm", "embeddings", "tts", "audio_processing"];
+  const ordered = [...catalog].sort((a, b) => groups.indexOf(a.capability) - groups.indexOf(b.capability));
+
+  return <section className="studio-section model-center"><div><p className="eyebrow">00 / Model Center</p><h2>Local capability setup</h2><p className="lede">Install and verify the local tools and models Echodraft uses for private audiobook production.</p><div className="model-summary"><strong>{readyRequired}/{required.length} required ready</strong><small>Runtime files and setup logs are stored under the local Echodraft workspace.</small></div>{running ? <div className="chapter-progress model-progress" aria-live="polite"><div className="chapter-progress-row"><span>{installJob?.currentStep || String(job.progress.message ?? "Working")}</span><span>{installJob?.progressPercent ?? progressNumber(job.progress.progressPercent) ?? 0}%</span></div><progress className="chapter-progress-bar" value={installJob?.progressPercent ?? progressNumber(job.progress.progressPercent) ?? 0} max={100} /><p className="chapter-progress-detail">{activeKey ? `Installing ${activeKey}` : "Local setup is running."}</p></div> : null}</div><div className="studio-card model-grid">{ordered.map((item) => <article className={`model-card ${item.health}`} key={item.modelKey}><div className="model-card-heading"><div><strong>{item.displayName}</strong><small>{capabilityLabel(item.capability)} · {item.provider}</small></div><span className={`model-badge ${item.health}`}>{modelStatus(item)}</span></div><p>{item.description}</p><div className="model-meta"><span>{item.installType.replaceAll("_", " ")}</span>{item.sizeMb ? <span>{item.sizeMb} MB</span> : null}{item.required ? <span>Required</span> : <span>Optional</span>}</div>{item.licenseSummary ? <small className="license-note">{item.licenseSummary}</small> : null}{item.installPath ? <small className="model-path">{item.installPath}</small> : null}<div className="model-actions"><button type="button" className="small-button" disabled={busy || Boolean(running)} onClick={() => void onInstall(item)}>{item.health === "ready" ? "Repair" : "Install"}</button><button type="button" className="small-button" disabled={busy || Boolean(running)} onClick={() => void onVerify(item)}>Verify</button></div></article>)}</div></section>;
 }
