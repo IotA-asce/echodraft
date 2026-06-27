@@ -13,7 +13,9 @@ export default defineConfig({
       cwd: root,
       env: {
         ECHODRAFT_DATABASE_URL: "sqlite:///./.tmp/playwright/foundations.db",
-        ECHODRAFT_ARTIFACT_ROOT: "./.tmp/playwright/artifacts"
+        ECHODRAFT_ARTIFACT_ROOT: "./.tmp/playwright/artifacts",
+        ECHODRAFT_TTS_SETTINGS_PATH: "./.tmp/playwright/tts-settings.json",
+        ECHODRAFT_KOKORO_RUNTIME_ROOT: "./.tmp/playwright/kokoro/managed-onnx-v1"
       },
       url: "http://127.0.0.1:8000/health",
       reuseExistingServer: false
