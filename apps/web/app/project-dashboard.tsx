@@ -124,4 +124,20 @@ function ReferenceForm({ label, placeholder, items, onSubmit }: { label: string;
 
 function formatDuration(durationMs?: number | null) { if (durationMs == null) return "Duration pending"; const totalSeconds = Math.round(durationMs / 1000); const minutes = Math.floor(totalSeconds / 60); const seconds = String(totalSeconds % 60).padStart(2, "0"); return `${minutes}:${seconds}`; }
 
-function ChapterAudioPlayer({ chapter, activeRender, job, provider }: { chapter: Chapter; activeRender?: ProductionStatus["activeRender"]; job: Job | null; provider?: TtsSettings["provider"] }) { const isRendering = job ? ["queued", "running"].includes(job.status) : false; const renderMode = activeRender?.renderMode ? activeRender.renderMode.replaceAll("_", " ") : "speech only"; return <article className="chapter-audio-player" aria-label="Active chapter audio"><div className="chapter-audio-heading"><div><p className="eyebrow">Active chapter audio</p><h3>{chapter.title || "Untitled chapter"}</h3></div><small>{activeRender ? `${renderMode} · ${formatDuration(activeRender.durationMs)}` : "No active render"}</small></div>{isRendering ? <p className="import-placeholder">Chapter production is running; audio will appear when complete.</p> : activeRender?.audioUrl ? <><audio controls src={assetUrl(activeRender.audioUrl)} className="audio-player" />{provider === "mock" ? <p className="chapter-audio-note">Mock TTS creates silent workflow audio.</p> : null}</> : <p className="import-placeholder">Produce this chapter to create playable audio.</p>}</article>; }
+function progressNumber(value: unknown) { return typeof value === "number" && Number.isFinite(value) ? value : null; }
+
+function chapterJobProgress(job: Job | null) {
+  if (!job || !["queued", "running"].includes(job.status)) return null;
+  const phase = typeof job.progress.phase === "string" ? job.progress.phase : "queued";
+  const current = progressNumber(job.progress.current);
+  const total = progressNumber(job.progress.total);
+  const percent = total && current !== null ? Math.min(100, Math.max(0, Math.round((current / total) * 100))) : 0;
+  const label = phase === "rendering" && current !== null && total ? `Rendering segment ${current}/${total}` : phase === "assembling" ? "Assembling chapter audio" : "Preparing chapter production";
+  return { label, percent, detail: "Chapter production is running; audio will appear when complete." };
+}
+
+function ChapterAudioPlayer({ chapter, activeRender, job, provider }: { chapter: Chapter; activeRender?: ProductionStatus["activeRender"]; job: Job | null; provider?: TtsSettings["provider"] }) {
+  const progress = chapterJobProgress(job);
+  const renderMode = activeRender?.renderMode ? activeRender.renderMode.replaceAll("_", " ") : "speech only";
+  return <article className="chapter-audio-player" aria-label="Active chapter audio"><div className="chapter-audio-heading"><div><p className="eyebrow">Active chapter audio</p><h3>{chapter.title || "Untitled chapter"}</h3></div><small>{activeRender ? `${renderMode} · ${formatDuration(activeRender.durationMs)}` : "No active render"}</small></div>{progress ? <div className="chapter-progress" aria-live="polite"><div className="chapter-progress-row"><span>{progress.label}</span><span>{progress.percent}%</span></div><progress aria-label="Chapter production progress" className="chapter-progress-bar" value={progress.percent} max={100} /><p className="chapter-progress-detail">{progress.detail}</p></div> : activeRender?.audioUrl ? <><audio controls src={assetUrl(activeRender.audioUrl)} className="audio-player" />{provider === "mock" ? <p className="chapter-audio-note">Mock TTS creates silent workflow audio.</p> : null}</> : <p className="import-placeholder">Produce this chapter to create playable audio.</p>}</article>;
+}
