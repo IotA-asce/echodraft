@@ -95,6 +95,22 @@ def test_txt_import_creates_deterministic_canonical_artifacts_and_manifest(clien
     assert any(item["message"].startswith("Duplicated") for item in source["warnings"])
 
 
+def test_current_ingestion_documents_page_marker_pollution(client) -> None:
+    project = project_id(client)
+    text = (
+        "Ooh! I felt a wiggle that time.\n\n"
+        "<!-- Page 9 -->\n\n"
+        "Open! My eyelids creep up."
+    )
+    job = import_bytes(client, project, "page-marker.md", text.encode())
+    assert job["status"] == "succeeded"
+
+    source = client.get(f"/api/v1/projects/{project}/source").json()
+    assert source["preview"] == text + "\n"
+    assert "<!-- Page 9 -->" in Path(source["canonicalPath"]).read_text(encoding="utf-8")
+    assert not source["warnings"]
+
+
 def test_markdown_docx_and_epub_import(client, tmp_path: Path) -> None:
     for name, data in [("story.md", b"# Heading\n\nText"), ("story.docx", docx_bytes()), ("story.epub", epub_bytes(tmp_path))]:
         project = project_id(client)
@@ -145,6 +161,10 @@ def test_pdf_ocr_candidates_and_failures(app, monkeypatch, tmp_path: Path) -> No
     )
     text, warnings = service._extract_pdf(tmp_path / "mixed.pdf")
     assert "A readable page with sufficient extracted text." in text and "OCR page 2 text." in text
+    assert text.split("\n\n") == [
+        "A readable page with sufficient extracted text.",
+        "OCR page 2 text.",
+    ]
     assert warnings[0].source_range == "page 2"
 
     monkeypatch.undo()
@@ -167,6 +187,34 @@ def test_pdf_ocr_candidates_and_failures(app, monkeypatch, tmp_path: Path) -> No
     )
     with pytest.raises(IngestionError, match="150 pages"):
         service._extract_pdf(tmp_path / "too-many.pdf")
+
+
+def test_scanned_pdf_path_uses_mocked_ocr_for_every_page(app, monkeypatch, tmp_path: Path) -> None:
+    class FakePage:
+        def extract_text(self) -> str:
+            return ""
+
+    class FakeReader:
+        is_encrypted = False
+        pages = [FakePage(), FakePage(), FakePage()]
+
+    service = IngestionService(app.state.container)
+    monkeypatch.setattr(ingestion, "PdfReader", lambda _: FakeReader())
+    monkeypatch.setattr(IngestionService, "_require_ocr_tools", staticmethod(lambda: None))
+    monkeypatch.setattr(
+        IngestionService,
+        "_ocr_page",
+        staticmethod(lambda _pdf, _root, page: f"Recognized scanned page {page}."),
+    )
+
+    text, warnings = service._extract_pdf(tmp_path / "scanned.pdf")
+
+    assert text == (
+        "Recognized scanned page 1.\n\n"
+        "Recognized scanned page 2.\n\n"
+        "Recognized scanned page 3."
+    )
+    assert [warning.source_range for warning in warnings] == ["page 1", "page 2", "page 3"]
 
 
 def test_ocr_warning_and_failed_parse_preserve_original(client) -> None:

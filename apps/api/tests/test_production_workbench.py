@@ -58,6 +58,68 @@ def test_production_settings_produce_download_and_export(client) -> None:
     assert Path(package["archivePath"]).is_file()
 
 
+def test_segment_render_cache_and_forced_lineage_are_append_only(client) -> None:
+    project, _, segment = project_with_chapter(client)
+    payload = {
+        "voiceProfileId": "voice_test",
+        "direction": {"scopeType": "project", "scopeId": project},
+    }
+
+    first = client.post(f"/api/v1/projects/{project}/segments/{segment}/generate", json=payload).json()
+    cached = client.post(f"/api/v1/projects/{project}/segments/{segment}/generate", json=payload).json()
+    forced = client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/generate",
+        json={**payload, "force": True},
+    ).json()
+    history = client.get(f"/api/v1/projects/{project}/segments/{segment}/renders").json()
+
+    assert cached["id"] == first["id"]
+    assert forced["id"] != first["id"]
+    assert forced["parentRenderId"] == first["id"]
+    assert {item["id"] for item in history} == {forced["id"], first["id"]}
+
+
+def test_export_refuses_open_blocking_issues(client) -> None:
+    project, chapter, _ = project_with_chapter(client)
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Narrator", "backend": "mock", "providerVoiceId": "mock-narrator"},
+    ).json()
+    assert client.put(
+        f"/api/v1/projects/{project}/production-settings",
+        json={"narratorVoiceProfileId": voice["id"]},
+    ).status_code == 200
+    produced = client.post(f"/api/v1/projects/{project}/chapters/{chapter}/produce").json()
+    assert wait_for_job(client, produced["id"])["status"] == "succeeded"
+    issue = client.post(
+        f"/api/v1/projects/{project}/issues",
+        json={
+            "chapterId": chapter,
+            "category": "readiness",
+            "severity": "blocking",
+            "title": "Resolve before export",
+            "description": "This production should not be packaged yet.",
+        },
+    ).json()
+
+    blocked = client.post(
+        f"/api/v1/projects/{project}/exports",
+        json={"format": "wav", "chapterIds": [chapter]},
+    )
+    assert blocked.status_code == 422
+    assert "blocking review issues" in blocked.json()["detail"]
+
+    client.patch(f"/api/v1/issues/{issue['id']}", json={"status": "resolved"})
+    assert (
+        client.post(
+            f"/api/v1/projects/{project}/exports",
+            json={"format": "wav", "chapterIds": [chapter]},
+        ).status_code
+        == 202
+    )
+
+
 def test_artifact_route_rejects_escape_and_segment_override(client) -> None:
     project, _, segment = project_with_chapter(client)
     voice = client.post(

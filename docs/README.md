@@ -20,17 +20,19 @@ The source files above remain raw reference inputs. The documents in this direct
 1. [project-overview.md](project-overview.md)
 2. [mvp-product-spec.md](mvp-product-spec.md)
 3. [architecture.md](architecture.md)
-4. [domain-model.md](domain-model.md)
-5. [db-schema.md](db-schema.md)
-6. [pipeline-manifest-spec.md](pipeline-manifest-spec.md)
-7. [voice-bible-spec.md](voice-bible-spec.md)
-8. [qa-rulebook.md](qa-rulebook.md)
-9. [api-spec.yaml](api-spec.yaml)
-10. [repository-blueprint.md](repository-blueprint.md)
-11. [platform-evolution.md](platform-evolution.md)
+4. [current-pipeline-behavior.md](current-pipeline-behavior.md)
+5. [domain-model.md](domain-model.md)
+6. [db-schema.md](db-schema.md)
+7. [pipeline-manifest-spec.md](pipeline-manifest-spec.md)
+8. [voice-bible-spec.md](voice-bible-spec.md)
+9. [qa-rulebook.md](qa-rulebook.md)
+10. [api-spec.yaml](api-spec.yaml)
+11. [repository-blueprint.md](repository-blueprint.md)
+12. [platform-evolution.md](platform-evolution.md)
 
 ## How to use this set
 - Start with the overview and MVP spec to understand scope and success criteria.
+- Use current pipeline behavior to distinguish implemented alpha behavior from roadmap goals.
 - Use architecture, domain, DB, manifest, voice, QA, and API docs as build contracts.
 - Use `../plans/` for sequencing, sprint focus, and initial backlog ordering.
 - Keep future-platform work separated from MVP execution unless a task explicitly targets the hosted evolution path.
