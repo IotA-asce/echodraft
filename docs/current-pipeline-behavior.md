@@ -37,6 +37,7 @@ The structure service reads the latest canonical source and replaces the project
 - Scenes are detected from separator lines such as `***`, `---`, `####`, or `Scene N`; otherwise a single inferred scene is created with a confidence note.
 - Segments are paragraph/sentence-batched under `maxSegmentChars`, with dialogue and performance-beat segment types.
 - Basic speaker candidates are inferred from `Name said/asked/replied/whispered` and `Name:` patterns.
+- Cast Review persists one speaker attribution per segment, leaves uncertain dialogue in a review queue, and uses approved character voice links during production unless a segment override is set.
 - Parser warnings include scope, evidence, and confidence.
 - User-locked segments are carried forward across structure re-extraction.
 

@@ -255,6 +255,29 @@ Key columns:
 Constraints:
 - unique `(project_id, character_id)`
 
+### `speaker_attributions`
+Purpose: active Cast Review decision for one segment.
+
+Key columns:
+- `id` TEXT PK
+- `project_id` FK
+- `segment_id` FK unique
+- `character_id` FK nullable
+- `speaker_name` TEXT nullable
+- `method` TEXT
+- `evidence_json` TEXT
+- `confidence` REAL
+- `status` TEXT
+- `user_locked` BOOLEAN
+- `created_at` DATETIME
+- `updated_at` DATETIME
+
+Rules:
+- one active attribution row per segment
+- deterministic reruns skip `user_locked` rows
+- approved rows with character voice assignments are used for production voice resolution
+- segment voice overrides still take precedence over speaker attribution voices
+
 ### `pronunciation_entries`
 Purpose: pronunciation overrides.
 

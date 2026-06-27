@@ -21,7 +21,7 @@ Each character stores:
 - Merge preserves the source record with `mergedIntoCharacterId`; it does not delete data.
 - Split creates a new character and appends history on both records.
 - Voice links must reference a voice profile in the same project.
-- Automatic speaker attribution and production voice resolution are deferred to later roadmap stages.
+- Approved speaker attributions use linked character voices during production unless a segment override is set.
 
 ## API Surface
 
@@ -31,7 +31,10 @@ Each character stores:
 - `POST /api/v1/characters/{characterId}/merge`
 - `POST /api/v1/characters/{characterId}/split`
 - `POST /api/v1/characters/{characterId}/assign-voice`
+- `GET /api/v1/projects/{projectId}/speaker-attributions`
+- `POST /api/v1/projects/{projectId}/speaker-attributions/run`
+- `PATCH /api/v1/speaker-attributions/{speakerAttributionId}`
 
 ## UI Surface
 
-The dashboard Voice Bible panel supports creating character records, editing canonical names, aliases, traits, and roles, linking a voice, locking records, and issuing merge or split operations.
+The dashboard Voice Bible panel supports creating character records, editing canonical names, aliases, traits, and roles, linking a voice, locking records, issuing merge or split operations, and reviewing speaker attribution rows in Cast Review.
