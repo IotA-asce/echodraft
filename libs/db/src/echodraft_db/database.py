@@ -55,6 +55,17 @@ class Database:
             columns = {column["name"] for column in inspector.get_columns("export_packages")}
             if "archive_path" not in columns:
                 repairs.append("ALTER TABLE export_packages ADD COLUMN archive_path TEXT")
+        if "chapter_renders" in tables:
+            columns = {column["name"] for column in inspector.get_columns("chapter_renders")}
+            if "render_mode" not in columns:
+                repairs.append(
+                    "ALTER TABLE chapter_renders "
+                    "ADD COLUMN render_mode VARCHAR(32) NOT NULL DEFAULT 'speech_only'"
+                )
+            if "ambience_stem_path" not in columns:
+                repairs.append("ALTER TABLE chapter_renders ADD COLUMN ambience_stem_path TEXT")
+            if "mixed_audio_path" not in columns:
+                repairs.append("ALTER TABLE chapter_renders ADD COLUMN mixed_audio_path TEXT")
         if not repairs:
             return
         with self.engine.begin() as connection:
