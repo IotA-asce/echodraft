@@ -137,13 +137,18 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   const structure = page.locator(".structure-columns");
   const structureStyles = await structure.evaluate((element) => {
     const styles = window.getComputedStyle(element);
-    return { maxHeight: styles.maxHeight, overflowY: styles.overflowY };
+    return { height: styles.height, overflowY: styles.overflowY };
   });
-  expect(structureStyles.maxHeight).not.toBe("none");
-  expect(Number.parseFloat(structureStyles.maxHeight)).toBeGreaterThanOrEqual(800);
+  expect(Number.parseFloat(structureStyles.height)).toBeGreaterThanOrEqual(800);
   expect(structureStyles.overflowY).toBe("hidden");
   await expect.poll(async () => structure.locator(":scope > div").first().evaluate((element) => window.getComputedStyle(element).overflowY)).toBe("auto");
   await expect.poll(async () => structure.locator(":scope > div").nth(2).evaluate((element) => window.getComputedStyle(element).overflowY)).toBe("auto");
+  const segmentScroll = await structure.locator(":scope > div").nth(2).evaluate((element) => {
+    element.scrollTop = 200;
+    return { clientHeight: element.clientHeight, scrollHeight: element.scrollHeight, scrollTop: element.scrollTop };
+  });
+  expect(segmentScroll.scrollHeight).toBeGreaterThan(segmentScroll.clientHeight);
+  expect(segmentScroll.scrollTop).toBeGreaterThan(0);
   const structureGap = await page.locator(".structure-view").evaluate((section) => {
     const columns = section.querySelector(".structure-columns")?.getBoundingClientRect();
     const production = section.querySelector(".production-bar")?.getBoundingClientRect();
