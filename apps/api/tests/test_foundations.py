@@ -82,10 +82,20 @@ def test_startup_repairs_legacy_sqlite_production_columns(tmp_path: Path) -> Non
                 output_path TEXT NOT NULL,
                 manifest_path TEXT NOT NULL
             );
+            CREATE TABLE chapter_renders (
+                id VARCHAR(64) PRIMARY KEY,
+                chapter_id VARCHAR(64),
+                status VARCHAR(32),
+                speech_path TEXT,
+                manifest_path TEXT,
+                duration_ms INTEGER
+            );
             INSERT INTO voice_profiles (id, project_id, name, backend, style_prompt)
             VALUES ('voice_legacy', 'proj_legacy', 'Legacy narrator', 'mock', NULL);
             INSERT INTO export_packages (id, project_id, format, status, output_path, manifest_path)
             VALUES ('export_legacy', 'proj_legacy', 'wav', 'succeeded', '/tmp/out', '/tmp/manifest');
+            INSERT INTO chapter_renders (id, chapter_id, status, speech_path, manifest_path, duration_ms)
+            VALUES ('chapter_render_legacy', 'chap_legacy', 'succeeded', '/tmp/speech.wav', '/tmp/manifest.json', 1200);
             """
         )
 
@@ -95,14 +105,25 @@ def test_startup_repairs_legacy_sqlite_production_columns(tmp_path: Path) -> Non
     with sqlite3.connect(database_path) as connection:
         voice_columns = {row[1] for row in connection.execute("PRAGMA table_info(voice_profiles)")}
         export_columns = {row[1] for row in connection.execute("PRAGMA table_info(export_packages)")}
+        chapter_render_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(chapter_renders)")
+        }
         provider_voice_id = connection.execute(
             "SELECT provider_voice_id FROM voice_profiles WHERE id = 'voice_legacy'"
         ).fetchone()[0]
         archive_path = connection.execute(
             "SELECT archive_path FROM export_packages WHERE id = 'export_legacy'"
         ).fetchone()[0]
+        render_mode, ambience_stem_path, mixed_audio_path = connection.execute(
+            "SELECT render_mode, ambience_stem_path, mixed_audio_path "
+            "FROM chapter_renders WHERE id = 'chapter_render_legacy'"
+        ).fetchone()
 
     assert "provider_voice_id" in voice_columns
     assert "archive_path" in export_columns
+    assert {"render_mode", "ambience_stem_path", "mixed_audio_path"} <= chapter_render_columns
     assert provider_voice_id == ""
     assert archive_path is None
+    assert render_mode == "speech_only"
+    assert ambience_stem_path is None
+    assert mixed_audio_path is None
