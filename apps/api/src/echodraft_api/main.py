@@ -31,6 +31,7 @@ from echodraft_domain import (
     SegmentRevision,
     SegmentUpdate,
     SourceDocument,
+    SourcePage,
     StructureRequest,
     VoicePreview,
     VoicePreviewRequest,
@@ -380,6 +381,37 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         if source.canonical_path and Path(source.canonical_path).exists():
             source.preview = Path(source.canonical_path).read_text(encoding="utf-8")[:6000]
         return source
+
+    def source_page_with_url(source: SourceDocument, page: SourcePage) -> SourcePage:
+        return page.model_copy(
+            update={
+                "image_url": artifact_url(source.project_id, page.image_path)
+                if page.image_path
+                else None
+            }
+        )
+
+    @app.get("/api/v1/sources/{source_id}/pages", response_model=list[SourcePage])
+    def list_source_pages(source_id: str, request: Request) -> list[SourcePage]:
+        container: AppContainer = request.app.state.container
+        source = container.sources.get(source_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Source document not found")
+        return [
+            source_page_with_url(source, page)
+            for page in container.source_artifacts.pages(source_id)
+        ]
+
+    @app.get("/api/v1/sources/{source_id}/pages/{page_number}", response_model=SourcePage)
+    def get_source_page(source_id: str, page_number: int, request: Request) -> SourcePage:
+        container: AppContainer = request.app.state.container
+        source = container.sources.get(source_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Source document not found")
+        page = container.source_artifacts.page(source_id, page_number)
+        if not page:
+            raise HTTPException(status_code=404, detail="Source page not found")
+        return source_page_with_url(source, page)
 
     @app.post(
         "/api/v1/projects/{project_id}/structure/extract", response_model=Job, status_code=202

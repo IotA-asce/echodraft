@@ -106,6 +106,68 @@ class SourceDocumentRecord(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
 
 
+class SourcePageRecord(Base):
+    __tablename__ = "source_pages"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_document_id: Mapped[str] = mapped_column(
+        ForeignKey("source_documents.id"), nullable=False, index=True
+    )
+    page_number: Mapped[int] = mapped_column(nullable=False)
+    image_path: Mapped[str | None] = mapped_column(Text)
+    embedded_text_path: Mapped[str | None] = mapped_column(Text)
+    selected_text_path: Mapped[str | None] = mapped_column(Text)
+    extraction_method: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    warnings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+
+
+class OcrRunRecord(Base):
+    __tablename__ = "ocr_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_document_id: Mapped[str] = mapped_column(
+        ForeignKey("source_documents.id"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    settings_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class OcrPageResultRecord(Base):
+    __tablename__ = "ocr_page_results"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    ocr_run_id: Mapped[str] = mapped_column(ForeignKey("ocr_runs.id"), nullable=False, index=True)
+    source_page_id: Mapped[str] = mapped_column(
+        ForeignKey("source_pages.id"), nullable=False, index=True
+    )
+    page_number: Mapped[int] = mapped_column(nullable=False)
+    text_path: Mapped[str] = mapped_column(Text, nullable=False)
+    json_path: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    warnings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+
+
+class CanonicalSpanRecord(Base):
+    __tablename__ = "canonical_spans"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_document_id: Mapped[str] = mapped_column(
+        ForeignKey("source_documents.id"), nullable=False, index=True
+    )
+    page_number: Mapped[int] = mapped_column(nullable=False)
+    canonical_start_offset: Mapped[int] = mapped_column(nullable=False)
+    canonical_end_offset: Mapped[int] = mapped_column(nullable=False)
+    source_text_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    bbox_json: Mapped[str | None] = mapped_column(Text)
+    extraction_method: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+
+
 class ChapterRecord(Base):
     __tablename__ = "chapters"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

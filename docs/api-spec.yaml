@@ -206,6 +206,49 @@ paths:
               schema:
                 $ref: "#/components/schemas/LocalAiInstallJob"
 
+  /api/v1/sources/{source_id}/pages:
+    get:
+      tags: [Source]
+      summary: List page-level extraction records for a source document
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Source page records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SourcePage"
+
+  /api/v1/sources/{source_id}/pages/{page_number}:
+    get:
+      tags: [Source]
+      summary: Get one page-level extraction record
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: page_number
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Source page record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourcePage"
+
   /api/v1/projects:
     get:
       tags: [Projects]
@@ -1900,6 +1943,43 @@ components:
           type: string
         preview:
           type: string
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParserWarning"
+    SourcePage:
+      type: object
+      properties:
+        id:
+          type: string
+        sourceDocumentId:
+          type: string
+        pageNumber:
+          type: integer
+        imagePath:
+          type:
+            - string
+            - "null"
+        imageUrl:
+          type:
+            - string
+            - "null"
+        embeddedTextPath:
+          type:
+            - string
+            - "null"
+        selectedTextPath:
+          type:
+            - string
+            - "null"
+        extractionMethod:
+          type: string
+        confidence:
+          type: number
+        preview:
+          type:
+            - string
+            - "null"
         warnings:
           type: array
           items:

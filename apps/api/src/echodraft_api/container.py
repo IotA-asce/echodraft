@@ -10,6 +10,7 @@ from echodraft_db import (
     ProjectRepository,
     ProductionSettingsRepository,
     ReviewRepository,
+    SourceArtifactRepository,
     SourceDocumentRepository,
     StructureRepository,
 )
@@ -30,6 +31,7 @@ class AppContainer:
     projects: ProjectRepository
     jobs_repository: JobRepository
     sources: SourceDocumentRepository
+    source_artifacts: SourceArtifactRepository
     structure: StructureRepository
     casting: CastingRepository
     review: ReviewRepository
@@ -55,6 +57,7 @@ def build_container(settings: AppSettings) -> AppContainer:
         projects=ProjectRepository(database, str(settings.artifact_root)),
         jobs_repository=jobs_repository,
         sources=SourceDocumentRepository(database),
+        source_artifacts=SourceArtifactRepository(database),
         structure=StructureRepository(database),
         casting=CastingRepository(database),
         review=ReviewRepository(database),

@@ -1,6 +1,7 @@
 from .database import Database
 from .ambience import AmbienceRepository
 from .local_ai import LocalAiRepository
+from .source_artifacts import SourceArtifactRepository
 from .repository import (
     CastingRepository,
     JobRepository,
@@ -21,5 +22,6 @@ __all__ = [
     "ProductionSettingsRepository",
     "ReviewRepository",
     "SourceDocumentRepository",
+    "SourceArtifactRepository",
     "StructureRepository",
 ]

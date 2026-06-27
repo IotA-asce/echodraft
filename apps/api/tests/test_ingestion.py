@@ -119,7 +119,8 @@ def test_markdown_docx_and_epub_import(client, tmp_path: Path) -> None:
         assert client.get(f"/api/v1/projects/{project}/source").json()["preview"]
 
 
-def test_pdf_import_extracts_text_and_preserves_manifest(client) -> None:
+def test_pdf_import_extracts_text_and_preserves_manifest(client, monkeypatch) -> None:
+    monkeypatch.setattr(ingestion.shutil, "which", lambda _: None)
     project = project_id(client)
     job = import_bytes(
         client,
@@ -133,6 +134,33 @@ def test_pdf_import_extracts_text_and_preserves_manifest(client) -> None:
     assert source["mimeType"] == "application/pdf"
     assert "A PDF manuscript line with enough readable characters." in source["preview"]
     assert Path(source["originalPath"]).suffix == ".pdf"
+
+
+def test_pdf_import_creates_page_review_records(client, app, monkeypatch) -> None:
+    monkeypatch.setattr(ingestion.shutil, "which", lambda _: None)
+    project = project_id(client)
+    job = import_bytes(
+        client,
+        project,
+        "story.pdf",
+        pdf_bytes("A page-aware PDF manuscript line with enough readable characters."),
+        "application/pdf",
+    )
+    assert job["status"] == "succeeded", job["errorMessage"]
+    source = client.get(f"/api/v1/projects/{project}/source").json()
+
+    pages = client.get(f"/api/v1/sources/{source['id']}/pages")
+    assert pages.status_code == 200
+    payload = pages.json()
+    assert len(payload) == 1
+    assert payload[0]["pageNumber"] == 1
+    assert payload[0]["extractionMethod"] == "embedded_text"
+    assert "page-aware PDF manuscript" in payload[0]["preview"]
+    assert Path(payload[0]["embeddedTextPath"]).is_file()
+    assert Path(payload[0]["selectedTextPath"]).is_file()
+    spans = app.state.container.source_artifacts.spans(source["id"])
+    assert len(spans) == 1
+    assert spans[0].page_number == 1
 
 
 def test_pdf_ocr_candidates_and_failures(app, monkeypatch, tmp_path: Path) -> None:
@@ -216,6 +244,66 @@ def test_scanned_pdf_path_uses_mocked_ocr_for_every_page(app, monkeypatch, tmp_p
     )
     assert [warning.source_range for warning in warnings] == ["page 1", "page 2", "page 3"]
 
+
+def test_pdf_v2_scanned_page_records_ocr_artifacts(
+    client, app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakePage:
+        def extract_text(self) -> str:
+            return ""
+
+    class FakeReader:
+        is_encrypted = False
+        pages = [FakePage()]
+
+    def fake_render(_pdf_path: Path, output_root: Path, page_number: int) -> Path:
+        output_root.mkdir(parents=True, exist_ok=True)
+        image_path = output_root / f"page_{page_number:04d}.png"
+        image_path.write_bytes(b"png")
+        return image_path
+
+    def fake_ocr(
+        _image_path: Path, output_root: Path, page_number: int
+    ) -> tuple[str, Path, Path, float]:
+        output_root.mkdir(parents=True, exist_ok=True)
+        text_path = output_root / f"page_{page_number:04d}.txt"
+        json_path = output_root / f"page_{page_number:04d}.json"
+        text_path.write_text("Recognized v2 scanned text.", encoding="utf-8")
+        json_path.write_text("{}", encoding="utf-8")
+        return "Recognized v2 scanned text.", text_path, json_path, 0.82
+
+    project = project_id(client)
+    service = IngestionService(app.state.container)
+    source_id = service.stage(
+        project,
+        "scan.pdf",
+        "application/pdf",
+        b"%PDF-1.4 fake",
+        ingestion.PARSER_VERSION,
+    )
+    source = app.state.container.sources.get(source_id)
+    assert source
+    monkeypatch.setattr(ingestion, "PdfReader", lambda _: FakeReader())
+    monkeypatch.setattr(
+        ingestion.shutil,
+        "which",
+        lambda command: f"/usr/bin/{command}" if command in {"pdftoppm", "tesseract"} else None,
+    )
+    monkeypatch.setattr(IngestionService, "_render_pdf_page", staticmethod(fake_render))
+    monkeypatch.setattr(IngestionService, "_ocr_page_image", staticmethod(fake_ocr))
+
+    text, warnings = service._extract_pdf_v2(Path(source.original_path), source_id, project)
+
+    assert text == "Recognized v2 scanned text."
+    assert warnings[0].source_range == "page 1"
+    pages = app.state.container.source_artifacts.pages(source_id)
+    assert len(pages) == 1
+    assert pages[0].extraction_method == "ocr"
+    runs = app.state.container.source_artifacts.ocr_runs(source_id)
+    assert len(runs) == 1 and runs[0].status == "succeeded"
+    results = app.state.container.source_artifacts.ocr_results(runs[0].id)
+    assert len(results) == 1
+    assert Path(results[0].text_path).is_file()
 
 def test_ocr_warning_and_failed_parse_preserve_original(client) -> None:
     project = project_id(client)

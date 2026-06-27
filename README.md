@@ -31,7 +31,7 @@ Echodraft can currently:
 
 * create local audiobook projects with explicit rights acknowledgement;
 * ingest TXT, Markdown, DOCX, EPUB, and PDF manuscripts;
-* preserve source originals, canonical text, parser warnings, and import manifests;
+* preserve source originals, PDF page metadata, canonical text, parser warnings, and import manifests;
 * split manuscripts into chapters, scenes, and sentence-safe segments;
 * edit individual segments with immutable revision history;
 * configure narrator/voice settings through the dashboard;
@@ -65,7 +65,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | ----------------------------------- | --------------- | ------------------------------------------------------------------------------------------ |
 | Project creation                    | Working         | Dashboard requires rights acknowledgement                                                  |
 | TXT / Markdown / DOCX / EPUB import | Working         | Local ingestion and canonical text generation                                              |
-| PDF import                          | Partial         | Text PDFs supported; scanned PDFs require Poppler + Tesseract English OCR                  |
+| PDF import                          | Alpha           | Page-aware text/OCR selection; scanned pages require Poppler + Tesseract English OCR        |
 | Structure extraction                | Working         | Chapters, scenes, and segments                                                             |
 | Segment editing                     | Working         | Saves new revisions instead of overwriting history                                         |
 | Mock TTS                            | Working         | Silent WAVs for validating the full workflow                                               |

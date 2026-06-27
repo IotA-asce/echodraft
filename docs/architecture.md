@@ -58,6 +58,7 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
 ### Ingestion
 - import manuscript files
 - normalize text
+- persist PDF page images/text/OCR metadata when available
 - detect chapters
 - persist canonical manuscript references
 
@@ -127,6 +128,9 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
 ## Stage outputs
 ### Ingestion
 - canonical manuscript artifact
+- source page records and page artifacts for PDF imports
+- OCR run/results when scanned pages require local OCR
+- canonical span mappings from source pages to selected text
 - source manifest
 
 ### Structure
