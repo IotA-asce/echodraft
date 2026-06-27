@@ -83,6 +83,73 @@ test("produces and exports a chapter entirely from the dashboard", async ({ page
   expect((await download).suggestedFilename()).toBe("audiobook.zip");
 });
 
+test("keeps the chapter map bounded and shows production progress", async ({ page }) => {
+  await page.route(/\/api\/v1\/projects$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([{ id: "proj_progress", title: "Progress UX", author: null, status: "draft", artifactPath: "/tmp/progress", createdAt: new Date().toISOString() }])
+    });
+  });
+  await page.route(/\/api\/v1\/settings\/tts$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ provider: "mock", ready: true, message: null, availableVoices: ["mock-narrator"] }) });
+  });
+  await page.route(/\/api\/v1\/settings\/tts\/kokoro\/setup$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ platform: "Darwin", state: "not_started", setupMode: "managed_onnx", runtimeRoot: "/tmp/kokoro", pythonPath: "/tmp/kokoro/venv/bin/python", executable: "/tmp/kokoro/wrapper.py", modelPath: "/tmp/kokoro/kokoro-v1.0.onnx", voicesDataPath: "/tmp/kokoro/voices-v1.0.bin", voiceRegistryPath: "/tmp/kokoro/voices.txt", ready: false, nextAction: "Set up Kokoro when you are ready.", availableVoices: [], steps: [] }) });
+  });
+  await page.route(/\/api\/v1\/projects\/proj_progress\/source$/, async (route) => {
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "No source" }) });
+  });
+  await page.route(/\/api\/v1\/projects\/proj_progress\/chapters$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "chap_progress", title: "Chapter 1", status: "draft", confidence: 0.96 }]) });
+  });
+  await page.route(/\/api\/v1\/projects\/proj_progress\/voices$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "voice_progress", projectId: "proj_progress", name: "Mock narrator", backend: "mock", providerVoiceId: "mock-narrator", stylePrompt: null }]) });
+  });
+  await page.route(/\/api\/v1\/projects\/proj_progress\/production-settings$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ projectId: "proj_progress", narratorVoiceProfileId: "voice_progress", defaultDirection: null }) });
+  });
+  await page.route(/\/api\/v1\/projects\/proj_progress\/(issues|exports|characters|pronunciations)$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
+  });
+  await page.route(/\/api\/v1\/chapters\/chap_progress\/scenes$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "scene_progress", status: "draft", confidence: 0.9 }]) });
+  });
+  await page.route(/\/api\/v1\/scenes\/scene_progress\/segments$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(Array.from({ length: 24 }, (_, index) => ({ id: `seg_${index}`, textContent: `Scrollable segment ${index + 1}`, revision: 1, status: "draft", speakerCandidate: null })))
+    });
+  });
+  await page.route(/\/api\/v1\/projects\/proj_progress\/chapters\/chap_progress\/production-status$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ chapterId: "chap_progress", ready: true, reason: null, totalSegments: 24, currentSegments: 0, activeRender: null }) });
+  });
+  await page.route(/\/api\/v1\/projects\/proj_progress\/chapters\/chap_progress\/produce\?force=false$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "job_progress", status: "running", progress: { phase: "rendering", current: 2, total: 5 } }) });
+  });
+  await page.route(/\/api\/v1\/jobs\/job_progress$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "job_progress", status: "running", progress: { phase: "rendering", current: 3, total: 5 } }) });
+  });
+
+  await page.goto("/");
+  await page.getByRole("listitem").filter({ hasText: "Progress UX" }).getByRole("button", { name: "Open" }).click();
+  await page.getByRole("button", { name: "Chapter 1" }).click();
+  const structure = page.locator(".structure-columns");
+  const structureStyles = await structure.evaluate((element) => {
+    const styles = window.getComputedStyle(element);
+    return { maxHeight: styles.maxHeight, overflowY: styles.overflowY };
+  });
+  expect(structureStyles.maxHeight).not.toBe("none");
+  expect(structureStyles.overflowY).toBe("hidden");
+  await expect.poll(async () => structure.locator(":scope > div").first().evaluate((element) => window.getComputedStyle(element).overflowY)).toBe("auto");
+  await expect.poll(async () => structure.locator(":scope > div").nth(2).evaluate((element) => window.getComputedStyle(element).overflowY)).toBe("auto");
+
+  await page.getByRole("button", { name: "Produce chapter" }).click();
+  const productionPlayer = page.locator(".structure-view .chapter-audio-player");
+  await expect(productionPlayer.getByText("Rendering segment 2/5")).toBeVisible();
+  await expect(productionPlayer.getByText("40%")).toBeVisible();
+  await expect(productionPlayer.getByRole("progressbar", { name: "Chapter production progress" })).toBeVisible();
+});
+
 test("guides managed Kokoro setup and narrator selection", async ({ page }) => {
   let kokoroReady = false;
   let jobPolls = 0;
