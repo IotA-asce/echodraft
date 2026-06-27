@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from echodraft_api.kokoro_setup import ManagedKokoroSetupService, managed_python_path
+from echodraft_api.kokoro_setup import ManagedKokoroPaths, ManagedKokoroSetupService, managed_python_path
 
 
 def wait_for_job(client, job_id: str) -> dict:
@@ -74,6 +74,7 @@ def test_managed_kokoro_install_job_saves_settings_and_lists_voices(
 
     setup = client.get("/api/v1/settings/tts/kokoro/setup").json()
     assert setup["state"] == "active"
+    assert not setup["executable"].endswith(".py")
     assert setup["availableVoices"] == ["af_heart", "af_sarah"]
 
 
@@ -166,3 +167,22 @@ def test_managed_python_path_is_platform_specific(tmp_path: Path) -> None:
     assert managed_python_path(tmp_path, "Windows") == tmp_path / "venv" / "Scripts" / "python.exe"
     assert managed_python_path(tmp_path, "Darwin") == tmp_path / "venv" / "bin" / "python"
     assert managed_python_path(tmp_path, "Linux") == tmp_path / "venv" / "bin" / "python"
+
+
+def test_managed_wrapper_avoids_python_suffix_and_rewrites_only_when_changed(tmp_path: Path) -> None:
+    paths = ManagedKokoroPaths(tmp_path / "managed-onnx-v1")
+    assert paths.wrapper.name == "echodraft_kokoro_onnx"
+    assert paths.wrapper.suffix == ""
+
+    service = object.__new__(ManagedKokoroSetupService)
+    service.paths = paths
+    paths.root.mkdir(parents=True)
+
+    service._write_wrapper()
+    first_mtime = paths.wrapper.stat().st_mtime_ns
+    service._write_wrapper()
+    assert paths.wrapper.stat().st_mtime_ns == first_mtime
+
+    paths.wrapper.write_text("outdated helper", encoding="utf-8")
+    service._write_wrapper()
+    assert paths.wrapper.read_text(encoding="utf-8").startswith("#!/usr/bin/env python3")
