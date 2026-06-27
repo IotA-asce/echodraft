@@ -17,6 +17,8 @@ from echodraft_domain import (
     CommentCreate,
     ExportPackage,
     ExportRequest,
+    EmbeddingRequest,
+    EmbeddingResult,
     Issue,
     IssueCreate,
     IssueUpdate,
@@ -56,6 +58,8 @@ from echodraft_domain import (
     LocalAiInstallJob,
     LocalAiInstallRequest,
     LocalAiModelCatalogItem,
+    LlmExtractionRequest,
+    LlmRun,
     TtsSettings,
     TtsSettingsUpdate,
     TtsTestRequest,
@@ -82,6 +86,7 @@ from .exporting import ExportService
 from .production import ProductionService
 from .kokoro_setup import ManagedKokoroSetupService
 from .local_ai import LocalAiService
+from .local_llm import LocalLlmService
 
 logger = configure_logging()
 
@@ -271,6 +276,55 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         if not install_job:
             raise HTTPException(status_code=404, detail="Local AI install job not found")
         return install_job
+
+    @app.get("/api/v1/local-llm/ollama/models")
+    def list_ollama_models(request: Request) -> list[dict[str, object]]:
+        try:
+            return LocalLlmService(request.app.state.container).installed_models()
+        except ValueError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    @app.post("/api/v1/local-llm/embeddings", response_model=EmbeddingResult)
+    def create_embedding(payload: EmbeddingRequest, request: Request) -> EmbeddingResult:
+        try:
+            return LocalLlmService(request.app.state.container).embed(payload)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/v1/projects/{project_id}/local-llm/extractions",
+        response_model=Job,
+        status_code=202,
+    )
+    def create_llm_extraction(
+        project_id: str, payload: LlmExtractionRequest, request: Request
+    ) -> Job:
+        container: AppContainer = request.app.state.container
+        if not container.projects.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        def operation(job_id: str) -> None:
+            LocalLlmService(container).extract(project_id, payload, job_id)
+
+        return container.jobs.submit_with_job(
+            "local_llm.extract",
+            operation,
+            project_id=project_id,
+        )
+
+    @app.get("/api/v1/projects/{project_id}/llm-runs", response_model=list[LlmRun])
+    def list_llm_runs(project_id: str, request: Request) -> list[LlmRun]:
+        container: AppContainer = request.app.state.container
+        if not container.projects.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        return container.llm_runs.list_for_project(project_id)
+
+    @app.get("/api/v1/llm-runs/{run_id}", response_model=LlmRun)
+    def get_llm_run(run_id: str, request: Request) -> LlmRun:
+        container: AppContainer = request.app.state.container
+        run = container.llm_runs.get(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="LLM run not found")
+        return run
 
     @app.get("/api/v1/projects/{project_id}/artifacts/{artifact_path:path}")
     def get_artifact(project_id: str, artifact_path: str, request: Request) -> FileResponse:

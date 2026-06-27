@@ -71,6 +71,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | Segment editing                     | Working         | Saves new revisions instead of overwriting history                                         |
 | Mock TTS                            | Working         | Silent WAVs for validating the full workflow                                               |
 | Model Center                        | Alpha           | Catalog, health checks, install jobs, and OS package-manager install commands              |
+| Local LLM service                   | Alpha           | Ollama model listing, schema-first extraction jobs, run records, and embeddings             |
 | Managed Kokoro setup                | Alpha           | Local CPU-oriented ONNX flow from the dashboard                                            |
 | Character/voice records             | Partial         | Editorial records exist; alpha synthesis does not fully automate character delivery        |
 | Review and patching                 | Working         | Segment-level patch loop with chapter reassembly                                           |
@@ -306,6 +307,7 @@ The checked-in `.env.example` documents the default local paths:
 ```dotenv
 ECHODRAFT_DATABASE_URL=sqlite:///./.echodraft/echodraft.db
 ECHODRAFT_ARTIFACT_ROOT=./.echodraft/projects
+ECHODRAFT_OLLAMA_BASE_URL=http://127.0.0.1:11434
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
@@ -319,6 +321,7 @@ PowerShell:
 $env:ECHODRAFT_DATABASE_URL = "sqlite:///./.echodraft/echodraft.db"
 $env:ECHODRAFT_ARTIFACT_ROOT = ".\.echodraft\projects"
 $env:ECHODRAFT_TTS_PROVIDER = "mock"
+$env:ECHODRAFT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 ```
 
 Bash/zsh:
@@ -327,6 +330,7 @@ Bash/zsh:
 export ECHODRAFT_DATABASE_URL='sqlite:///./.echodraft/echodraft.db'
 export ECHODRAFT_ARTIFACT_ROOT='./.echodraft/projects'
 export ECHODRAFT_TTS_PROVIDER='mock'
+export ECHODRAFT_OLLAMA_BASE_URL='http://127.0.0.1:11434'
 ```
 
 Do not enter Bash-style `NAME=value` commands directly into PowerShell. Use `$env:NAME = "value"`.

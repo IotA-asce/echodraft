@@ -409,6 +409,26 @@ Key columns:
 - `completed_at` DATETIME nullable
 - `error_message` TEXT nullable
 
+### `llm_runs`
+Purpose: local LLM extraction attempts, prompts, schemas, responses, and fail-closed status.
+
+Key columns:
+- `id` TEXT PK
+- `project_id` FK nullable
+- `source_document_id` FK nullable
+- `provider` TEXT NOT NULL
+- `model` TEXT NOT NULL
+- `task` TEXT NOT NULL
+- `status` TEXT NOT NULL
+- `prompt_path` TEXT nullable
+- `response_path` TEXT nullable
+- `schema_json` TEXT NOT NULL
+- `result_json` TEXT nullable
+- `error_message` TEXT nullable
+- `retries` INTEGER NOT NULL
+- `started_at` DATETIME NOT NULL
+- `completed_at` DATETIME nullable
+
 ### `rights_declarations`
 Purpose: rights assertion and export gating.
 
@@ -448,7 +468,8 @@ Key columns:
 23. `jobs`
 24. `model_installations`
 25. `model_install_jobs`
-26. `rights_declarations`
+26. `llm_runs`
+27. `rights_declarations`
 
 ## Lifecycle semantics
 - Regeneration inserts a new `segment_renders` row instead of mutating existing rows.

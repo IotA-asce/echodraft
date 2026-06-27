@@ -14,6 +14,7 @@ class AppSettings:
     kokoro_voice_path: Path | None = None
     kokoro_runtime_root: Path = Path(".echodraft/kokoro/managed-onnx-v1")
     local_ai_root: Path = Path(".echodraft/local-ai")
+    ollama_base_url: str = "http://127.0.0.1:11434"
     tts_settings_path: Path = Path(".echodraft/tts-settings.json")
 
     @classmethod
@@ -46,6 +47,7 @@ class AppSettings:
             local_ai_root=Path(
                 os.getenv("ECHODRAFT_LOCAL_AI_ROOT", ".echodraft/local-ai")
             ).expanduser().resolve(),
+            ollama_base_url=os.getenv("ECHODRAFT_OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/"),
             tts_settings_path=Path(
                 os.getenv("ECHODRAFT_TTS_SETTINGS_PATH", ".echodraft/tts-settings.json")
             ).expanduser().resolve(),

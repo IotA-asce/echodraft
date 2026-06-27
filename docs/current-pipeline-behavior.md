@@ -50,6 +50,17 @@ The current TTS layer exposes mock audio and Kokoro setup paths through the dash
 - Render cache keys are derived from segment text, revision, voice, direction, output format, and adapter marker.
 - A cache hit returns the existing render; forced regeneration creates a new render linked to the prior render through `parent_render_id`.
 
+## Local LLM
+
+The local LLM layer uses Ollama only; there is no cloud fallback.
+
+- Installed models are read from Ollama `/api/tags`.
+- Model acquisition remains explicit through Model Center, which shells out to `ollama pull` for configured Ollama models.
+- Extraction jobs call Ollama `/api/generate` with `stream: false` and a JSON schema passed through `format`.
+- Responses are parsed and validated locally. Invalid JSON or schema mismatches fail closed after one retry.
+- Embeddings call Ollama `/api/embed`.
+- Each extraction writes prompt/response artifacts and an `llm_runs` row with status, schema, result, retry count, and error details.
+
 ## Review, QA, Assembly, And Export
 
 Current QA is deterministic and technical.

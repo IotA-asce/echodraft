@@ -89,6 +89,8 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
 ### Local AI / Model Center
 - maintain the local model and tool catalog
 - install and verify supported local system tools and model runtimes
+- run schema-constrained local LLM extraction jobs through Ollama
+- provide local embeddings without cloud fallback
 - report capability health to ingestion, LLM, TTS, and audio workflows
 - persist installation state and setup logs
 
@@ -149,6 +151,11 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
 - voice profile assignments
 - pronunciation set
 - casting and direction manifests
+
+### Local LLM
+- LLM run records
+- prompt, schema, response, and result artifacts
+- fail-closed validation status
 
 ### Generation
 - immutable segment render artifacts
