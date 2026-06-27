@@ -112,7 +112,7 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
     await route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
   });
   await page.route(/\/api\/v1\/chapters\/chap_progress\/scenes$/, async (route) => {
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "scene_progress", status: "draft", confidence: 0.9 }]) });
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "scene_progress", status: "unresolved", confidence: 0.4 }]) });
   });
   await page.route(/\/api\/v1\/scenes\/scene_progress\/segments$/, async (route) => {
     await route.fulfill({
@@ -133,6 +133,7 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   await page.goto("/");
   await page.getByRole("listitem").filter({ hasText: "Progress UX" }).getByRole("button", { name: "Open" }).click();
   await page.getByRole("button", { name: "Chapter 1" }).click();
+  await expect(page.getByRole("button", { name: /Scene 1/ })).toContainText("Needs review · auto-structure confidence 40%");
   const structure = page.locator(".structure-columns");
   const structureStyles = await structure.evaluate((element) => {
     const styles = window.getComputedStyle(element);
