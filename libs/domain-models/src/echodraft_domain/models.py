@@ -320,18 +320,59 @@ class Character(ApiModel):
     id: str
     project_id: str = Field(alias="projectId")
     display_name: str = Field(alias="displayName")
-    aliases: list[str] = []
+    canonical_name: str | None = Field(default=None, alias="canonicalName")
+    aliases: list[str] = Field(default_factory=list)
+    traits: list[str] = Field(default_factory=list)
+    first_seen_source_id: str | None = Field(default=None, alias="firstSeenSourceId")
+    first_seen_chapter_id: str | None = Field(default=None, alias="firstSeenChapterId")
+    first_seen_segment_id: str | None = Field(default=None, alias="firstSeenSegmentId")
     role_type: str = Field(alias="roleType")
     confidence: float
     notes: str | None = None
+    merge_history: list[dict[str, object]] = Field(default_factory=list, alias="mergeHistory")
+    split_history: list[dict[str, object]] = Field(default_factory=list, alias="splitHistory")
+    user_locked: bool = Field(default=False, alias="userLocked")
+    lock_reason: str | None = Field(default=None, alias="lockReason")
+    merged_into_character_id: str | None = Field(default=None, alias="mergedIntoCharacterId")
+    voice_profile_id: str | None = Field(default=None, alias="voiceProfileId")
 
 
 class CharacterCreate(ApiModel):
     display_name: str = Field(min_length=1, alias="displayName")
-    aliases: list[str] = []
+    canonical_name: str | None = Field(default=None, alias="canonicalName")
+    aliases: list[str] = Field(default_factory=list)
+    traits: list[str] = Field(default_factory=list)
+    first_seen_source_id: str | None = Field(default=None, alias="firstSeenSourceId")
+    first_seen_chapter_id: str | None = Field(default=None, alias="firstSeenChapterId")
+    first_seen_segment_id: str | None = Field(default=None, alias="firstSeenSegmentId")
     role_type: str = Field(default="major", alias="roleType")
     confidence: float = 1.0
     notes: str | None = None
+
+
+class CharacterUpdate(ApiModel):
+    display_name: str | None = Field(default=None, alias="displayName", min_length=1)
+    canonical_name: str | None = Field(default=None, alias="canonicalName")
+    aliases: list[str] | None = None
+    traits: list[str] | None = None
+    role_type: str | None = Field(default=None, alias="roleType")
+    confidence: float | None = None
+    notes: str | None = None
+    user_locked: bool | None = Field(default=None, alias="userLocked")
+    lock_reason: str | None = Field(default=None, alias="lockReason")
+    voice_profile_id: str | None = Field(default=None, alias="voiceProfileId")
+
+
+class CharacterMergeRequest(ApiModel):
+    source_character_id: str = Field(alias="sourceCharacterId")
+    reason: str | None = None
+
+
+class CharacterSplitRequest(ApiModel):
+    display_name: str = Field(min_length=1, alias="displayName")
+    aliases: list[str] = Field(default_factory=list)
+    traits: list[str] = Field(default_factory=list)
+    reason: str | None = None
 
 
 class VoiceProfile(ApiModel):
