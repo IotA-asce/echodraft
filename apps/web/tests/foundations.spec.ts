@@ -139,6 +139,7 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
     return { maxHeight: styles.maxHeight, overflowY: styles.overflowY };
   });
   expect(structureStyles.maxHeight).not.toBe("none");
+  expect(Number.parseFloat(structureStyles.maxHeight)).toBeGreaterThanOrEqual(800);
   expect(structureStyles.overflowY).toBe("hidden");
   await expect.poll(async () => structure.locator(":scope > div").first().evaluate((element) => window.getComputedStyle(element).overflowY)).toBe("auto");
   await expect.poll(async () => structure.locator(":scope > div").nth(2).evaluate((element) => window.getComputedStyle(element).overflowY)).toBe("auto");
