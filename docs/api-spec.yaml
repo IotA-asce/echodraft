@@ -476,6 +476,22 @@ paths:
                 items:
                   $ref: "#/components/schemas/Chapter"
 
+  /api/v1/projects/{projectId}/structure-warnings:
+    get:
+      tags: [Structure]
+      summary: List parser warnings for the current structure
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Structure parser warning list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StructureParserWarning"
+
   /api/v1/chapters/{chapterId}:
     get:
       tags: [Structure]
@@ -485,6 +501,24 @@ paths:
       responses:
         "200":
           description: Chapter detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chapter"
+    patch:
+      tags: [Structure]
+      summary: Update chapter metadata
+      parameters:
+        - $ref: "#/components/parameters/ChapterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChapterUpdate"
+      responses:
+        "200":
+          description: Chapter updated
           content:
             application/json:
               schema:
@@ -505,6 +539,26 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Scene"
+
+  /api/v1/scenes/{sceneId}:
+    patch:
+      tags: [Structure]
+      summary: Update scene metadata
+      parameters:
+        - $ref: "#/components/parameters/SceneId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SceneUpdate"
+      responses:
+        "200":
+          description: Scene updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scene"
 
   /api/v1/scenes/{sceneId}/segments:
     get:
@@ -537,6 +591,79 @@ paths:
       responses:
         "200":
           description: Segment updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Segment"
+
+  /api/v1/structure-locks/{scopeType}/{scopeId}:
+    put:
+      tags: [Structure]
+      summary: Lock or unlock a chapter, scene, or segment
+      parameters:
+        - name: scopeType
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [chapter, scene, segment]
+        - name: scopeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StructureLockUpdate"
+      responses:
+        "200":
+          description: Locked structure item
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Chapter"
+                  - $ref: "#/components/schemas/Scene"
+                  - $ref: "#/components/schemas/Segment"
+
+  /api/v1/segments/{segmentId}/split:
+    post:
+      tags: [Structure]
+      summary: Split a segment at a character offset
+      parameters:
+        - $ref: "#/components/parameters/SegmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SegmentSplitRequest"
+      responses:
+        "200":
+          description: Segment split
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Segment"
+
+  /api/v1/segments/{segmentId}/merge:
+    post:
+      tags: [Structure]
+      summary: Merge a segment with the next adjacent segment
+      parameters:
+        - $ref: "#/components/parameters/SegmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SegmentMergeRequest"
+      responses:
+        "200":
+          description: Segment merged
           content:
             application/json:
               schema:
@@ -1484,16 +1611,27 @@ components:
           type: string
         projectId:
           type: string
-        chapterNumber:
-          type: integer
         title:
           type: string
         orderIndex:
           type: integer
-        wordCount:
-          type: integer
         status:
           type: string
+        confidence:
+          type: number
+        startOffset:
+          type: integer
+        endOffset:
+          type: integer
+        parserEvidence:
+          type: object
+          additionalProperties: true
+        userLocked:
+          type: boolean
+        lockReason:
+          type:
+            - string
+            - "null"
     Scene:
       type: object
       properties:
@@ -1503,16 +1641,23 @@ components:
           type: string
         orderIndex:
           type: integer
-        title:
+        status:
           type: string
-        moodTags:
-          type: array
-          items:
-            type: string
-        stylePreset:
-          type: string
-        ambienceProfile:
-          type: string
+        confidence:
+          type: number
+        startOffset:
+          type: integer
+        endOffset:
+          type: integer
+        parserEvidence:
+          type: object
+          additionalProperties: true
+        userLocked:
+          type: boolean
+        lockReason:
+          type:
+            - string
+            - "null"
     Segment:
       type: object
       properties:
@@ -1524,21 +1669,62 @@ components:
           type: integer
         segmentType:
           type: string
-        speakerCharacterId:
+        speakerCandidate:
           type:
             - string
             - "null"
+        speakerConfidence:
+          type: number
         textContent:
           type: string
         normalizedText:
           type: string
-        attributionConfidence:
-          type: number
-        direction:
-          type: object
-          additionalProperties: true
         status:
           type: string
+        revision:
+          type: integer
+        startOffset:
+          type: integer
+        endOffset:
+          type: integer
+        parserEvidence:
+          type: object
+          additionalProperties: true
+        userLocked:
+          type: boolean
+        lockReason:
+          type:
+            - string
+            - "null"
+    StructureParserWarning:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        sourceDocumentId:
+          type:
+            - string
+            - "null"
+        scopeType:
+          type: string
+        scopeId:
+          type: string
+        severity:
+          type: string
+        message:
+          type: string
+        evidence:
+          type: object
+          additionalProperties: true
+        confidence:
+          type: number
+        resolved:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
         currentRenderId:
           type:
             - string
@@ -1860,6 +2046,43 @@ components:
         direction:
           type: object
           additionalProperties: true
+    ChapterUpdate:
+      type: object
+      properties:
+        title:
+          type:
+            - string
+            - "null"
+        status:
+          type:
+            - string
+            - "null"
+    SceneUpdate:
+      type: object
+      properties:
+        status:
+          type:
+            - string
+            - "null"
+    StructureLockUpdate:
+      type: object
+      properties:
+        locked:
+          type: boolean
+        reason:
+          type:
+            - string
+            - "null"
+    SegmentSplitRequest:
+      type: object
+      properties:
+        splitOffset:
+          type: integer
+    SegmentMergeRequest:
+      type: object
+      properties:
+        nextSegmentId:
+          type: string
     GenerateChaptersRequest:
       type: object
       properties:

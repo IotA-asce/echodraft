@@ -14,6 +14,7 @@ Project
 │  ├─ Scene
 │  │  └─ Segment
 │  └─ ChapterRender
+├─ StructureParserWarning
 ├─ Character
 ├─ VoiceProfile
 ├─ PronunciationEntry
@@ -131,11 +132,15 @@ Major content division inside a project.
 Fields:
 - `id`
 - `project_id`
-- `chapter_number`
 - `title`
 - `order_index`
-- `word_count`
+- `start_offset`
+- `end_offset`
+- `confidence`
 - `status`
+- `parser_evidence`
+- `user_locked`
+- `lock_reason`
 
 Lifecycle states:
 - `pending`
@@ -154,12 +159,13 @@ Fields:
 - `id`
 - `chapter_id`
 - `order_index`
-- `title`
-- `mood_tags`
-- `style_preset`
-- `ambience_profile`
 - `start_offset`
 - `end_offset`
+- `confidence`
+- `status`
+- `parser_evidence`
+- `user_locked`
+- `lock_reason`
 
 ### Segment
 Atomic editable and renderable unit.
@@ -169,22 +175,22 @@ Fields:
 - `scene_id`
 - `order_index`
 - `segment_type`
-- `speaker_character_id`
+- `speaker_candidate`
+- `speaker_confidence`
 - `text_content`
 - `normalized_text`
-- `attribution_confidence`
-- `direction`
-- `duration_ms`
+- `start_offset`
+- `end_offset`
+- `revision`
 - `status`
-- `current_render_id`
+- `parser_evidence`
+- `user_locked`
+- `lock_reason`
 
 Segment types:
 - `narration`
 - `dialogue`
-- `monologue`
-- `silence`
-- `ambience_cue`
-- `sfx_cue`
+- `performance_beat`
 
 Lifecycle states:
 - `pending`
@@ -197,9 +203,25 @@ Lifecycle states:
 - `superseded`
 
 Rules:
-- only one active `current_render_id` at a time
+- locked segments are preserved across parser reruns
 - regeneration creates a new render rather than overwriting history
-- a segment cannot be approved without a valid active render
+- segment split/merge creates reviewable revisions
+
+### StructureParserWarning
+Parser warning or confidence note anchored to a chapter, scene, or segment.
+
+Fields:
+- `id`
+- `project_id`
+- `source_document_id`
+- `scope_type`
+- `scope_id`
+- `severity`
+- `message`
+- `evidence`
+- `confidence`
+- `resolved`
+- `created_at`
 
 ### Character
 Story speaker or speaker-like role.

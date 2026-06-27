@@ -5,9 +5,10 @@ export type SourceDocument = { id: string; projectId: string; originalFilename: 
 export type SourcePage = { id: string; sourceDocumentId: string; pageNumber: number; imagePath?: string | null; imageUrl?: string | null; embeddedTextPath?: string | null; selectedTextPath?: string | null; extractionMethod: string; confidence: number; warnings: ParserWarning[]; preview?: string | null };
 export type CleaningRun = { id: string; sourceDocumentId: string; status: string; manifestPath?: string | null; startedAt: string; completedAt?: string | null; errorMessage?: string | null };
 export type TextCleanlinessIssue = { id: string; sourceDocumentId: string; canonicalSpanStart: number; canonicalSpanEnd: number; issueType: string; severity: string; suggestedFix?: string | null; confidence: number; status: string; resolvedByUser: boolean };
-export type Chapter = { id: string; title?: string | null; status: string; confidence: number };
-export type Scene = { id: string; status: string; confidence: number };
-export type Segment = { id: string; textContent: string; revision: number; status: string; speakerCandidate?: string | null };
+export type StructureParserWarning = { id: string; projectId: string; sourceDocumentId?: string | null; scopeType: string; scopeId: string; severity: string; message: string; evidence: Record<string, unknown>; confidence: number; resolved: boolean; createdAt: string };
+export type Chapter = { id: string; title?: string | null; status: string; confidence: number; parserEvidence?: Record<string, unknown>; userLocked: boolean; lockReason?: string | null };
+export type Scene = { id: string; status: string; confidence: number; parserEvidence?: Record<string, unknown>; userLocked: boolean; lockReason?: string | null };
+export type Segment = { id: string; sceneId: string; textContent: string; revision: number; status: string; speakerCandidate?: string | null; segmentType: string; parserEvidence?: Record<string, unknown>; userLocked: boolean; lockReason?: string | null };
 export type Direction = { scopeType: string; scopeId: string; pace: number; intensity: number; tone: string; stylePrompt?: string | null; emphasis: boolean; whisper: boolean; noSfx: boolean };
 export type TtsSettings = { provider: "mock" | "kokoro"; setupMode?: "managed_onnx" | "custom_adapter" | null; executable?: string | null; runtimeRoot?: string | null; pythonPath?: string | null; modelPath?: string | null; voicesDataPath?: string | null; voiceRegistryPath?: string | null; ready: boolean; message?: string | null; availableVoices: string[] };
 export type KokoroSetupStep = { phase: string; label: string; status: string; message?: string | null };
@@ -55,9 +56,15 @@ export async function importSource(projectId: string, file: File) { const form =
 export const reparseSource = (projectId: string) => request<Job>(`/api/v1/projects/${projectId}/source/reparse`, json("POST", { parserVersion: "ingestion-0.1.0" }));
 export const extractStructure = (projectId: string) => request<Job>(`/api/v1/projects/${projectId}/structure/extract`, json("POST", { maxSegmentChars: 600 }));
 export const listChapters = (projectId: string) => request<Chapter[]>(`/api/v1/projects/${projectId}/chapters`);
+export const listStructureWarnings = (projectId: string) => request<StructureParserWarning[]>(`/api/v1/projects/${projectId}/structure-warnings`);
+export const updateChapter = (chapterId: string, payload: { title?: string | null; status?: string | null }) => request<Chapter>(`/api/v1/chapters/${chapterId}`, json("PATCH", payload));
 export const listScenes = (chapterId: string) => request<Scene[]>(`/api/v1/chapters/${chapterId}/scenes`);
+export const updateScene = (sceneId: string, payload: { status?: string | null }) => request<Scene>(`/api/v1/scenes/${sceneId}`, json("PATCH", payload));
 export const listSegments = (sceneId: string) => request<Segment[]>(`/api/v1/scenes/${sceneId}/segments`);
 export const updateSegment = (id: string, textContent: string) => request<Segment>(`/api/v1/segments/${id}`, json("PATCH", { textContent }));
+export const setStructureLock = (scopeType: "chapter" | "scene" | "segment", scopeId: string, payload: { locked: boolean; reason?: string | null }) => request<Chapter | Scene | Segment>(`/api/v1/structure-locks/${scopeType}/${scopeId}`, json("PUT", payload));
+export const splitSegment = (id: string, splitOffset: number) => request<Segment>(`/api/v1/segments/${id}/split`, json("POST", { splitOffset }));
+export const mergeSegment = (id: string, nextSegmentId: string) => request<Segment>(`/api/v1/segments/${id}/merge`, json("POST", { nextSegmentId }));
 
 export const getTtsSettings = () => request<TtsSettings>("/api/v1/settings/tts");
 export const saveTtsSettings = (payload: Omit<TtsSettings, "ready" | "message" | "availableVoices">) => request<TtsSettings>("/api/v1/settings/tts", json("PUT", payload));

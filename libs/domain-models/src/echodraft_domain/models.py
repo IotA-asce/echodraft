@@ -182,6 +182,42 @@ class SegmentUpdate(ApiModel):
     text_content: str = Field(min_length=1, alias="textContent")
 
 
+class ChapterUpdate(ApiModel):
+    title: str | None = Field(default=None, max_length=512)
+    status: str | None = None
+
+
+class SceneUpdate(ApiModel):
+    status: str | None = None
+
+
+class StructureLockUpdate(ApiModel):
+    locked: bool = True
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class SegmentSplitRequest(ApiModel):
+    split_offset: int = Field(alias="splitOffset", gt=0)
+
+
+class SegmentMergeRequest(ApiModel):
+    next_segment_id: str = Field(alias="nextSegmentId")
+
+
+class StructureParserWarning(ApiModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    source_document_id: str | None = Field(default=None, alias="sourceDocumentId")
+    scope_type: str = Field(alias="scopeType")
+    scope_id: str = Field(alias="scopeId")
+    severity: str
+    message: str
+    evidence: dict[str, object] = Field(default_factory=dict)
+    confidence: float
+    resolved: bool = False
+    created_at: datetime = Field(alias="createdAt")
+
+
 class ReparseRequest(ApiModel):
     parser_version: str = Field(default="ingestion-0.1.0", alias="parserVersion")
 
@@ -195,6 +231,9 @@ class Chapter(ApiModel):
     confidence: float
     start_offset: int = Field(alias="startOffset")
     end_offset: int = Field(alias="endOffset")
+    parser_evidence: dict[str, object] = Field(default_factory=dict, alias="parserEvidence")
+    user_locked: bool = Field(default=False, alias="userLocked")
+    lock_reason: str | None = Field(default=None, alias="lockReason")
 
 
 class Scene(ApiModel):
@@ -205,6 +244,9 @@ class Scene(ApiModel):
     confidence: float
     start_offset: int = Field(alias="startOffset")
     end_offset: int = Field(alias="endOffset")
+    parser_evidence: dict[str, object] = Field(default_factory=dict, alias="parserEvidence")
+    user_locked: bool = Field(default=False, alias="userLocked")
+    lock_reason: str | None = Field(default=None, alias="lockReason")
 
 
 class Segment(ApiModel):
@@ -219,6 +261,9 @@ class Segment(ApiModel):
     speaker_confidence: float = Field(alias="speakerConfidence")
     start_offset: int = Field(alias="startOffset")
     end_offset: int = Field(alias="endOffset")
+    parser_evidence: dict[str, object] = Field(default_factory=dict, alias="parserEvidence")
+    user_locked: bool = Field(default=False, alias="userLocked")
+    lock_reason: str | None = Field(default=None, alias="lockReason")
     revision: int
 
 

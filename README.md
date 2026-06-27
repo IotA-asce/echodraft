@@ -67,7 +67,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | TXT / Markdown / DOCX / EPUB import | Working         | Local ingestion and canonical text generation                                              |
 | PDF import                          | Alpha           | Page-aware text/OCR selection; scanned pages require Poppler + Tesseract English OCR        |
 | Clean Text Review                   | Alpha           | Page-marker cleanup and suspicious OCR-token review before structure extraction             |
-| Structure extraction                | Working         | Chapters, scenes, and segments                                                             |
+| Structure extraction                | Alpha           | Parser v2 with front matter, warnings, locks, split/merge, and segment evidence             |
 | Segment editing                     | Working         | Saves new revisions instead of overwriting history                                         |
 | Mock TTS                            | Working         | Silent WAVs for validating the full workflow                                               |
 | Model Center                        | Alpha           | Catalog, health checks, install jobs, and OS package-manager install commands              |
@@ -408,7 +408,7 @@ Project
       → Segments
 ```
 
-The default maximum segment size is 600 characters. Segments are designed to be safe to edit and rerender independently.
+The default maximum segment size is 600 characters. Structure Parser v2 records evidence and warnings, supports segment locks, and lets you split or merge segments before production.
 
 ---
 
