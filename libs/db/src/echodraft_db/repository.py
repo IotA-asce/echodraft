@@ -212,6 +212,11 @@ class SourceDocumentRepository:
             session.commit()
             return record
 
+    def get(self, source_id: str) -> SourceDocument | None:
+        with self.database.session() as session:
+            record = session.get(SourceDocumentRecord, source_id)
+            return self._model(record) if record else None
+
     def latest(self, project_id: str) -> SourceDocument | None:
         with self.database.session() as session:
             record = session.scalar(
@@ -221,26 +226,30 @@ class SourceDocumentRepository:
             )
             if not record:
                 return None
-            return SourceDocument.model_validate(
-                {
-                    "id": record.id,
-                    "projectId": record.project_id,
-                    "originalFilename": record.original_filename,
-                    "mimeType": record.mime_type,
-                    "checksum": record.checksum,
-                    "importedAt": record.imported_at,
-                    "rightsStatus": record.rights_status,
-                    "parserVersion": record.parser_version,
-                    "originalPath": record.original_path,
-                    "canonicalPath": record.canonical_path,
-                    "manifestPath": record.manifest_path,
-                    "status": record.status,
-                    "warnings": [
-                        ParserWarning.model_validate(item)
-                        for item in json.loads(record.warnings_json)
-                    ],
-                }
-            )
+            return self._model(record)
+
+    @staticmethod
+    def _model(record: SourceDocumentRecord) -> SourceDocument:
+        return SourceDocument.model_validate(
+            {
+                "id": record.id,
+                "projectId": record.project_id,
+                "originalFilename": record.original_filename,
+                "mimeType": record.mime_type,
+                "checksum": record.checksum,
+                "importedAt": record.imported_at,
+                "rightsStatus": record.rights_status,
+                "parserVersion": record.parser_version,
+                "originalPath": record.original_path,
+                "canonicalPath": record.canonical_path,
+                "manifestPath": record.manifest_path,
+                "status": record.status,
+                "warnings": [
+                    ParserWarning.model_validate(item)
+                    for item in json.loads(record.warnings_json)
+                ],
+            }
+        )
 
 
 class StructureRepository:

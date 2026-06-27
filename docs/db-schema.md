@@ -60,6 +60,60 @@ Stage 01 columns:
 - `status` TEXT NOT NULL
 - `error_message` TEXT nullable
 
+### `source_pages`
+Purpose: page-level extraction metadata for source documents, especially PDFs.
+
+Key columns:
+- `id` TEXT PK
+- `source_document_id` FK
+- `page_number` INTEGER NOT NULL
+- `image_path` TEXT nullable
+- `embedded_text_path` TEXT nullable
+- `selected_text_path` TEXT nullable
+- `extraction_method` TEXT NOT NULL
+- `confidence` REAL NOT NULL
+- `warnings_json` TEXT NOT NULL
+
+### `ocr_runs`
+Purpose: OCR provider run metadata for one source document.
+
+Key columns:
+- `id` TEXT PK
+- `source_document_id` FK
+- `provider` TEXT NOT NULL
+- `status` TEXT NOT NULL
+- `settings_json` TEXT NOT NULL
+- `started_at` DATETIME NOT NULL
+- `completed_at` DATETIME nullable
+- `error_message` TEXT nullable
+
+### `ocr_page_results`
+Purpose: per-page OCR output artifacts.
+
+Key columns:
+- `id` TEXT PK
+- `ocr_run_id` FK
+- `source_page_id` FK
+- `page_number` INTEGER NOT NULL
+- `text_path` TEXT NOT NULL
+- `json_path` TEXT NOT NULL
+- `confidence` REAL NOT NULL
+- `warnings_json` TEXT NOT NULL
+
+### `canonical_spans`
+Purpose: mapping from selected source page text to canonical text offsets.
+
+Key columns:
+- `id` TEXT PK
+- `source_document_id` FK
+- `page_number` INTEGER NOT NULL
+- `canonical_start_offset` INTEGER NOT NULL
+- `canonical_end_offset` INTEGER NOT NULL
+- `source_text_hash` TEXT NOT NULL
+- `bbox_json` TEXT nullable
+- `extraction_method` TEXT NOT NULL
+- `confidence` REAL NOT NULL
+
 ### `chapters`
 Purpose: chapter-level structure.
 
@@ -322,22 +376,26 @@ Key columns:
 ## Migration order
 1. `projects`
 2. `source_documents`
-3. `chapters`
-4. `scenes`
-5. `characters`
-6. `voice_profiles`
-7. `character_voice_assignments`
-8. `pronunciation_entries`
-9. `segments`
-10. `segment_renders`
-11. `chapter_renders`
-12. `issues`
-13. `comments`
-14. `exports`
-15. `jobs`
-16. `model_installations`
-17. `model_install_jobs`
-18. `rights_declarations`
+3. `source_pages`
+4. `ocr_runs`
+5. `ocr_page_results`
+6. `canonical_spans`
+7. `chapters`
+8. `scenes`
+9. `characters`
+10. `voice_profiles`
+11. `character_voice_assignments`
+12. `pronunciation_entries`
+13. `segments`
+14. `segment_renders`
+15. `chapter_renders`
+16. `issues`
+17. `comments`
+18. `exports`
+19. `jobs`
+20. `model_installations`
+21. `model_install_jobs`
+22. `rights_declarations`
 
 ## Lifecycle semantics
 - `segments.current_render_id` points to the active immutable render.

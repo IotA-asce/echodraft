@@ -16,12 +16,14 @@ The current ingestion service accepts TXT, Markdown, DOCX, EPUB, and PDF files t
 
 ## PDF Handling
 
-PDF ingestion currently uses `pypdf` to extract embedded text per page and only invokes local OCR for pages whose extracted text is below the minimum text threshold.
+PDF ingestion uses `pypdf` to extract embedded text per page and invokes local OCR for pages whose extracted text is below the minimum text threshold.
 
 - Mixed PDFs are handled page by page: readable embedded text is kept and low-text pages are rendered/OCRed.
 - OCR requires Poppler `pdftoppm` and Tesseract to be available on `PATH`.
 - OCR is limited to 150 candidate pages in the alpha implementation.
-- OCR output is flattened into canonical text. Page images, OCR JSON, extraction alternatives, canonical spans, and reviewable per-page choices are not persisted yet.
+- Page images are rendered when Poppler is available.
+- Per-page embedded text, selected text, OCR JSON/text artifacts, extraction method, confidence, and warnings are persisted separately from canonical text.
+- Canonical spans preserve approximate page-to-canonical offset mappings.
 
 ## Structure
 

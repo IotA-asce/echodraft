@@ -98,6 +98,54 @@ class SourceDocument(ApiModel):
     preview: str | None = None
 
 
+class SourcePage(ApiModel):
+    id: str
+    source_document_id: str = Field(alias="sourceDocumentId")
+    page_number: int = Field(alias="pageNumber")
+    image_path: str | None = Field(default=None, alias="imagePath")
+    image_url: str | None = Field(default=None, alias="imageUrl")
+    embedded_text_path: str | None = Field(default=None, alias="embeddedTextPath")
+    selected_text_path: str | None = Field(default=None, alias="selectedTextPath")
+    extraction_method: str = Field(alias="extractionMethod")
+    confidence: float
+    warnings: list[ParserWarning] = Field(default_factory=list)
+    preview: str | None = None
+
+
+class OcrRun(ApiModel):
+    id: str
+    source_document_id: str = Field(alias="sourceDocumentId")
+    provider: str
+    status: str
+    settings: dict[str, object] = Field(default_factory=dict)
+    started_at: datetime = Field(alias="startedAt")
+    completed_at: datetime | None = Field(default=None, alias="completedAt")
+    error_message: str | None = Field(default=None, alias="errorMessage")
+
+
+class OcrPageResult(ApiModel):
+    id: str
+    ocr_run_id: str = Field(alias="ocrRunId")
+    source_page_id: str = Field(alias="sourcePageId")
+    page_number: int = Field(alias="pageNumber")
+    text_path: str = Field(alias="textPath")
+    json_path: str = Field(alias="jsonPath")
+    confidence: float
+    warnings: list[ParserWarning] = Field(default_factory=list)
+
+
+class CanonicalSpan(ApiModel):
+    id: str
+    source_document_id: str = Field(alias="sourceDocumentId")
+    page_number: int = Field(alias="pageNumber")
+    canonical_start_offset: int = Field(alias="canonicalStartOffset")
+    canonical_end_offset: int = Field(alias="canonicalEndOffset")
+    source_text_hash: str = Field(alias="sourceTextHash")
+    bbox: list[float] | None = None
+    extraction_method: str = Field(alias="extractionMethod")
+    confidence: float
+
+
 class StructureRequest(ApiModel):
     max_segment_chars: int = Field(default=600, ge=120, le=2000, alias="maxSegmentChars")
 

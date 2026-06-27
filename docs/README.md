@@ -22,14 +22,15 @@ The source files above remain raw reference inputs. The documents in this direct
 3. [architecture.md](architecture.md)
 4. [current-pipeline-behavior.md](current-pipeline-behavior.md)
 5. [model-center.md](model-center.md)
-6. [domain-model.md](domain-model.md)
-7. [db-schema.md](db-schema.md)
-8. [pipeline-manifest-spec.md](pipeline-manifest-spec.md)
-9. [voice-bible-spec.md](voice-bible-spec.md)
-10. [qa-rulebook.md](qa-rulebook.md)
-11. [api-spec.yaml](api-spec.yaml)
-12. [repository-blueprint.md](repository-blueprint.md)
-13. [platform-evolution.md](platform-evolution.md)
+6. [pdf-ocr-ingestion.md](pdf-ocr-ingestion.md)
+7. [domain-model.md](domain-model.md)
+8. [db-schema.md](db-schema.md)
+9. [pipeline-manifest-spec.md](pipeline-manifest-spec.md)
+10. [voice-bible-spec.md](voice-bible-spec.md)
+11. [qa-rulebook.md](qa-rulebook.md)
+12. [api-spec.yaml](api-spec.yaml)
+13. [repository-blueprint.md](repository-blueprint.md)
+14. [platform-evolution.md](platform-evolution.md)
 
 ## How to use this set
 - Start with the overview and MVP spec to understand scope and success criteria.
