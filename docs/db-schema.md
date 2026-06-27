@@ -200,19 +200,34 @@ Key columns:
 - `created_at` DATETIME NOT NULL
 
 ### `characters`
-Purpose: speaker registry.
+Purpose: editable Character Bible and speaker registry.
 
 Key columns:
 - `id` TEXT PK
 - `project_id` FK
 - `display_name` TEXT NOT NULL
+- `canonical_name` TEXT nullable
 - `aliases_json` TEXT
-- `description` TEXT
+- `traits_json` TEXT
+- `first_seen_source_id` TEXT nullable
+- `first_seen_chapter_id` TEXT nullable
+- `first_seen_segment_id` TEXT nullable
 - `role_type` TEXT
+- `confidence` REAL
 - `notes` TEXT
+- `merge_history_json` TEXT
+- `split_history_json` TEXT
+- `user_locked` BOOLEAN
+- `lock_reason` TEXT nullable
+- `merged_into_character_id` TEXT nullable
 
 Indexes:
 - `(project_id, display_name)`
+
+Rules:
+- merge/split history is append-only JSON metadata
+- merged source records remain for traceability and point at `merged_into_character_id`
+- voice links live in `character_voice_assignments`
 
 ### `voice_profiles`
 Purpose: reusable voice configurations.

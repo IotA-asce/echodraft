@@ -1,9 +1,10 @@
 from collections.abc import Awaitable, Callable
+import json
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
-from echodraft_db.models import ChapterRecord, SceneRecord, SegmentRecord
+from echodraft_db.models import ChapterRecord, CharacterRecord, SceneRecord, SegmentRecord
 from echodraft_domain import (
     AssignVoice,
     Chapter,
@@ -12,6 +13,9 @@ from echodraft_domain import (
     ChapterUpdate,
     Character,
     CharacterCreate,
+    CharacterMergeRequest,
+    CharacterSplitRequest,
+    CharacterUpdate,
     CleaningRun,
     Comment,
     CommentCreate,
@@ -124,6 +128,43 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     def chapter_render_with_url(project_id: str, render: ChapterRender) -> ChapterRender:
         path = render.mixed_audio_path or render.speech_path
         return render.model_copy(update={"audio_url": artifact_url(project_id, path)})
+
+    def _json_list(value: str | None) -> list[object]:
+        if not value:
+            return []
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+
+    def character_model(record: CharacterRecord, voice_profile_id: str | None = None) -> Character:
+        return Character.model_validate(
+            {
+                "id": record.id,
+                "projectId": record.project_id,
+                "displayName": record.display_name,
+                "canonicalName": record.canonical_name,
+                "aliases": [str(item) for item in _json_list(record.aliases_json)],
+                "traits": [str(item) for item in _json_list(record.traits_json)],
+                "firstSeenSourceId": record.first_seen_source_id,
+                "firstSeenChapterId": record.first_seen_chapter_id,
+                "firstSeenSegmentId": record.first_seen_segment_id,
+                "roleType": record.role_type,
+                "confidence": record.confidence,
+                "notes": record.notes,
+                "mergeHistory": [
+                    item for item in _json_list(record.merge_history_json) if isinstance(item, dict)
+                ],
+                "splitHistory": [
+                    item for item in _json_list(record.split_history_json) if isinstance(item, dict)
+                ],
+                "userLocked": record.user_locked,
+                "lockReason": record.lock_reason,
+                "mergedIntoCharacterId": record.merged_into_character_id,
+                "voiceProfileId": voice_profile_id,
+            }
+        )
 
     @app.middleware("http")
     async def request_logging(
@@ -710,18 +751,9 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
 
     @app.get("/api/v1/projects/{project_id}/characters", response_model=list[Character])
     def list_characters(project_id: str, request: Request) -> list[Character]:
+        assignments = request.app.state.container.casting.character_voice_assignments(project_id)
         return [
-            Character.model_validate(
-                {
-                    "id": x.id,
-                    "projectId": x.project_id,
-                    "displayName": x.display_name,
-                    "aliases": __import__("json").loads(x.aliases_json),
-                    "roleType": x.role_type,
-                    "confidence": x.confidence,
-                    "notes": x.notes,
-                }
-            )
+            character_model(x, assignments.get(x.id))
             for x in request.app.state.container.casting.characters(project_id)
         ]
 
@@ -734,18 +766,67 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             payload.role_type,
             payload.confidence,
             payload.notes,
+            payload.canonical_name,
+            payload.traits,
+            payload.first_seen_source_id,
+            payload.first_seen_chapter_id,
+            payload.first_seen_segment_id,
         )
-        return Character.model_validate(
-            {
-                "id": x.id,
-                "projectId": x.project_id,
-                "displayName": x.display_name,
-                "aliases": payload.aliases,
-                "roleType": x.role_type,
-                "confidence": x.confidence,
-                "notes": x.notes,
-            }
-        )
+        return character_model(x)
+
+    @app.patch("/api/v1/characters/{character_id}", response_model=Character)
+    def update_character(
+        character_id: str, payload: CharacterUpdate, request: Request
+    ) -> Character:
+        update_voice = "voice_profile_id" in payload.model_fields_set
+        try:
+            x = request.app.state.container.casting.update_character(
+                character_id,
+                display_name=payload.display_name,
+                canonical_name=payload.canonical_name,
+                aliases=payload.aliases,
+                traits=payload.traits,
+                role_type=payload.role_type,
+                confidence=payload.confidence,
+                notes=payload.notes,
+                user_locked=payload.user_locked,
+                lock_reason=payload.lock_reason,
+                voice_profile_id=payload.voice_profile_id,
+                update_voice=update_voice,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if not x:
+            raise HTTPException(status_code=404, detail="Character not found")
+        voice_id = request.app.state.container.casting.character_voice_assignment(character_id)
+        return character_model(x, voice_id)
+
+    @app.post("/api/v1/characters/{character_id}/merge", response_model=Character)
+    def merge_character(
+        character_id: str, payload: CharacterMergeRequest, request: Request
+    ) -> Character:
+        try:
+            x = request.app.state.container.casting.merge_characters(
+                character_id, payload.source_character_id, payload.reason
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        voice_id = request.app.state.container.casting.character_voice_assignment(character_id)
+        return character_model(x, voice_id)
+
+    @app.post("/api/v1/characters/{character_id}/split", response_model=Character, status_code=201)
+    def split_character(
+        character_id: str, payload: CharacterSplitRequest, request: Request
+    ) -> Character:
+        try:
+            x = request.app.state.container.casting.split_character(
+                character_id, payload.display_name, payload.aliases, payload.traits, payload.reason
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return character_model(x)
 
     @app.get("/api/v1/projects/{project_id}/voices", response_model=list[VoiceProfile])
     def list_voices(project_id: str, request: Request) -> list[VoiceProfile]:
@@ -811,7 +892,12 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
 
     @app.post("/api/v1/characters/{character_id}/assign-voice", status_code=200)
     def assign_voice(character_id: str, payload: AssignVoice, request: Request) -> dict[str, str]:
-        request.app.state.container.casting.assign(character_id, payload.voice_profile_id)
+        try:
+            request.app.state.container.casting.assign(character_id, payload.voice_profile_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         return {"status": "assigned"}
 
     @app.get(
