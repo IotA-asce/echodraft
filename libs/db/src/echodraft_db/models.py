@@ -72,6 +72,26 @@ class ModelInstallJobRecord(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
 
 
+class LlmRunRecord(Base):
+    __tablename__ = "llm_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), index=True)
+    source_document_id: Mapped[str | None] = mapped_column(ForeignKey("source_documents.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(200), nullable=False)
+    task: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    prompt_path: Mapped[str | None] = mapped_column(Text)
+    response_path: Mapped[str | None] = mapped_column(Text)
+    schema_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    result_json: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    retries: Mapped[int] = mapped_column(nullable=False, default=0)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class RightsDeclarationRecord(Base):
     __tablename__ = "rights_declarations"
 

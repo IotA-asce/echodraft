@@ -378,11 +378,12 @@ class LocalAiService:
         return completed.stdout
 
     def _ollama_tags(self) -> list[dict[str, object]]:
+        url = f"{self.container.settings.ollama_base_url}/api/tags"
         try:
-            with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2) as response:
+            with urllib.request.urlopen(url, timeout=2) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
-            raise ValueError("Ollama is not reachable at http://127.0.0.1:11434.") from error
+            raise ValueError(f"Ollama is not reachable at {self.container.settings.ollama_base_url}.") from error
         if not isinstance(payload, dict) or not isinstance(payload.get("models"), list):
             raise ValueError("Ollama returned an unexpected model list response.")
         models: list[dict[str, object]] = []

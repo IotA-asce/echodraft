@@ -19,6 +19,7 @@ Project
 ├─ VoiceProfile
 ├─ PronunciationEntry
 ├─ SegmentRender
+├─ LlmRun
 ├─ Issue
 ├─ Comment
 ├─ ExportPackage
@@ -222,6 +223,26 @@ Fields:
 - `confidence`
 - `resolved`
 - `created_at`
+
+### LlmRun
+Local LLM extraction attempt with prompt, schema, response, and fail-closed status.
+
+Fields:
+- `id`
+- `project_id`
+- `source_document_id`
+- `provider`
+- `model`
+- `task`
+- `status`
+- `prompt_path`
+- `response_path`
+- `schema`
+- `result`
+- `error_message`
+- `retries`
+- `started_at`
+- `completed_at`
 
 ### Character
 Story speaker or speaker-like role.

@@ -206,6 +206,93 @@ paths:
               schema:
                 $ref: "#/components/schemas/LocalAiInstallJob"
 
+  /api/v1/local-llm/ollama/models:
+    get:
+      tags: [Local LLM]
+      summary: List installed Ollama models from /api/tags
+      responses:
+        "200":
+          description: Ollama local model list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/v1/local-llm/embeddings:
+    post:
+      tags: [Local LLM]
+      summary: Generate local embeddings through Ollama /api/embed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmbeddingRequest"
+      responses:
+        "200":
+          description: Embeddings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbeddingResult"
+
+  /api/v1/projects/{projectId}/local-llm/extractions:
+    post:
+      tags: [Local LLM]
+      summary: Start a schema-first local LLM extraction job
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LlmExtractionRequest"
+      responses:
+        "202":
+          description: Extraction job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAcceptedResponse"
+
+  /api/v1/projects/{projectId}/llm-runs:
+    get:
+      tags: [Local LLM]
+      summary: List local LLM runs for a project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: LLM run list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LlmRun"
+
+  /api/v1/llm-runs/{runId}:
+    get:
+      tags: [Local LLM]
+      summary: Get one local LLM run
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: LLM run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LlmRun"
+
   /api/v1/sources/{source_id}:
     get:
       tags: [Source]
@@ -2346,3 +2433,94 @@ components:
           type: string
         resolvedByUser:
           type: boolean
+    LlmRun:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type:
+            - string
+            - "null"
+        sourceDocumentId:
+          type:
+            - string
+            - "null"
+        provider:
+          type: string
+        model:
+          type: string
+        task:
+          type: string
+        status:
+          type: string
+        promptPath:
+          type:
+            - string
+            - "null"
+        responsePath:
+          type:
+            - string
+            - "null"
+        schema:
+          type: object
+          additionalProperties: true
+        result:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+        errorMessage:
+          type:
+            - string
+            - "null"
+        retries:
+          type: integer
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    LlmExtractionRequest:
+      type: object
+      properties:
+        model:
+          type: string
+        task:
+          type: string
+        sourceDocumentId:
+          type:
+            - string
+            - "null"
+        schema:
+          type: object
+          additionalProperties: true
+        prompt:
+          type:
+            - string
+            - "null"
+    EmbeddingRequest:
+      type: object
+      properties:
+        model:
+          type: string
+        input:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+    EmbeddingResult:
+      type: object
+      properties:
+        model:
+          type: string
+        embeddings:
+          type: array
+          items:
+            type: array
+            items:
+              type: number

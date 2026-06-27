@@ -218,6 +218,47 @@ class StructureParserWarning(ApiModel):
     created_at: datetime = Field(alias="createdAt")
 
 
+class LlmRun(ApiModel):
+    id: str
+    project_id: str | None = Field(default=None, alias="projectId")
+    source_document_id: str | None = Field(default=None, alias="sourceDocumentId")
+    provider: str
+    model: str
+    task: str
+    status: str
+    prompt_path: str | None = Field(default=None, alias="promptPath")
+    response_path: str | None = Field(default=None, alias="responsePath")
+    output_schema: dict[str, object] = Field(default_factory=dict, alias="schema")
+    result: dict[str, object] | None = None
+    error_message: str | None = Field(default=None, alias="errorMessage")
+    retries: int = 0
+    started_at: datetime = Field(alias="startedAt")
+    completed_at: datetime | None = Field(default=None, alias="completedAt")
+
+
+class LlmExtractionRequest(ApiModel):
+    model: str = "qwen3:4b"
+    task: str = "structure_candidates"
+    source_document_id: str | None = Field(default=None, alias="sourceDocumentId")
+    output_schema: dict[str, object] | None = Field(default=None, alias="schema")
+    prompt: str | None = None
+
+
+class LlmExtractionResult(ApiModel):
+    run: LlmRun
+    result: dict[str, object]
+
+
+class EmbeddingRequest(ApiModel):
+    model: str = "qwen3-embedding"
+    input: str | list[str]
+
+
+class EmbeddingResult(ApiModel):
+    model: str
+    embeddings: list[list[float]]
+
+
 class ReparseRequest(ApiModel):
     parser_version: str = Field(default="ingestion-0.1.0", alias="parserVersion")
 
