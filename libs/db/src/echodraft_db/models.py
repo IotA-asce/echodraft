@@ -209,6 +209,9 @@ class ChapterRecord(Base):
     end_offset: Mapped[int] = mapped_column(nullable=False)
     confidence: Mapped[float] = mapped_column(nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    parser_evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
+    lock_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class SceneRecord(Base):
@@ -220,6 +223,9 @@ class SceneRecord(Base):
     end_offset: Mapped[int] = mapped_column(nullable=False)
     confidence: Mapped[float] = mapped_column(nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    parser_evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
+    lock_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class SegmentRecord(Base):
@@ -236,6 +242,36 @@ class SegmentRecord(Base):
     end_offset: Mapped[int] = mapped_column(nullable=False)
     revision: Mapped[int] = mapped_column(nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    parser_evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
+    lock_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class StructureParserWarningRecord(Base):
+    __tablename__ = "structure_parser_warnings"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    source_document_id: Mapped[str | None] = mapped_column(ForeignKey("source_documents.id"), index=True)
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    resolved: Mapped[bool] = mapped_column(nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class StructureLockRecord(Base):
+    __tablename__ = "structure_locks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class SegmentRevisionRecord(Base):

@@ -147,14 +147,15 @@ Purpose: chapter-level structure.
 Key columns:
 - `id` TEXT PK
 - `project_id` FK
-- `chapter_number` INTEGER
 - `title` TEXT
 - `order_index` INTEGER NOT NULL
-- `word_count` INTEGER
+- `start_offset` INTEGER NOT NULL
+- `end_offset` INTEGER NOT NULL
+- `confidence` REAL NOT NULL
 - `status` TEXT NOT NULL
-
-Constraints:
-- unique `(project_id, order_index)`
+- `parser_evidence_json` TEXT NOT NULL
+- `user_locked` BOOLEAN NOT NULL
+- `lock_reason` TEXT nullable
 
 ### `scenes`
 Purpose: scene-level organization within chapters.
@@ -163,15 +164,40 @@ Key columns:
 - `id` TEXT PK
 - `chapter_id` FK
 - `order_index` INTEGER NOT NULL
-- `title` TEXT
-- `mood_tags_json` TEXT
-- `style_preset` TEXT
-- `ambience_profile` TEXT
-- `start_offset` INTEGER
-- `end_offset` INTEGER
+- `start_offset` INTEGER NOT NULL
+- `end_offset` INTEGER NOT NULL
+- `confidence` REAL NOT NULL
+- `status` TEXT NOT NULL
+- `parser_evidence_json` TEXT NOT NULL
+- `user_locked` BOOLEAN NOT NULL
+- `lock_reason` TEXT nullable
 
-Constraints:
-- unique `(chapter_id, order_index)`
+### `structure_parser_warnings`
+Purpose: parser warnings, confidence notes, and evidence attached to chapter, scene, or segment scopes.
+
+Key columns:
+- `id` TEXT PK
+- `project_id` FK
+- `source_document_id` FK nullable
+- `scope_type` TEXT NOT NULL
+- `scope_id` TEXT NOT NULL
+- `severity` TEXT NOT NULL
+- `message` TEXT NOT NULL
+- `evidence_json` TEXT NOT NULL
+- `confidence` REAL NOT NULL
+- `resolved` BOOLEAN NOT NULL
+- `created_at` DATETIME NOT NULL
+
+### `structure_locks`
+Purpose: user locks that protect editorial structure decisions from later parser runs.
+
+Key columns:
+- `id` TEXT PK
+- `project_id` FK
+- `scope_type` TEXT NOT NULL
+- `scope_id` TEXT NOT NULL
+- `reason` TEXT nullable
+- `created_at` DATETIME NOT NULL
 
 ### `characters`
 Purpose: speaker registry.
@@ -235,22 +261,18 @@ Key columns:
 - `id` TEXT PK
 - `scene_id` FK
 - `order_index` INTEGER NOT NULL
-- `segment_type` TEXT NOT NULL
-- `speaker_character_id` FK nullable
 - `text_content` TEXT NOT NULL
-- `normalized_text` TEXT
-- `attribution_confidence` REAL
-- `direction_json` TEXT
-- `duration_ms` INTEGER
+- `normalized_text` TEXT NOT NULL
+- `segment_type` TEXT NOT NULL
+- `speaker_candidate` TEXT nullable
+- `speaker_confidence` REAL NOT NULL
+- `start_offset` INTEGER NOT NULL
+- `end_offset` INTEGER NOT NULL
+- `revision` INTEGER NOT NULL
 - `status` TEXT NOT NULL
-- `current_render_id` TEXT nullable
-
-Constraints:
-- unique `(scene_id, order_index)`
-
-Indexes:
-- `speaker_character_id`
-- `status`
+- `parser_evidence_json` TEXT NOT NULL
+- `user_locked` BOOLEAN NOT NULL
+- `lock_reason` TEXT nullable
 
 ### `segment_renders`
 Purpose: immutable segment render history.
@@ -411,25 +433,27 @@ Key columns:
 8. `text_cleanliness_issues`
 9. `chapters`
 10. `scenes`
-11. `characters`
-12. `voice_profiles`
-13. `character_voice_assignments`
-14. `pronunciation_entries`
-15. `segments`
-16. `segment_renders`
-17. `chapter_renders`
-18. `issues`
-19. `comments`
-20. `exports`
-21. `jobs`
-22. `model_installations`
-23. `model_install_jobs`
-24. `rights_declarations`
+11. `structure_parser_warnings`
+12. `structure_locks`
+13. `characters`
+14. `voice_profiles`
+15. `character_voice_assignments`
+16. `pronunciation_entries`
+17. `segments`
+18. `segment_renders`
+19. `chapter_renders`
+20. `issues`
+21. `comments`
+22. `exports`
+23. `jobs`
+24. `model_installations`
+25. `model_install_jobs`
+26. `rights_declarations`
 
 ## Lifecycle semantics
-- `segments.current_render_id` points to the active immutable render.
 - Regeneration inserts a new `segment_renders` row instead of mutating existing rows.
 - Segment changes stale downstream chapter renders.
+- Structure locks preserve user-approved segment text across parser reruns.
 - Export records always point to a specific output package and status.
 
 ## Hosted evolution additions

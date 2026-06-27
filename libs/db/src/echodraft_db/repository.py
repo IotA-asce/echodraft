@@ -11,6 +11,7 @@ from echodraft_domain import (
     ProjectCreate,
     RightsStatus,
     SourceDocument,
+    StructureParserWarning,
 )
 from sqlalchemy import delete, select
 
@@ -26,11 +27,31 @@ from .models import (
     RightsDeclarationRecord,
     SceneRecord,
     SegmentRecord,
+    StructureLockRecord,
+    StructureParserWarningRecord,
     SegmentRevisionRecord,
     SegmentProductionOverrideRecord,
     SourceDocumentRecord,
     VoiceProfileRecord,
 )
+
+
+def _structure_warning(record: StructureParserWarningRecord) -> StructureParserWarning:
+    return StructureParserWarning.model_validate(
+        {
+            "id": record.id,
+            "projectId": record.project_id,
+            "sourceDocumentId": record.source_document_id,
+            "scopeType": record.scope_type,
+            "scopeId": record.scope_id,
+            "severity": record.severity,
+            "message": record.message,
+            "evidence": json.loads(record.evidence_json),
+            "confidence": record.confidence,
+            "resolved": record.resolved,
+            "createdAt": record.created_at,
+        }
+    )
 
 
 def _project(record: ProjectRecord) -> Project:
@@ -256,26 +277,82 @@ class StructureRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
 
-    def replace(self, project_id: str, hierarchy: list[dict[str, Any]]) -> None:
+    def replace(
+        self,
+        project_id: str,
+        hierarchy: list[dict[str, Any]],
+        warnings: list[dict[str, Any]] | None = None,
+    ) -> None:
         with self.database.session() as session:
-            chapter_ids = select(ChapterRecord.id).where(ChapterRecord.project_id == project_id)
-            scene_ids = select(SceneRecord.id).where(SceneRecord.chapter_id.in_(chapter_ids))
-            segment_ids = select(SegmentRecord.id).where(SegmentRecord.scene_id.in_(scene_ids))
-            session.execute(
-                delete(SegmentRevisionRecord).where(
-                    SegmentRevisionRecord.segment_id.in_(segment_ids)
+            old_chapter_ids = list(
+                session.scalars(select(ChapterRecord.id).where(ChapterRecord.project_id == project_id))
+            )
+            old_scene_ids = list(
+                session.scalars(
+                    select(SceneRecord.id).where(SceneRecord.chapter_id.in_(old_chapter_ids))
                 )
             )
-            session.execute(delete(SegmentRecord).where(SegmentRecord.scene_id.in_(scene_ids)))
-            session.execute(delete(SceneRecord).where(SceneRecord.chapter_id.in_(chapter_ids)))
-            session.execute(delete(ChapterRecord).where(ChapterRecord.project_id == project_id))
+            old_segments = list(
+                session.scalars(select(SegmentRecord).where(SegmentRecord.scene_id.in_(old_scene_ids)))
+            )
+            locked_segments = [segment for segment in old_segments if segment.user_locked]
+            unlocked_segment_ids = [segment.id for segment in old_segments if not segment.user_locked]
+            if unlocked_segment_ids:
+                session.execute(
+                    delete(SegmentRevisionRecord).where(
+                        SegmentRevisionRecord.segment_id.in_(unlocked_segment_ids)
+                    )
+                )
+                session.execute(delete(SegmentRecord).where(SegmentRecord.id.in_(unlocked_segment_ids)))
+            session.execute(
+                delete(StructureParserWarningRecord).where(
+                    StructureParserWarningRecord.project_id == project_id
+                )
+            )
+            new_scenes: list[dict[str, Any]] = []
+            order_counts: dict[str, int] = {}
             for chapter in hierarchy:
                 session.add(ChapterRecord(**chapter["record"]))
                 for scene in chapter["scenes"]:
-                    session.add(SceneRecord(**scene["record"]))
+                    scene_record = scene["record"]
+                    session.add(SceneRecord(**scene_record))
+                    new_scenes.append(scene_record)
+                    order_counts[str(scene_record["id"])] = 0
                     for segment in scene["segments"]:
                         session.add(SegmentRecord(**segment))
+                        order_counts[str(scene_record["id"])] += 1
+            for segment in locked_segments:
+                target_scene = next(
+                    (
+                        scene
+                        for scene in new_scenes
+                        if scene["start_offset"] <= segment.start_offset <= scene["end_offset"]
+                    ),
+                    new_scenes[0] if new_scenes else None,
+                )
+                if target_scene:
+                    target_scene_id = str(target_scene["id"])
+                    segment.scene_id = target_scene_id
+                    segment.order_index = order_counts[target_scene_id]
+                    order_counts[target_scene_id] += 1
+            if old_scene_ids:
+                session.execute(delete(SceneRecord).where(SceneRecord.id.in_(old_scene_ids)))
+            if old_chapter_ids:
+                session.execute(delete(ChapterRecord).where(ChapterRecord.id.in_(old_chapter_ids)))
+            for warning in warnings or []:
+                session.add(StructureParserWarningRecord(**warning))
             session.commit()
+
+    def warnings(self, project_id: str) -> list[StructureParserWarning]:
+        with self.database.session() as session:
+            records = list(
+                session.scalars(
+                    select(StructureParserWarningRecord)
+                    .where(StructureParserWarningRecord.project_id == project_id)
+                    .order_by(StructureParserWarningRecord.created_at)
+                )
+            )
+        return [_structure_warning(record) for record in records]
 
     def chapters(self, project_id: str) -> list[ChapterRecord]:
         with self.database.session() as session:
@@ -291,6 +368,20 @@ class StructureRepository:
         with self.database.session() as session:
             return session.get(ChapterRecord, chapter_id)
 
+    def update_chapter(
+        self, chapter_id: str, title: str | None = None, status: str | None = None
+    ) -> ChapterRecord | None:
+        with self.database.session() as session:
+            record = session.get(ChapterRecord, chapter_id)
+            if not record:
+                return None
+            if title is not None:
+                record.title = title.strip() or None
+            if status is not None:
+                record.status = status
+            session.commit()
+            return record
+
     def scenes(self, chapter_id: str) -> list[SceneRecord]:
         with self.database.session() as session:
             return list(
@@ -300,6 +391,20 @@ class StructureRepository:
                     .order_by(SceneRecord.order_index)
                 )
             )
+
+    def scene(self, scene_id: str) -> SceneRecord | None:
+        with self.database.session() as session:
+            return session.get(SceneRecord, scene_id)
+
+    def update_scene(self, scene_id: str, status: str | None = None) -> SceneRecord | None:
+        with self.database.session() as session:
+            record = session.get(SceneRecord, scene_id)
+            if not record:
+                return None
+            if status is not None:
+                record.status = status
+            session.commit()
+            return record
 
     def segments(self, scene_id: str) -> list[SegmentRecord]:
         with self.database.session() as session:
@@ -329,6 +434,155 @@ class StructureRepository:
             record.normalized_text = text.strip()
             record.revision += 1
             record.status = "needs_review"
+            session.commit()
+            return record
+
+    def set_lock(
+        self, scope_type: str, scope_id: str, locked: bool, reason: str | None
+    ) -> ChapterRecord | SceneRecord | SegmentRecord | None:
+        with self.database.session() as session:
+            target: ChapterRecord | SceneRecord | SegmentRecord | None
+            project_id: str | None = None
+            if scope_type == "chapter":
+                target = session.get(ChapterRecord, scope_id)
+                project_id = target.project_id if target else None
+            elif scope_type == "scene":
+                target = session.get(SceneRecord, scope_id)
+                chapter = session.get(ChapterRecord, target.chapter_id) if target else None
+                project_id = chapter.project_id if chapter else None
+            elif scope_type == "segment":
+                target = session.get(SegmentRecord, scope_id)
+                scene = session.get(SceneRecord, target.scene_id) if target else None
+                chapter = session.get(ChapterRecord, scene.chapter_id) if scene else None
+                project_id = chapter.project_id if chapter else None
+            else:
+                return None
+            if not target or not project_id:
+                return None
+            target.user_locked = locked
+            target.lock_reason = reason if locked else None
+            session.execute(
+                delete(StructureLockRecord).where(
+                    StructureLockRecord.scope_type == scope_type,
+                    StructureLockRecord.scope_id == scope_id,
+                )
+            )
+            if locked:
+                session.add(
+                    StructureLockRecord(
+                        id=f"structlock_{uuid4().hex[:16]}",
+                        project_id=project_id,
+                        scope_type=scope_type,
+                        scope_id=scope_id,
+                        reason=reason,
+                        created_at=datetime.now(UTC),
+                    )
+                )
+            session.commit()
+            return target
+
+    def split_segment(self, segment_id: str, split_offset: int) -> SegmentRecord | None:
+        with self.database.session() as session:
+            record = session.get(SegmentRecord, segment_id)
+            if not record:
+                return None
+            text = record.text_content
+            if record.user_locked or split_offset <= 0 or split_offset >= len(text):
+                raise ValueError("Segment cannot be split at that offset.")
+            left = text[:split_offset].strip()
+            right = text[split_offset:].strip()
+            if not left or not right:
+                raise ValueError("Split must leave text on both sides.")
+            session.add(
+                SegmentRevisionRecord(
+                    id=f"segrev_{uuid4().hex[:16]}",
+                    segment_id=segment_id,
+                    revision=record.revision,
+                    text_content=record.text_content,
+                    created_at=datetime.now(UTC),
+                )
+            )
+            following = list(
+                session.scalars(
+                    select(SegmentRecord)
+                    .where(
+                        SegmentRecord.scene_id == record.scene_id,
+                        SegmentRecord.order_index > record.order_index,
+                    )
+                    .order_by(SegmentRecord.order_index.desc())
+                )
+            )
+            for item in following:
+                item.order_index += 1
+            new_segment = SegmentRecord(
+                id=f"seg_{uuid4().hex[:16]}",
+                scene_id=record.scene_id,
+                order_index=record.order_index + 1,
+                text_content=right,
+                normalized_text=right,
+                segment_type=record.segment_type,
+                speaker_candidate=record.speaker_candidate,
+                speaker_confidence=record.speaker_confidence,
+                start_offset=record.start_offset + split_offset,
+                end_offset=record.end_offset,
+                revision=1,
+                status="needs_review",
+                parser_evidence_json=record.parser_evidence_json,
+            )
+            record.text_content = left
+            record.normalized_text = left
+            record.end_offset = record.start_offset + split_offset
+            record.revision += 1
+            record.status = "needs_review"
+            session.add(new_segment)
+            session.commit()
+            return record
+
+    def merge_segments(self, segment_id: str, next_segment_id: str) -> SegmentRecord | None:
+        with self.database.session() as session:
+            record = session.get(SegmentRecord, segment_id)
+            next_record = session.get(SegmentRecord, next_segment_id)
+            if not record or not next_record:
+                return None
+            if (
+                record.scene_id != next_record.scene_id
+                or next_record.order_index != record.order_index + 1
+                or record.user_locked
+                or next_record.user_locked
+            ):
+                raise ValueError("Only adjacent unlocked segments in the same scene can be merged.")
+            session.add(
+                SegmentRevisionRecord(
+                    id=f"segrev_{uuid4().hex[:16]}",
+                    segment_id=segment_id,
+                    revision=record.revision,
+                    text_content=record.text_content,
+                    created_at=datetime.now(UTC),
+                )
+            )
+            record.text_content = f"{record.text_content.rstrip()} {next_record.text_content.lstrip()}".strip()
+            record.normalized_text = record.text_content
+            record.end_offset = next_record.end_offset
+            record.revision += 1
+            record.status = "needs_review"
+            session.execute(
+                delete(SegmentRevisionRecord).where(
+                    SegmentRevisionRecord.segment_id == next_segment_id
+                )
+            )
+            session.delete(next_record)
+            following = list(
+                session.scalars(
+                    select(SegmentRecord)
+                    .where(
+                        SegmentRecord.scene_id == record.scene_id,
+                        SegmentRecord.order_index > next_record.order_index,
+                    )
+                    .order_by(SegmentRecord.order_index)
+                )
+            )
+            for item in following:
+                item.order_index -= 1
             session.commit()
             return record
 

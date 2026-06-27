@@ -1,12 +1,15 @@
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
+from echodraft_db.models import ChapterRecord, SceneRecord, SegmentRecord
 from echodraft_domain import (
     AssignVoice,
     Chapter,
     ChapterAssemblyRequest,
     ChapterRender,
+    ChapterUpdate,
     Character,
     CharacterCreate,
     CleaningRun,
@@ -24,16 +27,21 @@ from echodraft_domain import (
     PronunciationEntry,
     ReparseRequest,
     Scene,
+    SceneUpdate,
     Segment,
+    SegmentMergeRequest,
     SegmentPatchRequest,
     SegmentPatchResult,
     SegmentRender,
     SegmentRenderRequest,
     SegmentRevision,
+    SegmentSplitRequest,
     SegmentUpdate,
     SourceDocument,
     SourcePage,
     StructureRequest,
+    StructureLockUpdate,
+    StructureParserWarning,
     TextCleanlinessIssue,
     TextCleanlinessIssueUpdate,
     VoicePreview,
@@ -483,9 +491,31 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             for item in request.app.state.container.structure.chapters(project_id)
         ]
 
+    @app.get(
+        "/api/v1/projects/{project_id}/structure-warnings",
+        response_model=list[StructureParserWarning],
+    )
+    def list_structure_warnings(
+        project_id: str, request: Request
+    ) -> list[StructureParserWarning]:
+        container: AppContainer = request.app.state.container
+        if not container.projects.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        return container.structure.warnings(project_id)
+
     @app.get("/api/v1/chapters/{chapter_id}", response_model=Chapter)
     def get_chapter(chapter_id: str, request: Request) -> Chapter:
         record = request.app.state.container.structure.chapter(chapter_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="Chapter not found")
+        return chapter_model(record)
+
+    @app.patch("/api/v1/chapters/{chapter_id}", response_model=Chapter)
+    def update_chapter(
+        chapter_id: str, payload: ChapterUpdate, request: Request
+    ) -> Chapter:
+        container: AppContainer = request.app.state.container
+        record = container.structure.update_chapter(chapter_id, payload.title, payload.status)
         if not record:
             raise HTTPException(status_code=404, detail="Chapter not found")
         return chapter_model(record)
@@ -495,6 +525,14 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         return [
             scene_model(item) for item in request.app.state.container.structure.scenes(chapter_id)
         ]
+
+    @app.patch("/api/v1/scenes/{scene_id}", response_model=Scene)
+    def update_scene(scene_id: str, payload: SceneUpdate, request: Request) -> Scene:
+        container: AppContainer = request.app.state.container
+        record = container.structure.update_scene(scene_id, payload.status)
+        if not record:
+            raise HTTPException(status_code=404, detail="Scene not found")
+        return scene_model(record)
 
     @app.get("/api/v1/scenes/{scene_id}/segments", response_model=list[Segment])
     def list_segments(scene_id: str, request: Request) -> list[Segment]:
@@ -507,6 +545,51 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         record = request.app.state.container.structure.update_segment(
             segment_id, payload.text_content
         )
+        if not record:
+            raise HTTPException(status_code=404, detail="Segment not found")
+        return segment_model(record)
+
+    @app.put(
+        "/api/v1/structure-locks/{scope_type}/{scope_id}",
+        response_model=Chapter | Scene | Segment,
+    )
+    def update_structure_lock(
+        scope_type: str, scope_id: str, payload: StructureLockUpdate, request: Request
+    ) -> Chapter | Scene | Segment:
+        container: AppContainer = request.app.state.container
+        record = container.structure.set_lock(scope_type, scope_id, payload.locked, payload.reason)
+        if not record:
+            raise HTTPException(status_code=404, detail="Structure item not found")
+        if scope_type == "chapter":
+            return chapter_model(cast(ChapterRecord, record))
+        if scope_type == "scene":
+            return scene_model(cast(SceneRecord, record))
+        return segment_model(cast(SegmentRecord, record))
+
+    @app.post("/api/v1/segments/{segment_id}/split", response_model=Segment)
+    def split_segment(
+        segment_id: str, payload: SegmentSplitRequest, request: Request
+    ) -> Segment:
+        try:
+            record = request.app.state.container.structure.split_segment(
+                segment_id, payload.split_offset
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if not record:
+            raise HTTPException(status_code=404, detail="Segment not found")
+        return segment_model(record)
+
+    @app.post("/api/v1/segments/{segment_id}/merge", response_model=Segment)
+    def merge_segment(
+        segment_id: str, payload: SegmentMergeRequest, request: Request
+    ) -> Segment:
+        try:
+            record = request.app.state.container.structure.merge_segments(
+                segment_id, payload.next_segment_id
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         if not record:
             raise HTTPException(status_code=404, detail="Segment not found")
         return segment_model(record)

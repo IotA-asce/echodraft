@@ -66,6 +66,8 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
 ### Narrative
 - split chapters into scenes and segments
 - detect dialogue
+- surface parser warnings with evidence and confidence
+- preserve user locks across parser reruns
 - derive character candidates
 - score attribution confidence
 
@@ -138,6 +140,8 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
 
 ### Structure
 - chapter, scene, and segment records
+- parser warnings and parser evidence
+- user locks for approved structure decisions
 - structure manifest
 - character candidate set
 

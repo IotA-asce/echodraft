@@ -31,12 +31,14 @@ PDF ingestion uses `pypdf` to extract embedded text per page and invokes local O
 
 The structure service reads the latest canonical source and replaces the project chapter/scene/segment hierarchy.
 
-- Chapters are detected from Markdown headings or simple `Chapter N` headings.
-- If no chapter boundary is found, a single unresolved chapter is created.
-- Scenes are detected from separator lines such as `***`, `---`, or `#`; otherwise the scene is unresolved.
-- Segments are sentence-batched under `maxSegmentChars`.
-- Basic speaker candidates are inferred from simple `Name said/asked/replied/whispered` patterns.
-- Re-extraction currently replaces structure records and does not preserve future user locks.
+- Chapters are detected from Markdown headings, `Chapter N`, prologue/epilogue, part, and book headings.
+- Text before the first chapter heading is represented as front matter.
+- If no chapter boundary is found, a single unresolved chapter is created with a parser warning.
+- Scenes are detected from separator lines such as `***`, `---`, `####`, or `Scene N`; otherwise a single inferred scene is created with a confidence note.
+- Segments are paragraph/sentence-batched under `maxSegmentChars`, with dialogue and performance-beat segment types.
+- Basic speaker candidates are inferred from `Name said/asked/replied/whispered` and `Name:` patterns.
+- Parser warnings include scope, evidence, and confidence.
+- User-locked segments are carried forward across structure re-extraction.
 
 ## TTS And Rendering
 

@@ -66,6 +66,21 @@ class Database:
                 repairs.append("ALTER TABLE chapter_renders ADD COLUMN ambience_stem_path TEXT")
             if "mixed_audio_path" not in columns:
                 repairs.append("ALTER TABLE chapter_renders ADD COLUMN mixed_audio_path TEXT")
+        for table_name in ("chapters", "scenes", "segments"):
+            if table_name in tables:
+                columns = {column["name"] for column in inspector.get_columns(table_name)}
+                if "parser_evidence_json" not in columns:
+                    repairs.append(
+                        f"ALTER TABLE {table_name} "
+                        "ADD COLUMN parser_evidence_json TEXT NOT NULL DEFAULT '{}'"
+                    )
+                if "user_locked" not in columns:
+                    repairs.append(
+                        f"ALTER TABLE {table_name} "
+                        "ADD COLUMN user_locked BOOLEAN NOT NULL DEFAULT 0"
+                    )
+                if "lock_reason" not in columns:
+                    repairs.append(f"ALTER TABLE {table_name} ADD COLUMN lock_reason TEXT")
         if not repairs:
             return
         with self.engine.begin() as connection:
