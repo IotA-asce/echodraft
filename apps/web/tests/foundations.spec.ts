@@ -182,6 +182,74 @@ test("guides managed Kokoro setup and narrator selection", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Narrator", exact: true }).first()).toBeVisible();
 });
 
+test("keeps Kokoro selected when managed repair fails", async ({ page }) => {
+  let setupFailed = false;
+
+  await page.route(/\/api\/v1\/settings\/tts$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        provider: "mock",
+        ready: true,
+        message: null,
+        availableVoices: ["mock-narrator"]
+      })
+    });
+  });
+  await page.route(/\/api\/v1\/settings\/tts\/kokoro\/setup$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        platform: "Darwin",
+        state: setupFailed ? "failed" : "incomplete",
+        setupMode: "managed_onnx",
+        runtimeRoot: "/tmp/echodraft-kokoro-runtime",
+        pythonPath: "/tmp/echodraft-kokoro-runtime/venv/bin/python",
+        executable: "/tmp/echodraft-kokoro-runtime/echodraft_kokoro_onnx.py",
+        modelPath: "/tmp/echodraft-kokoro-runtime/kokoro-v1.0.onnx",
+        voicesDataPath: "/tmp/echodraft-kokoro-runtime/voices-v1.0.bin",
+        voiceRegistryPath: "/tmp/echodraft-kokoro-runtime/voices.txt",
+        ready: false,
+        message: setupFailed ? "Kokoro setup failed while validating the preview." : "Kokoro model is missing. Run Repair setup from Voice setup.",
+        nextAction: "Run Repair setup from Voice setup.",
+        availableVoices: [],
+        steps: [
+          { phase: "checking_python", label: "checking python", status: "done" },
+          { phase: "downloading_model", label: "downloading model", status: setupFailed ? "failed" : "pending" }
+        ]
+      })
+    });
+  });
+  await page.route(/\/api\/v1\/settings\/tts\/kokoro\/setup\/install$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ id: "job_kokoro_setup_failed", status: "queued", progress: { phase: "checking_python", step: 1, total: 9 } })
+    });
+  });
+  await page.route(/\/api\/v1\/jobs\/job_kokoro_setup_failed$/, async (route) => {
+    setupFailed = true;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ id: "job_kokoro_setup_failed", status: "failed", errorMessage: "Kokoro setup failed while validating the preview.", progress: { phase: "validating_preview", step: 7, total: 9 } })
+    });
+  });
+
+  const title = `Kokoro Failed Repair ${Date.now()}`;
+  await page.goto("/");
+  await page.getByLabel("Title").fill(title);
+  await page.getByLabel(/I confirm I have the rights/).check();
+  await page.getByRole("button", { name: "Create project" }).click();
+  await page.getByRole("listitem").filter({ hasText: title }).getByRole("button", { name: "Open" }).click();
+
+  await page.getByLabel("Provider").selectOption("kokoro");
+  await expect(page.getByText("Kokoro model is missing. Run Repair setup from Voice setup.")).toBeVisible();
+  await page.getByRole("button", { name: "Repair setup" }).click();
+  await expect(page.locator(".notice.error").getByText("Kokoro setup failed while validating the preview.")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByLabel("Provider")).toHaveValue("kokoro");
+  await expect(page.getByText("Set up Kokoro voice system", { exact: true })).toBeVisible();
+  await expect(page.getByText("Use mock TTS")).toBeHidden();
+});
+
 function silentWav() {
   const sampleRate = 16_000;
   const samples = sampleRate / 5;
