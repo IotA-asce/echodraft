@@ -6,6 +6,10 @@ See also: [architecture.md](architecture.md), [db-schema.md](db-schema.md), [pip
 ```text
 Project
 ├─ SourceDocument
+│  ├─ SourcePage
+│  ├─ OcrRun
+│  ├─ CanonicalSpan
+│  └─ TextCleanlinessIssue
 ├─ Chapter
 │  ├─ Scene
 │  │  └─ Segment
@@ -55,11 +59,71 @@ Imported source text record.
 Fields:
 - `id`
 - `project_id`
+- `original_filename`
+- `mime_type`
 - `original_path`
-- `normalized_text_path`
+- `canonical_path`
+- `manifest_path`
 - `checksum`
 - `parser_version`
-- `word_count`
+- `status`
+- `warnings`
+
+### SourcePage
+Page-level extraction metadata for imported sources, especially PDFs.
+
+Fields:
+- `id`
+- `source_document_id`
+- `page_number`
+- `image_path`
+- `embedded_text_path`
+- `selected_text_path`
+- `extraction_method`
+- `confidence`
+- `warnings`
+
+### OcrRun
+Local OCR run metadata for low-text PDF pages.
+
+Fields:
+- `id`
+- `source_document_id`
+- `provider`
+- `status`
+- `settings`
+- `started_at`
+- `completed_at`
+- `error_message`
+
+### CanonicalSpan
+Approximate mapping from selected source page text to canonical manuscript offsets.
+
+Fields:
+- `id`
+- `source_document_id`
+- `page_number`
+- `canonical_start_offset`
+- `canonical_end_offset`
+- `source_text_hash`
+- `bbox`
+- `extraction_method`
+- `confidence`
+
+### TextCleanlinessIssue
+Reviewable clean-text decision or suspicious-token finding created during ingestion.
+
+Fields:
+- `id`
+- `source_document_id`
+- `canonical_span_start`
+- `canonical_span_end`
+- `issue_type`
+- `severity`
+- `suggested_fix`
+- `confidence`
+- `status`
+- `resolved_by_user`
 
 ### Chapter
 Major content division inside a project.

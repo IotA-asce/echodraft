@@ -3,6 +3,8 @@ export type Job = { id: string; status: "queued" | "running" | "succeeded" | "fa
 export type ParserWarning = { severity: string; sourceRange?: string | null; message: string; suggestedAction?: string | null };
 export type SourceDocument = { id: string; projectId: string; originalFilename: string; status: string; parserVersion: string; canonicalPath?: string | null; manifestPath?: string | null; preview?: string | null; warnings: ParserWarning[] };
 export type SourcePage = { id: string; sourceDocumentId: string; pageNumber: number; imagePath?: string | null; imageUrl?: string | null; embeddedTextPath?: string | null; selectedTextPath?: string | null; extractionMethod: string; confidence: number; warnings: ParserWarning[]; preview?: string | null };
+export type CleaningRun = { id: string; sourceDocumentId: string; status: string; manifestPath?: string | null; startedAt: string; completedAt?: string | null; errorMessage?: string | null };
+export type TextCleanlinessIssue = { id: string; sourceDocumentId: string; canonicalSpanStart: number; canonicalSpanEnd: number; issueType: string; severity: string; suggestedFix?: string | null; confidence: number; status: string; resolvedByUser: boolean };
 export type Chapter = { id: string; title?: string | null; status: string; confidence: number };
 export type Scene = { id: string; status: string; confidence: number };
 export type Segment = { id: string; textContent: string; revision: number; status: string; speakerCandidate?: string | null };
@@ -44,7 +46,11 @@ export const listProjects = () => request<Project[]>("/api/v1/projects");
 export const createProject = (payload: { title: string; author?: string; rightsStatus: "declared" }) => request<Project>("/api/v1/projects", json("POST", payload));
 export const getJob = (id: string) => request<Job>(`/api/v1/jobs/${id}`);
 export const getSource = (projectId: string) => request<SourceDocument>(`/api/v1/projects/${projectId}/source`);
+export const getSourceById = (sourceId: string) => request<SourceDocument>(`/api/v1/sources/${sourceId}`);
 export const listSourcePages = (sourceId: string) => request<SourcePage[]>(`/api/v1/sources/${sourceId}/pages`);
+export const listCleaningRuns = (sourceId: string) => request<CleaningRun[]>(`/api/v1/sources/${sourceId}/cleaning-runs`);
+export const listCleaningIssues = (sourceId: string) => request<TextCleanlinessIssue[]>(`/api/v1/sources/${sourceId}/cleaning-issues`);
+export const updateCleaningIssue = (issueId: string, payload: { status?: string; resolvedByUser?: boolean }) => request<TextCleanlinessIssue>(`/api/v1/cleaning-issues/${issueId}`, json("PATCH", payload));
 export async function importSource(projectId: string, file: File) { const form = new FormData(); form.set("file", file); form.set("rightsAcknowledged", "true"); return request<Job>(`/api/v1/projects/${projectId}/source/import`, { method: "POST", body: form }); }
 export const reparseSource = (projectId: string) => request<Job>(`/api/v1/projects/${projectId}/source/reparse`, json("POST", { parserVersion: "ingestion-0.1.0" }));
 export const extractStructure = (projectId: string) => request<Job>(`/api/v1/projects/${projectId}/structure/extract`, json("POST", { maxSegmentChars: 600 }));

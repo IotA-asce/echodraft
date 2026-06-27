@@ -12,7 +12,7 @@ Goal: harden and document the current alpha pipeline before replacing major subs
 ## Implementation Notes
 
 - `docs/current-pipeline-behavior.md` is the current-state reference for later stages.
-- Ingestion tests now describe page-marker pollution as current behavior, not desired future behavior.
+- At Stage 0, ingestion tests described page-marker pollution as current behavior, not desired future behavior. Stage 3 replaces that baseline with deterministic clean-text removal.
 - OCR tests use mocks for scanned and mixed PDF paths so committed tests do not require local private assets or external binaries.
 - Production tests verify that render cache hits do not create new rows, forced renders create append-only lineage, and open blocking issues gate export.
 

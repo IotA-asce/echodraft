@@ -1,15 +1,25 @@
 import json
 from pathlib import Path
 
-from echodraft_domain import CanonicalSpan, OcrPageResult, OcrRun, ParserWarning, SourcePage
+from echodraft_domain import (
+    CanonicalSpan,
+    CleaningRun,
+    OcrPageResult,
+    OcrRun,
+    ParserWarning,
+    SourcePage,
+    TextCleanlinessIssue,
+)
 from sqlalchemy import delete, select
 
 from .database import Database
 from .models import (
     CanonicalSpanRecord,
+    CleaningRunRecord,
     OcrPageResultRecord,
     OcrRunRecord,
     SourcePageRecord,
+    TextCleanlinessIssueRecord,
 )
 
 
@@ -83,6 +93,37 @@ def _canonical_span(record: CanonicalSpanRecord) -> CanonicalSpan:
     )
 
 
+def _cleaning_run(record: CleaningRunRecord) -> CleaningRun:
+    return CleaningRun.model_validate(
+        {
+            "id": record.id,
+            "sourceDocumentId": record.source_document_id,
+            "status": record.status,
+            "manifestPath": record.manifest_path,
+            "startedAt": record.started_at,
+            "completedAt": record.completed_at,
+            "errorMessage": record.error_message,
+        }
+    )
+
+
+def _cleanliness_issue(record: TextCleanlinessIssueRecord) -> TextCleanlinessIssue:
+    return TextCleanlinessIssue.model_validate(
+        {
+            "id": record.id,
+            "sourceDocumentId": record.source_document_id,
+            "canonicalSpanStart": record.canonical_span_start,
+            "canonicalSpanEnd": record.canonical_span_end,
+            "issueType": record.issue_type,
+            "severity": record.severity,
+            "suggestedFix": record.suggested_fix,
+            "confidence": record.confidence,
+            "status": record.status,
+            "resolvedByUser": record.resolved_by_user,
+        }
+    )
+
+
 class SourceArtifactRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -101,6 +142,14 @@ class SourceArtifactRepository:
                 delete(CanonicalSpanRecord).where(
                     CanonicalSpanRecord.source_document_id == source_id
                 )
+            )
+            session.execute(
+                delete(TextCleanlinessIssueRecord).where(
+                    TextCleanlinessIssueRecord.source_document_id == source_id
+                )
+            )
+            session.execute(
+                delete(CleaningRunRecord).where(CleaningRunRecord.source_document_id == source_id)
             )
             session.execute(delete(SourcePageRecord).where(SourcePageRecord.id.in_(page_ids)))
             session.commit()
@@ -192,3 +241,63 @@ class SourceArtifactRepository:
                 )
             )
         return [_canonical_span(record) for record in records]
+
+    def create_cleaning_run(self, record: CleaningRunRecord) -> CleaningRunRecord:
+        with self.database.session() as session:
+            session.add(record)
+            session.commit()
+            return record
+
+    def update_cleaning_run(self, run_id: str, **fields: object) -> CleaningRunRecord:
+        with self.database.session() as session:
+            record = session.get(CleaningRunRecord, run_id)
+            if not record:
+                raise KeyError(run_id)
+            for key, value in fields.items():
+                setattr(record, key, value)
+            session.commit()
+            return record
+
+    def cleaning_runs(self, source_id: str) -> list[CleaningRun]:
+        with self.database.session() as session:
+            records = list(
+                session.scalars(
+                    select(CleaningRunRecord)
+                    .where(CleaningRunRecord.source_document_id == source_id)
+                    .order_by(CleaningRunRecord.started_at.desc())
+                )
+            )
+        return [_cleaning_run(record) for record in records]
+
+    def create_cleanliness_issue(
+        self, record: TextCleanlinessIssueRecord
+    ) -> TextCleanlinessIssueRecord:
+        with self.database.session() as session:
+            session.add(record)
+            session.commit()
+            return record
+
+    def cleanliness_issues(self, source_id: str) -> list[TextCleanlinessIssue]:
+        with self.database.session() as session:
+            records = list(
+                session.scalars(
+                    select(TextCleanlinessIssueRecord)
+                    .where(TextCleanlinessIssueRecord.source_document_id == source_id)
+                    .order_by(TextCleanlinessIssueRecord.canonical_span_start)
+                )
+            )
+        return [_cleanliness_issue(record) for record in records]
+
+    def update_cleanliness_issue(
+        self, issue_id: str, status: str | None, resolved_by_user: bool | None
+    ) -> TextCleanlinessIssue | None:
+        with self.database.session() as session:
+            record = session.get(TextCleanlinessIssueRecord, issue_id)
+            if not record:
+                return None
+            if status is not None:
+                record.status = status
+            if resolved_by_user is not None:
+                record.resolved_by_user = resolved_by_user
+            session.commit()
+            return _cleanliness_issue(record)

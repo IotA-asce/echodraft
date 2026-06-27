@@ -168,6 +168,37 @@ class CanonicalSpanRecord(Base):
     confidence: Mapped[float] = mapped_column(nullable=False)
 
 
+class CleaningRunRecord(Base):
+    __tablename__ = "cleaning_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_document_id: Mapped[str] = mapped_column(
+        ForeignKey("source_documents.id"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    manifest_path: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class TextCleanlinessIssueRecord(Base):
+    __tablename__ = "text_cleanliness_issues"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_document_id: Mapped[str] = mapped_column(
+        ForeignKey("source_documents.id"), nullable=False, index=True
+    )
+    canonical_span_start: Mapped[int] = mapped_column(nullable=False)
+    canonical_span_end: Mapped[int] = mapped_column(nullable=False)
+    issue_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False)
+    suggested_fix: Mapped[str | None] = mapped_column(Text)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    resolved_by_user: Mapped[bool] = mapped_column(nullable=False, default=False)
+
+
 class ChapterRecord(Base):
     __tablename__ = "chapters"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

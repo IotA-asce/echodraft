@@ -17,13 +17,16 @@ from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 from echodraft_db.models import (
     CanonicalSpanRecord,
+    CleaningRunRecord,
     OcrPageResultRecord,
     OcrRunRecord,
     SourceDocumentRecord,
     SourcePageRecord,
+    TextCleanlinessIssueRecord,
 )
 from echodraft_domain import ParserWarning, RightsStatus, WarningSeverity
 
+from .cleaning import CleaningPipeline, CleaningResult
 from .container import AppContainer
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -108,6 +111,10 @@ class IngestionService:
     def process(self, source_id: str, project_id: str, filename: str, mime_type: str, parser_version: str, original_path: Path) -> None:
         try:
             text, warnings = self._extract(original_path, filename, source_id, project_id)
+            cleaning = CleaningPipeline().clean(text)
+            text = cleaning.text
+            warnings.extend(cleaning.warnings)
+            self._persist_cleaning(project_id, source_id, cleaning)
             canonical, normalized_warnings = self._normalize(text)
             warnings.extend(normalized_warnings)
             if not canonical.strip():
@@ -135,6 +142,89 @@ class IngestionService:
         except Exception as error:
             self.container.sources.update(source_id, status="failed", error_message=str(error))
             raise
+
+    def _persist_cleaning(
+        self, project_id: str, source_id: str, cleaning: CleaningResult
+    ) -> None:
+        project = self.container.projects.get(project_id)
+        if not project:
+            raise KeyError(project_id)
+        root = Path(project.artifact_path) / "sources" / source_id / "cleaning"
+        root.mkdir(parents=True, exist_ok=True)
+        manifest_path = root / "cleaning_manifest.json"
+        run = self.container.source_artifacts.create_cleaning_run(
+            CleaningRunRecord(
+                id=f"clean_{uuid4().hex[:16]}",
+                source_document_id=source_id,
+                status="running",
+                manifest_path=str(manifest_path),
+                started_at=datetime.now(UTC),
+            )
+        )
+        manifest = {
+            "manifestType": "cleaning_manifest",
+            "schemaVersion": "0.1.0",
+            "projectId": project_id,
+            "sourceDocumentId": source_id,
+            "generatedAt": datetime.now(UTC).isoformat(),
+            "changes": [
+                {
+                    "type": change.change_type,
+                    "start": change.start,
+                    "end": change.end,
+                    "original": change.original,
+                    "replacement": change.replacement,
+                    "confidence": change.confidence,
+                }
+                for change in cleaning.changes
+            ],
+            "issues": [
+                {
+                    "type": issue.issue_type,
+                    "start": issue.start,
+                    "end": issue.end,
+                    "severity": issue.severity,
+                    "suggestedFix": issue.suggested_fix,
+                    "confidence": issue.confidence,
+                    "status": issue.status,
+                }
+                for issue in cleaning.issues
+            ],
+        }
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        for change in cleaning.changes:
+            self.container.source_artifacts.create_cleanliness_issue(
+                TextCleanlinessIssueRecord(
+                    id=f"cleanissue_{uuid4().hex[:16]}",
+                    source_document_id=source_id,
+                    canonical_span_start=change.start,
+                    canonical_span_end=change.start,
+                    issue_type=change.change_type,
+                    severity="info",
+                    suggested_fix=change.replacement,
+                    confidence=change.confidence,
+                    status="applied",
+                    resolved_by_user=False,
+                )
+            )
+        for issue in cleaning.issues:
+            self.container.source_artifacts.create_cleanliness_issue(
+                TextCleanlinessIssueRecord(
+                    id=f"cleanissue_{uuid4().hex[:16]}",
+                    source_document_id=source_id,
+                    canonical_span_start=issue.start,
+                    canonical_span_end=issue.end,
+                    issue_type=issue.issue_type,
+                    severity=issue.severity,
+                    suggested_fix=issue.suggested_fix,
+                    confidence=issue.confidence,
+                    status=issue.status,
+                    resolved_by_user=False,
+                )
+            )
+        self.container.source_artifacts.update_cleaning_run(
+            run.id, status="succeeded", completed_at=datetime.now(UTC)
+        )
 
     def _extract(
         self, path: Path, filename: str, source_id: str | None = None, project_id: str | None = None

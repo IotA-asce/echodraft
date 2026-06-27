@@ -11,8 +11,10 @@ The current ingestion service accepts TXT, Markdown, DOCX, EPUB, and PDF files t
 - Source originals are copied into the project artifact store before parsing.
 - Canonical text is written to `source/canonical/{source_id}.md` and copied to `source/canonical.md`.
 - A source manifest is written under `manifests/source_manifest.{source_id}.json`.
-- Normalization currently performs Unicode normalization, newline cleanup, smart-quote and dash conversion, adjacent duplicate paragraph removal, and unusually long paragraph warnings.
-- HTML or Markdown page markers such as `<!-- Page 9 -->` are not removed yet. They remain in canonical text until the cleaning/canonicalization roadmap stage adds reviewable pollution removal.
+- Cleaning now runs before canonical normalization. It removes explicit page markers such as `<!-- Page 9 -->`, `Page 9`, and `[9]`, repairs simple line-break hyphenation, merges broken wraps, and removes repeated running headers/footers when page breaks are available.
+- Suspicious OCR-like tokens remain in canonical text but create open Clean Text Review issues.
+- Normalization then performs Unicode normalization, newline cleanup, smart-quote and dash conversion, adjacent duplicate paragraph removal, and unusually long paragraph warnings.
+- Cleaning decisions are written to a cleaning manifest under `sources/{source_id}/cleaning/` and to `text_cleanliness_issues` for review.
 
 ## PDF Handling
 
@@ -60,7 +62,8 @@ Current QA is deterministic and technical.
 
 Stage 0 tests intentionally pin these current behaviors so later roadmap stages can safely replace them:
 
-- page-marker pollution currently survives ingestion normalization;
+- page-marker pollution is removed before canonical normalization and recorded as applied clean-text decisions;
+- suspicious OCR-like tokens are surfaced as review issues without mutating manuscript text;
 - scanned and mixed PDF OCR paths are covered with mocked local OCR tools;
 - render cache hits and forced render lineage remain append-only;
 - export refuses open blocking review issues.

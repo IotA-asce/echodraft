@@ -8,6 +8,7 @@ from ebooklib import epub
 import pytest
 
 import echodraft_api.ingestion as ingestion
+from echodraft_api.cleaning import CleaningPipeline
 from echodraft_api.ingestion import IngestionError, IngestionService
 
 
@@ -95,7 +96,18 @@ def test_txt_import_creates_deterministic_canonical_artifacts_and_manifest(clien
     assert any(item["message"].startswith("Duplicated") for item in source["warnings"])
 
 
-def test_current_ingestion_documents_page_marker_pollution(client) -> None:
+def test_cleaning_pipeline_preserves_numeric_chapter_markers() -> None:
+    result = CleaningPipeline().clean(
+        "1\n\nChapter One\n\nPage 12\n\nA wrap-\naround repair and a wrapped\nsentence."
+    )
+
+    assert result.text == "1\n\nChapter One\n\nA wraparound repair and a wrapped sentence."
+    assert "line_page_marker" in {change.change_type for change in result.changes}
+    assert "hyphenation_repair" in {change.change_type for change in result.changes}
+    assert "line_wrap_merge" in {change.change_type for change in result.changes}
+
+
+def test_ingestion_removes_page_markers_from_canonical_text(client) -> None:
     project = project_id(client)
     text = (
         "Ooh! I felt a wiggle that time.\n\n"
@@ -106,9 +118,38 @@ def test_current_ingestion_documents_page_marker_pollution(client) -> None:
     assert job["status"] == "succeeded"
 
     source = client.get(f"/api/v1/projects/{project}/source").json()
-    assert source["preview"] == text + "\n"
-    assert "<!-- Page 9 -->" in Path(source["canonicalPath"]).read_text(encoding="utf-8")
-    assert not source["warnings"]
+    canonical = Path(source["canonicalPath"]).read_text(encoding="utf-8")
+    assert source["preview"] == "Ooh! I felt a wiggle that time.\n\nOpen! My eyelids creep up.\n"
+    assert "<!-- Page 9 -->" not in canonical
+    assert source["warnings"][0]["message"].startswith("Canonical cleaning applied")
+    source_by_id = client.get(f"/api/v1/sources/{source['id']}").json()
+    assert source_by_id["preview"] == source["preview"]
+    runs = client.get(f"/api/v1/sources/{source['id']}/cleaning-runs").json()
+    assert runs[0]["status"] == "succeeded"
+    assert Path(runs[0]["manifestPath"]).is_file()
+    issues = client.get(f"/api/v1/sources/{source['id']}/cleaning-issues").json()
+    assert issues[0]["issueType"] == "html_page_marker"
+    assert issues[0]["status"] == "applied"
+
+
+def test_cleaning_issues_flag_suspicious_tokens_and_can_be_resolved(client) -> None:
+    project = project_id(client)
+    job = import_bytes(client, project, "ocr-ish.txt", b"Chapter 1\n\nThe rn0on shimmered.")
+    assert job["status"] == "succeeded"
+
+    source = client.get(f"/api/v1/projects/{project}/source").json()
+    issues = client.get(f"/api/v1/sources/{source['id']}/cleaning-issues").json()
+    suspicious = next(item for item in issues if item["issueType"] == "suspicious_ocr_token")
+    assert suspicious["status"] == "open"
+    assert suspicious["severity"] == "warning"
+
+    response = client.patch(
+        f"/api/v1/cleaning-issues/{suspicious['id']}",
+        json={"status": "resolved", "resolvedByUser": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "resolved"
+    assert response.json()["resolvedByUser"] is True
 
 
 def test_markdown_docx_and_epub_import(client, tmp_path: Path) -> None:
