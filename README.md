@@ -73,7 +73,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | Model Center                        | Alpha           | Catalog, health checks, install jobs, and OS package-manager install commands              |
 | Local LLM service                   | Alpha           | Ollama model listing, schema-first extraction jobs, run records, and embeddings             |
 | Managed Kokoro setup                | Alpha           | Local CPU-oriented ONNX flow from the dashboard                                            |
-| Character/voice records             | Partial         | Editorial records exist; alpha synthesis does not fully automate character delivery        |
+| Character Bible                     | Alpha           | Canonical names, aliases, traits, locks, voice links, merge/split history, and dashboard UI |
 | Review and patching                 | Working         | Segment-level patch loop with chapter reassembly                                           |
 | WAV export                          | Working         | ZIP package with manifest/checksum data                                                    |
 | MP3 export                          | Working         | Requires FFmpeg with MP3 support                                                           |
@@ -413,6 +413,14 @@ Project
 ```
 
 The default maximum segment size is 600 characters. Structure Parser v2 records evidence and warnings, supports segment locks, and lets you split or merge segments before production.
+
+---
+
+### Character Bible
+
+Use **Voice bible** to maintain project cast records before production. Character records now store canonical names, aliases, traits, first-seen references, lock state, merge/split history, and optional voice links. Merge and split operations preserve traceability instead of deleting source records.
+
+Character voice links are local editorial metadata in this stage. Speaker attribution and automatic production voice resolution are handled in later roadmap stages.
 
 ---
 

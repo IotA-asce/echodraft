@@ -87,6 +87,28 @@ def _job(record: JobRecord) -> Job:
     )
 
 
+def _list_from_json(value: str | None) -> list[Any]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _clean_strings(values: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = value.strip()
+        key = normalized.casefold()
+        if normalized and key not in seen:
+            cleaned.append(normalized)
+            seen.add(key)
+    return cleaned
+
+
 class ProjectRepository:
     def __init__(self, database: Database, artifact_root: str) -> None:
         self.database = database
@@ -608,8 +630,36 @@ class CastingRepository:
     def characters(self, project_id: str) -> list[CharacterRecord]:
         with self.database.session() as s:
             return list(
-                s.scalars(select(CharacterRecord).where(CharacterRecord.project_id == project_id))
+                s.scalars(
+                    select(CharacterRecord)
+                    .where(CharacterRecord.project_id == project_id)
+                    .order_by(CharacterRecord.display_name)
+                )
             )
+
+    def character(self, character_id: str) -> CharacterRecord | None:
+        with self.database.session() as s:
+            return s.get(CharacterRecord, character_id)
+
+    def character_voice_assignments(self, project_id: str) -> dict[str, str]:
+        with self.database.session() as s:
+            rows = s.scalars(
+                select(CharacterVoiceAssignmentRecord).join(
+                    CharacterRecord,
+                    CharacterVoiceAssignmentRecord.character_id == CharacterRecord.id,
+                )
+                .where(CharacterRecord.project_id == project_id)
+            )
+            return {row.character_id: row.voice_profile_id for row in rows}
+
+    def character_voice_assignment(self, character_id: str) -> str | None:
+        with self.database.session() as s:
+            row = s.scalar(
+                select(CharacterVoiceAssignmentRecord).where(
+                    CharacterVoiceAssignmentRecord.character_id == character_id
+                )
+            )
+            return row.voice_profile_id if row else None
 
     def create_character(
         self,
@@ -619,17 +669,178 @@ class CastingRepository:
         role: str,
         confidence: float,
         notes: str | None,
+        canonical_name: str | None = None,
+        traits: list[str] | None = None,
+        first_seen_source_id: str | None = None,
+        first_seen_chapter_id: str | None = None,
+        first_seen_segment_id: str | None = None,
     ) -> CharacterRecord:
         with self.database.session() as s:
+            clean_name = name.strip()
             record = CharacterRecord(
                 id=f"char_{uuid4().hex[:16]}",
                 project_id=project_id,
-                display_name=name,
-                aliases_json=json.dumps(aliases),
+                display_name=clean_name,
+                canonical_name=(canonical_name or clean_name).strip(),
+                aliases_json=json.dumps(_clean_strings(aliases)),
+                traits_json=json.dumps(_clean_strings(traits or [])),
+                first_seen_source_id=first_seen_source_id,
+                first_seen_chapter_id=first_seen_chapter_id,
+                first_seen_segment_id=first_seen_segment_id,
+                merge_history_json="[]",
+                split_history_json="[]",
+                user_locked=False,
                 role_type=role,
                 confidence=confidence,
                 notes=notes,
             )
+            s.add(record)
+            s.commit()
+            return record
+
+    def update_character(
+        self,
+        character_id: str,
+        *,
+        display_name: str | None = None,
+        canonical_name: str | None = None,
+        aliases: list[str] | None = None,
+        traits: list[str] | None = None,
+        role_type: str | None = None,
+        confidence: float | None = None,
+        notes: str | None = None,
+        user_locked: bool | None = None,
+        lock_reason: str | None = None,
+        voice_profile_id: str | None = None,
+        update_voice: bool = False,
+    ) -> CharacterRecord | None:
+        with self.database.session() as s:
+            record = s.get(CharacterRecord, character_id)
+            if not record:
+                return None
+            if display_name is not None:
+                record.display_name = display_name.strip()
+            if canonical_name is not None:
+                record.canonical_name = canonical_name.strip() or None
+            if aliases is not None:
+                record.aliases_json = json.dumps(_clean_strings(aliases))
+            if traits is not None:
+                record.traits_json = json.dumps(_clean_strings(traits))
+            if role_type is not None:
+                record.role_type = role_type
+            if confidence is not None:
+                record.confidence = confidence
+            if notes is not None:
+                record.notes = notes
+            if user_locked is not None:
+                record.user_locked = user_locked
+            if lock_reason is not None or user_locked is False:
+                record.lock_reason = lock_reason
+            if update_voice:
+                self._set_assignment(s, record.project_id, record.id, voice_profile_id)
+            s.commit()
+            return record
+
+    def merge_characters(
+        self, target_character_id: str, source_character_id: str, reason: str | None
+    ) -> CharacterRecord:
+        if target_character_id == source_character_id:
+            raise ValueError("Choose two different characters to merge.")
+        with self.database.session() as s:
+            target = s.get(CharacterRecord, target_character_id)
+            source = s.get(CharacterRecord, source_character_id)
+            if not target or not source:
+                raise KeyError("Character not found")
+            if target.project_id != source.project_id:
+                raise ValueError("Characters must belong to the same project.")
+            if source.merged_into_character_id and source.merged_into_character_id != target.id:
+                raise ValueError("Source character was already merged into another character.")
+            now = datetime.now(UTC).isoformat()
+            target.aliases_json = json.dumps(
+                _clean_strings(
+                    [
+                        *[str(item) for item in _list_from_json(target.aliases_json)],
+                        source.display_name,
+                        *([source.canonical_name] if source.canonical_name else []),
+                        *[str(item) for item in _list_from_json(source.aliases_json)],
+                    ]
+                )
+            )
+            target.traits_json = json.dumps(
+                _clean_strings(
+                    [
+                        *[str(item) for item in _list_from_json(target.traits_json)],
+                        *[str(item) for item in _list_from_json(source.traits_json)],
+                    ]
+                )
+            )
+            history = _list_from_json(target.merge_history_json)
+            history.append(
+                {
+                    "sourceCharacterId": source.id,
+                    "sourceDisplayName": source.display_name,
+                    "reason": reason,
+                    "mergedAt": now,
+                }
+            )
+            target.merge_history_json = json.dumps(history)
+            source.merged_into_character_id = target.id
+            source.user_locked = True
+            source.lock_reason = reason or f"Merged into {target.display_name}."
+            self._transfer_or_clear_assignment(s, source.id, target.id)
+            s.commit()
+            return target
+
+    def split_character(
+        self,
+        character_id: str,
+        display_name: str,
+        aliases: list[str],
+        traits: list[str],
+        reason: str | None,
+    ) -> CharacterRecord:
+        with self.database.session() as s:
+            source = s.get(CharacterRecord, character_id)
+            if not source:
+                raise KeyError(character_id)
+            now = datetime.now(UTC).isoformat()
+            clean_name = display_name.strip()
+            record = CharacterRecord(
+                id=f"char_{uuid4().hex[:16]}",
+                project_id=source.project_id,
+                display_name=clean_name,
+                canonical_name=clean_name,
+                aliases_json=json.dumps(_clean_strings(aliases)),
+                traits_json=json.dumps(_clean_strings(traits)),
+                first_seen_source_id=source.first_seen_source_id,
+                first_seen_chapter_id=source.first_seen_chapter_id,
+                first_seen_segment_id=source.first_seen_segment_id,
+                merge_history_json="[]",
+                split_history_json=json.dumps(
+                    [
+                        {
+                            "sourceCharacterId": source.id,
+                            "sourceDisplayName": source.display_name,
+                            "reason": reason,
+                            "splitAt": now,
+                        }
+                    ]
+                ),
+                user_locked=False,
+                role_type=source.role_type,
+                confidence=min(source.confidence, 0.75),
+                notes=f"Split from {source.display_name}." if not reason else reason,
+            )
+            source_history = _list_from_json(source.split_history_json)
+            source_history.append(
+                {
+                    "newCharacterId": record.id,
+                    "newDisplayName": record.display_name,
+                    "reason": reason,
+                    "splitAt": now,
+                }
+            )
+            source.split_history_json = json.dumps(source_history)
             s.add(record)
             s.commit()
             return record
@@ -706,22 +917,61 @@ class CastingRepository:
 
     def assign(self, character_id: str, voice_id: str) -> None:
         with self.database.session() as s:
-            existing = s.scalar(
-                select(CharacterVoiceAssignmentRecord).where(
-                    CharacterVoiceAssignmentRecord.character_id == character_id
+            character = s.get(CharacterRecord, character_id)
+            if not character:
+                raise KeyError(character_id)
+            self._set_assignment(s, character.project_id, character_id, voice_id)
+            s.commit()
+
+    def _set_assignment(
+        self,
+        session: Any,
+        project_id: str,
+        character_id: str,
+        voice_profile_id: str | None,
+    ) -> None:
+        existing = session.scalar(
+            select(CharacterVoiceAssignmentRecord).where(
+                CharacterVoiceAssignmentRecord.character_id == character_id
+            )
+        )
+        if voice_profile_id is None:
+            if existing:
+                session.delete(existing)
+            return
+        voice = session.get(VoiceProfileRecord, voice_profile_id)
+        if not voice or voice.project_id != project_id:
+            raise ValueError("Voice profile must belong to the same project.")
+        if existing:
+            existing.voice_profile_id = voice_profile_id
+        else:
+            session.add(
+                CharacterVoiceAssignmentRecord(
+                    id=f"assign_{uuid4().hex[:16]}",
+                    character_id=character_id,
+                    voice_profile_id=voice_profile_id,
                 )
             )
-            if existing:
-                existing.voice_profile_id = voice_id
-            else:
-                s.add(
-                    CharacterVoiceAssignmentRecord(
-                        id=f"assign_{uuid4().hex[:16]}",
-                        character_id=character_id,
-                        voice_profile_id=voice_id,
-                    )
-                )
-            s.commit()
+
+    def _transfer_or_clear_assignment(
+        self, session: Any, source_character_id: str, target_character_id: str
+    ) -> None:
+        source_assignment = session.scalar(
+            select(CharacterVoiceAssignmentRecord).where(
+                CharacterVoiceAssignmentRecord.character_id == source_character_id
+            )
+        )
+        if not source_assignment:
+            return
+        target_assignment = session.scalar(
+            select(CharacterVoiceAssignmentRecord).where(
+                CharacterVoiceAssignmentRecord.character_id == target_character_id
+            )
+        )
+        if target_assignment:
+            session.delete(source_assignment)
+        else:
+            source_assignment.character_id = target_character_id
 
     def pronunciations(self, project_id: str) -> list[PronunciationEntryRecord]:
         with self.database.session() as s:

@@ -251,17 +251,34 @@ Fields:
 - `id`
 - `project_id`
 - `display_name`
+- `canonical_name`
 - `aliases`
-- `description`
+- `traits`
+- `first_seen_source_id`
+- `first_seen_chapter_id`
+- `first_seen_segment_id`
 - `role_type`
+- `confidence`
 - `notes`
+- `merge_history`
+- `split_history`
+- `user_locked`
+- `lock_reason`
+- `merged_into_character_id`
+- `voice_profile_id`
 
 Role types:
 - `narrator`
 - `major`
+- `supporting`
 - `minor`
-- `ambient_voice`
 - `unknown`
+
+Rules:
+- canonical manuscript text stays separate from Character Bible metadata
+- merge and split operations append history instead of deleting records
+- user locks survive reruns and local LLM extraction passes
+- voice links are project-local references to `VoiceProfile` records
 
 ### VoiceProfile
 Reusable voice configuration.
