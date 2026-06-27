@@ -209,7 +209,8 @@ Cache hits avoid repeated inference during patch loops. Cache entries must still
 - Regeneration invalidates only affected downstream artifacts.
 
 ## Invalidation rules
-- Segment text, speaker, voice, pronunciation, or direction changes stale the active segment render.
+- Segment text, approved speaker attribution, voice, pronunciation, or direction changes stale the active segment render.
+- Voice resolution precedence is segment override, approved character speaker attribution, then project narrator.
 - New active segment renders stale any chapter render that includes the segment.
 - Narrator changes may stale all chapters in the project.
 - Exports always point to a specific approved chapter render set; they are never floating references.

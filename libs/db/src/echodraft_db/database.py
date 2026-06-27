@@ -83,6 +83,26 @@ class Database:
             for column_name, column_type in character_columns.items():
                 if column_name not in columns:
                     repairs.append(f"ALTER TABLE characters ADD COLUMN {column_name} {column_type}")
+        if "speaker_attributions" in tables:
+            columns = {column["name"] for column in inspector.get_columns("speaker_attributions")}
+            attribution_columns = {
+                "project_id": "VARCHAR(64)",
+                "segment_id": "VARCHAR(64)",
+                "character_id": "VARCHAR(64)",
+                "speaker_name": "VARCHAR(200)",
+                "method": "VARCHAR(64) NOT NULL DEFAULT 'deterministic'",
+                "evidence_json": "TEXT NOT NULL DEFAULT '{}'",
+                "confidence": "FLOAT NOT NULL DEFAULT 0",
+                "status": "VARCHAR(32) NOT NULL DEFAULT 'needs_review'",
+                "user_locked": "BOOLEAN NOT NULL DEFAULT 0",
+                "created_at": "DATETIME",
+                "updated_at": "DATETIME",
+            }
+            for column_name, column_type in attribution_columns.items():
+                if column_name not in columns:
+                    repairs.append(
+                        f"ALTER TABLE speaker_attributions ADD COLUMN {column_name} {column_type}"
+                    )
         for table_name in ("chapters", "scenes", "segments"):
             if table_name in tables:
                 columns = {column["name"] for column in inspector.get_columns(table_name)}

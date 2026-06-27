@@ -74,6 +74,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | Local LLM service                   | Alpha           | Ollama model listing, schema-first extraction jobs, run records, and embeddings             |
 | Managed Kokoro setup                | Alpha           | Local CPU-oriented ONNX flow from the dashboard                                            |
 | Character Bible                     | Alpha           | Canonical names, aliases, traits, locks, voice links, merge/split history, and dashboard UI |
+| Speaker attribution                 | Alpha           | Deterministic Cast Review rows, review locks, Ollama fallback hooks, and cast voice use     |
 | Review and patching                 | Working         | Segment-level patch loop with chapter reassembly                                           |
 | WAV export                          | Working         | ZIP package with manifest/checksum data                                                    |
 | MP3 export                          | Working         | Requires FFmpeg with MP3 support                                                           |
@@ -420,7 +421,9 @@ The default maximum segment size is 600 characters. Structure Parser v2 records 
 
 Use **Voice bible** to maintain project cast records before production. Character records now store canonical names, aliases, traits, first-seen references, lock state, merge/split history, and optional voice links. Merge and split operations preserve traceability instead of deleting source records.
 
-Character voice links are local editorial metadata in this stage. Speaker attribution and automatic production voice resolution are handled in later roadmap stages.
+Character voice links become production inputs after Cast Review approves a segment speaker attribution.
+
+Run **Cast Review** after structure extraction to create speaker attribution rows for every segment. Approved character attributions with voice links are used during chapter production unless a segment-level voice override is set.
 
 ---
 

@@ -8,6 +8,7 @@ from .repository import (
     JobRepository,
     ProjectRepository,
     ProductionSettingsRepository,
+    SpeakerAttributionRepository,
     SourceDocumentRepository,
     StructureRepository,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "ProjectRepository",
     "ProductionSettingsRepository",
     "ReviewRepository",
+    "SpeakerAttributionRepository",
     "SourceDocumentRepository",
     "SourceArtifactRepository",
     "StructureRepository",
