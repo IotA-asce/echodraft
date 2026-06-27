@@ -49,20 +49,31 @@ test("produces and exports a chapter entirely from the dashboard", async ({ page
   await page.getByLabel("Title").fill(title);
   await page.getByLabel(/I confirm I have the rights/).check();
   await page.getByRole("button", { name: "Create project" }).click();
+  await page.getByLabel("Provider").selectOption("mock");
+  await page.getByRole("button", { name: "Use mock TTS" }).click();
+  await expect(page.getByText("Local TTS settings saved and validated.")).toBeVisible();
   await page.getByLabel("Manuscript file").setInputFiles({
     name: "chapter.txt", mimeType: "text/plain", buffer: Buffer.from("Chapter 1: Arrival\n\nA complete local production test sentence.")
   });
   await page.getByRole("button", { name: "Extract structure" }).click();
   const structure = page.locator(".structure-columns");
   await structure.locator(":scope > div").first().getByRole("button").first().click();
+  const productionPlayer = page.locator(".structure-view .chapter-audio-player");
+  await expect(productionPlayer.getByText("Active chapter audio")).toBeVisible();
+  await expect(productionPlayer.getByText("Produce this chapter to create playable audio.")).toBeVisible();
+  await expect(productionPlayer.locator("audio")).toHaveCount(0);
 
   await page.getByPlaceholder("Profile name").fill("Mock narrator");
   await page.getByPlaceholder("Local provider voice ID").fill("mock-narrator");
   await page.getByRole("button", { name: "Add voice" }).click();
-  await page.getByRole("button", { name: "Set narrator" }).click();
+  await page.locator(".voice-list .voice-card").filter({ hasText: "Mock narrator" }).getByRole("button", { name: "Set narrator" }).click();
   await page.getByRole("button", { name: "Produce chapter" }).click();
   await expect(page.getByText("Chapter production completed. Review the active render below.")).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator("audio")).toHaveAttribute("src", /artifacts/);
+  await expect(productionPlayer.locator("audio")).toHaveAttribute("src", /artifacts/);
+  await expect(productionPlayer.getByText("Mock TTS creates silent workflow audio.")).toBeVisible();
+  const reviewPlayer = page.locator(".review .chapter-audio-player");
+  await expect(reviewPlayer.getByText("Active chapter audio")).toBeVisible();
+  await expect(reviewPlayer.locator("audio")).toHaveAttribute("src", /artifacts/);
 
   await page.locator(".chapter-checks input[type=checkbox]").first().check();
   const download = page.waitForEvent("download");
