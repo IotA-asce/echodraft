@@ -25,7 +25,26 @@ export type ProductionStatus = { chapterId: string; ready: boolean; reason?: str
 export type Issue = { id: string; projectId: string; chapterId?: string | null; segmentId?: string | null; severity: string; category: string; title: string; description: string; status: string };
 export type Comment = { id: string; issueId: string; body: string; author: string; createdAt: string };
 export type ExportPackage = { id: string; projectId: string; format: string; status: string; outputPath: string; manifestPath: string; archivePath?: string | null; downloadUrl?: string | null };
-export type Character = { id: string; projectId: string; displayName: string; roleType: string; notes?: string | null };
+export type Character = {
+  id: string;
+  projectId: string;
+  displayName: string;
+  canonicalName?: string | null;
+  aliases: string[];
+  traits: string[];
+  firstSeenSourceId?: string | null;
+  firstSeenChapterId?: string | null;
+  firstSeenSegmentId?: string | null;
+  roleType: string;
+  confidence: number;
+  notes?: string | null;
+  mergeHistory: Record<string, unknown>[];
+  splitHistory: Record<string, unknown>[];
+  userLocked: boolean;
+  lockReason?: string | null;
+  mergedIntoCharacterId?: string | null;
+  voiceProfileId?: string | null;
+};
 export type Pronunciation = { id: string; term: string; phonetic?: string | null; replacementText?: string | null };
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -81,7 +100,10 @@ export const createVoice = (projectId: string, payload: { name: string; backend:
 export const deleteVoice = (voiceId: string) => request<void>(`/api/v1/voices/${voiceId}`, { method: "DELETE" });
 export const previewVoice = (projectId: string, voiceProfileId: string, direction: Direction) => request<{ assetPath: string; audioUrl?: string }>(`/api/v1/projects/${projectId}/voices/preview`, json("POST", { text: "This is a local Echodraft voice preview.", voiceProfileId, direction }));
 export const listCharacters = (projectId: string) => request<Character[]>(`/api/v1/projects/${projectId}/characters`);
-export const createCharacter = (projectId: string, displayName: string) => request<Character>(`/api/v1/projects/${projectId}/characters`, json("POST", { displayName }));
+export const createCharacter = (projectId: string, payload: string | { displayName: string; canonicalName?: string; aliases?: string[]; traits?: string[]; roleType?: string; notes?: string }) => request<Character>(`/api/v1/projects/${projectId}/characters`, json("POST", typeof payload === "string" ? { displayName: payload } : payload));
+export const updateCharacter = (characterId: string, payload: Partial<Pick<Character, "displayName" | "canonicalName" | "aliases" | "traits" | "roleType" | "confidence" | "notes" | "userLocked" | "lockReason" | "voiceProfileId">>) => request<Character>(`/api/v1/characters/${characterId}`, json("PATCH", payload));
+export const mergeCharacter = (targetCharacterId: string, sourceCharacterId: string, reason?: string) => request<Character>(`/api/v1/characters/${targetCharacterId}/merge`, json("POST", { sourceCharacterId, reason }));
+export const splitCharacter = (characterId: string, payload: { displayName: string; aliases?: string[]; traits?: string[]; reason?: string }) => request<Character>(`/api/v1/characters/${characterId}/split`, json("POST", payload));
 export const listPronunciations = (projectId: string) => request<Pronunciation[]>(`/api/v1/projects/${projectId}/pronunciations`);
 export const createPronunciation = (projectId: string, term: string, replacementText?: string) => request<Pronunciation>(`/api/v1/projects/${projectId}/pronunciations`, json("POST", { term, replacementText }));
 export const getProductionSettings = (projectId: string) => request<ProductionSettings>(`/api/v1/projects/${projectId}/production-settings`);

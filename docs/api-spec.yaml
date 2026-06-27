@@ -810,6 +810,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/Character"
 
+  /api/v1/characters/{characterId}/merge:
+    post:
+      tags: [Casting]
+      summary: Merge another character into this target character
+      parameters:
+        - $ref: "#/components/parameters/CharacterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MergeCharacterRequest"
+      responses:
+        "200":
+          description: Target character after merge
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+
+  /api/v1/characters/{characterId}/split:
+    post:
+      tags: [Casting]
+      summary: Split a new character record out of an existing character
+      parameters:
+        - $ref: "#/components/parameters/CharacterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SplitCharacterRequest"
+      responses:
+        "201":
+          description: Newly split character
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+
   /api/v1/projects/{projectId}/voices:
     get:
       tags: [Casting]
@@ -1841,16 +1881,54 @@ components:
           type: string
         displayName:
           type: string
+        canonicalName:
+          type: string
+          nullable: true
         aliases:
           type: array
           items:
             type: string
-        description:
+        traits:
+          type: array
+          items:
+            type: string
+        firstSeenSourceId:
           type: string
+          nullable: true
+        firstSeenChapterId:
+          type: string
+          nullable: true
+        firstSeenSegmentId:
+          type: string
+          nullable: true
         roleType:
           type: string
+        confidence:
+          type: number
         notes:
           type: string
+          nullable: true
+        mergeHistory:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        splitHistory:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        userLocked:
+          type: boolean
+        lockReason:
+          type: string
+          nullable: true
+        mergedIntoCharacterId:
+          type: string
+          nullable: true
+        voiceProfileId:
+          type: string
+          nullable: true
     VoiceProfile:
       type: object
       properties:
@@ -2034,16 +2112,71 @@ components:
       properties:
         displayName:
           type: string
+        canonicalName:
+          type: string
         aliases:
           type: array
           items:
             type: string
-        description:
+        traits:
+          type: array
+          items:
+            type: string
+        firstSeenSourceId:
+          type: string
+        firstSeenChapterId:
+          type: string
+        firstSeenSegmentId:
           type: string
         roleType:
           type: string
+        confidence:
+          type: number
+        notes:
+          type: string
     UpdateCharacterRequest:
       type: object
+      properties:
+        displayName:
+          type: string
+        canonicalName:
+          type: string
+          nullable: true
+        aliases:
+          type: array
+          items:
+            type: string
+        traits:
+          type: array
+          items:
+            type: string
+        roleType:
+          type: string
+        confidence:
+          type: number
+        notes:
+          type: string
+          nullable: true
+        userLocked:
+          type: boolean
+        lockReason:
+          type: string
+          nullable: true
+        voiceProfileId:
+          type: string
+          nullable: true
+    MergeCharacterRequest:
+      type: object
+      required: [sourceCharacterId]
+      properties:
+        sourceCharacterId:
+          type: string
+        reason:
+          type: string
+          nullable: true
+    SplitCharacterRequest:
+      type: object
+      required: [displayName]
       properties:
         displayName:
           type: string
@@ -2051,12 +2184,13 @@ components:
           type: array
           items:
             type: string
-        description:
+        traits:
+          type: array
+          items:
+            type: string
+        reason:
           type: string
-        roleType:
-          type: string
-        notes:
-          type: string
+          nullable: true
     CreateVoiceProfileRequest:
       type: object
       required: [name, backend, providerVoiceId]

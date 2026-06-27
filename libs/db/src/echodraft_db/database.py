@@ -66,6 +66,23 @@ class Database:
                 repairs.append("ALTER TABLE chapter_renders ADD COLUMN ambience_stem_path TEXT")
             if "mixed_audio_path" not in columns:
                 repairs.append("ALTER TABLE chapter_renders ADD COLUMN mixed_audio_path TEXT")
+        if "characters" in tables:
+            columns = {column["name"] for column in inspector.get_columns("characters")}
+            character_columns = {
+                "canonical_name": "VARCHAR(200)",
+                "traits_json": "TEXT NOT NULL DEFAULT '[]'",
+                "first_seen_source_id": "VARCHAR(64)",
+                "first_seen_chapter_id": "VARCHAR(64)",
+                "first_seen_segment_id": "VARCHAR(64)",
+                "merge_history_json": "TEXT NOT NULL DEFAULT '[]'",
+                "split_history_json": "TEXT NOT NULL DEFAULT '[]'",
+                "user_locked": "BOOLEAN NOT NULL DEFAULT 0",
+                "lock_reason": "TEXT",
+                "merged_into_character_id": "VARCHAR(64)",
+            }
+            for column_name, column_type in character_columns.items():
+                if column_name not in columns:
+                    repairs.append(f"ALTER TABLE characters ADD COLUMN {column_name} {column_type}")
         for table_name in ("chapters", "scenes", "segments"):
             if table_name in tables:
                 columns = {column["name"] for column in inspector.get_columns(table_name)}
