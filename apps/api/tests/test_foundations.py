@@ -1,7 +1,9 @@
 from pathlib import Path
+import sqlite3
 
 import pytest
 
+from echodraft_db import Database
 from echodraft_domain import JobState
 
 
@@ -47,3 +49,60 @@ def test_job_rejects_invalid_transition(app) -> None:
 
 def test_health_is_local_first(client) -> None:
     assert client.get("/health").json() == {"status": "ok", "mode": "local-first"}
+
+
+def test_startup_repairs_legacy_sqlite_production_columns(tmp_path: Path) -> None:
+    database_path = tmp_path / "legacy.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE projects (
+                id VARCHAR(64) PRIMARY KEY,
+                title VARCHAR(200) NOT NULL,
+                author VARCHAR(200),
+                description TEXT,
+                rights_status VARCHAR(32) NOT NULL,
+                status VARCHAR(32) NOT NULL,
+                artifact_path TEXT NOT NULL,
+                created_at DATETIME,
+                updated_at DATETIME
+            );
+            CREATE TABLE voice_profiles (
+                id VARCHAR(64) PRIMARY KEY,
+                project_id VARCHAR(64),
+                name VARCHAR(200) NOT NULL,
+                backend VARCHAR(100) NOT NULL,
+                style_prompt TEXT
+            );
+            CREATE TABLE export_packages (
+                id VARCHAR(64) PRIMARY KEY,
+                project_id VARCHAR(64),
+                format VARCHAR(16) NOT NULL,
+                status VARCHAR(32) NOT NULL,
+                output_path TEXT NOT NULL,
+                manifest_path TEXT NOT NULL
+            );
+            INSERT INTO voice_profiles (id, project_id, name, backend, style_prompt)
+            VALUES ('voice_legacy', 'proj_legacy', 'Legacy narrator', 'mock', NULL);
+            INSERT INTO export_packages (id, project_id, format, status, output_path, manifest_path)
+            VALUES ('export_legacy', 'proj_legacy', 'wav', 'succeeded', '/tmp/out', '/tmp/manifest');
+            """
+        )
+
+    database = Database(f"sqlite:///{database_path}")
+    database.create_schema()
+
+    with sqlite3.connect(database_path) as connection:
+        voice_columns = {row[1] for row in connection.execute("PRAGMA table_info(voice_profiles)")}
+        export_columns = {row[1] for row in connection.execute("PRAGMA table_info(export_packages)")}
+        provider_voice_id = connection.execute(
+            "SELECT provider_voice_id FROM voice_profiles WHERE id = 'voice_legacy'"
+        ).fetchone()[0]
+        archive_path = connection.execute(
+            "SELECT archive_path FROM export_packages WHERE id = 'export_legacy'"
+        ).fetchone()[0]
+
+    assert "provider_voice_id" in voice_columns
+    assert "archive_path" in export_columns
+    assert provider_voice_id == ""
+    assert archive_path is None
