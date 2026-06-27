@@ -280,6 +280,30 @@ Rules:
 - user locks survive reruns and local LLM extraction passes
 - voice links are project-local references to `VoiceProfile` records
 
+### SpeakerAttribution
+Reviewed speaker decision for one segment.
+
+Fields:
+- `id`
+- `project_id`
+- `segment_id`
+- `character_id`
+- `speaker_name`
+- `method`
+- `evidence`
+- `confidence`
+- `status`
+- `user_locked`
+- `voice_profile_id`
+- `created_at`
+- `updated_at`
+
+Rules:
+- one active attribution row exists per segment after Cast Review
+- `status=needs_review` keeps uncertain speakers visible
+- `user_locked=true` protects manual decisions from reruns
+- approved attributions resolve to the linked character voice when available
+
 ### VoiceProfile
 Reusable voice configuration.
 

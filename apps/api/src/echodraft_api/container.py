@@ -11,6 +11,7 @@ from echodraft_db import (
     ProjectRepository,
     ProductionSettingsRepository,
     ReviewRepository,
+    SpeakerAttributionRepository,
     SourceArtifactRepository,
     SourceDocumentRepository,
     StructureRepository,
@@ -36,6 +37,7 @@ class AppContainer:
     structure: StructureRepository
     casting: CastingRepository
     review: ReviewRepository
+    speaker_attributions: SpeakerAttributionRepository
     ambience: AmbienceRepository
     production: ProductionSettingsRepository
     local_ai: LocalAiRepository
@@ -63,6 +65,7 @@ def build_container(settings: AppSettings) -> AppContainer:
         structure=StructureRepository(database),
         casting=CastingRepository(database),
         review=ReviewRepository(database),
+        speaker_attributions=SpeakerAttributionRepository(database),
         ambience=AmbienceRepository(database),
         production=ProductionSettingsRepository(database),
         local_ai=LocalAiRepository(database),

@@ -850,6 +850,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/Character"
 
+  /api/v1/projects/{projectId}/speaker-attributions:
+    get:
+      tags: [Casting]
+      summary: List speaker attributions
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Speaker attribution list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SpeakerAttribution"
+
+  /api/v1/projects/{projectId}/speaker-attributions/run:
+    post:
+      tags: [Casting]
+      summary: Run deterministic speaker attribution, optionally with local Ollama fallback
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunSpeakerAttributionRequest"
+      responses:
+        "202":
+          description: Speaker attribution job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+
+  /api/v1/speaker-attributions/{speakerAttributionId}:
+    patch:
+      tags: [Casting]
+      summary: Update speaker attribution review decision
+      parameters:
+        - name: speakerAttributionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSpeakerAttributionRequest"
+      responses:
+        "200":
+          description: Speaker attribution updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpeakerAttribution"
+
   /api/v1/projects/{projectId}/voices:
     get:
       tags: [Casting]
@@ -2191,6 +2255,63 @@ components:
         reason:
           type: string
           nullable: true
+    SpeakerAttribution:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        segmentId:
+          type: string
+        characterId:
+          type: string
+          nullable: true
+        speakerName:
+          type: string
+          nullable: true
+        method:
+          type: string
+        evidence:
+          type: object
+          additionalProperties: true
+        confidence:
+          type: number
+        status:
+          type: string
+        userLocked:
+          type: boolean
+        voiceProfileId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    RunSpeakerAttributionRequest:
+      type: object
+      properties:
+        useLocalLlm:
+          type: boolean
+          default: false
+        model:
+          type: string
+          default: qwen3:4b
+    UpdateSpeakerAttributionRequest:
+      type: object
+      properties:
+        characterId:
+          type: string
+          nullable: true
+        speakerName:
+          type: string
+          nullable: true
+        status:
+          type: string
+        userLocked:
+          type: boolean
     CreateVoiceProfileRequest:
       type: object
       required: [name, backend, providerVoiceId]

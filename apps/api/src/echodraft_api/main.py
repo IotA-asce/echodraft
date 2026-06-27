@@ -43,6 +43,9 @@ from echodraft_domain import (
     SegmentRevision,
     SegmentSplitRequest,
     SegmentUpdate,
+    SpeakerAttribution,
+    SpeakerAttributionRunRequest,
+    SpeakerAttributionUpdate,
     SourceDocument,
     SourcePage,
     StructureRequest,
@@ -91,6 +94,7 @@ from .production import ProductionService
 from .kokoro_setup import ManagedKokoroSetupService
 from .local_ai import LocalAiService
 from .local_llm import LocalLlmService
+from .speaker_attribution import SpeakerAttributionService
 
 logger = configure_logging()
 
@@ -827,6 +831,75 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         return character_model(x)
+
+    @app.get(
+        "/api/v1/projects/{project_id}/speaker-attributions",
+        response_model=list[SpeakerAttribution],
+    )
+    def list_speaker_attributions(
+        project_id: str, request: Request, status: str | None = None
+    ) -> list[SpeakerAttribution]:
+        try:
+            return SpeakerAttributionService(request.app.state.container).list_attributions(
+                project_id, status
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post(
+        "/api/v1/projects/{project_id}/speaker-attributions/run",
+        response_model=Job,
+        status_code=202,
+    )
+    def run_speaker_attribution(
+        project_id: str,
+        request: Request,
+        payload: SpeakerAttributionRunRequest | None = None,
+    ) -> Job:
+        container: AppContainer = request.app.state.container
+        service = SpeakerAttributionService(container)
+        options = payload or SpeakerAttributionRunRequest()
+        try:
+            service.list_attributions(project_id)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+        def run(job_id: str) -> None:
+            service.generate(
+                project_id,
+                use_local_llm=options.use_local_llm,
+                model=options.model,
+                job_id=job_id,
+            )
+
+        return container.jobs.submit_with_job(
+            "speaker_attribution.run",
+            run,
+            project_id,
+        )
+
+    @app.patch(
+        "/api/v1/speaker-attributions/{attribution_id}",
+        response_model=SpeakerAttribution,
+    )
+    def update_speaker_attribution(
+        attribution_id: str, payload: SpeakerAttributionUpdate, request: Request
+    ) -> SpeakerAttribution:
+        try:
+            return SpeakerAttributionService(request.app.state.container).update(
+                attribution_id,
+                character_id=payload.character_id,
+                update_character="character_id" in payload.model_fields_set,
+                speaker_name=payload.speaker_name,
+                status=payload.status,
+                user_locked=payload.user_locked,
+            )
+        except ValueError as error:
+            message = str(error)
+            raise HTTPException(
+                status_code=404 if "not found" in message.casefold() else 422,
+                detail=message,
+            ) from error
 
     @app.get("/api/v1/projects/{project_id}/voices", response_model=list[VoiceProfile])
     def list_voices(project_id: str, request: Request) -> list[VoiceProfile]:

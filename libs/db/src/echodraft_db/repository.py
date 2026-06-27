@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -11,6 +13,7 @@ from echodraft_domain import (
     ProjectCreate,
     RightsStatus,
     SourceDocument,
+    SpeakerAttribution,
     StructureParserWarning,
 )
 from sqlalchemy import delete, select
@@ -27,6 +30,7 @@ from .models import (
     RightsDeclarationRecord,
     SceneRecord,
     SegmentRecord,
+    SpeakerAttributionRecord,
     StructureLockRecord,
     StructureParserWarningRecord,
     SegmentRevisionRecord,
@@ -83,6 +87,28 @@ def _job(record: JobRecord) -> Job:
             "createdAt": record.created_at,
             "startedAt": record.started_at,
             "finishedAt": record.finished_at,
+        }
+    )
+
+
+def _speaker_attribution(
+    record: SpeakerAttributionRecord, voice_profile_id: str | None = None
+) -> SpeakerAttribution:
+    return SpeakerAttribution.model_validate(
+        {
+            "id": record.id,
+            "projectId": record.project_id,
+            "segmentId": record.segment_id,
+            "characterId": record.character_id,
+            "speakerName": record.speaker_name,
+            "method": record.method,
+            "evidence": json.loads(record.evidence_json),
+            "confidence": record.confidence,
+            "status": record.status,
+            "userLocked": record.user_locked,
+            "voiceProfileId": voice_profile_id,
+            "createdAt": record.created_at,
+            "updatedAt": record.updated_at,
         }
     )
 
@@ -621,6 +647,164 @@ class StructureRepository:
                     .order_by(SegmentRevisionRecord.revision.desc())
                 )
             )
+
+
+class SpeakerAttributionRepository:
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def list_attributions(
+        self, project_id: str, status: str | None = None
+    ) -> list[SpeakerAttribution]:
+        with self.database.session() as session:
+            statement = select(SpeakerAttributionRecord).where(
+                SpeakerAttributionRecord.project_id == project_id
+            )
+            if status:
+                statement = statement.where(SpeakerAttributionRecord.status == status)
+            records = list(
+                session.scalars(statement.order_by(SpeakerAttributionRecord.updated_at.desc()))
+            )
+            assignments = self._voice_assignments(session, [record.character_id for record in records])
+            return [
+                _speaker_attribution(
+                    record,
+                    assignments.get(record.character_id) if record.character_id else None,
+                )
+                for record in records
+            ]
+
+    def by_segment_ids(self, segment_ids: list[str]) -> dict[str, SpeakerAttributionRecord]:
+        if not segment_ids:
+            return {}
+        with self.database.session() as session:
+            rows = session.scalars(
+                select(SpeakerAttributionRecord).where(
+                    SpeakerAttributionRecord.segment_id.in_(segment_ids)
+                )
+            )
+            return {row.segment_id: row for row in rows}
+
+    def resolved_voice_profiles(self, segment_ids: list[str]) -> dict[str, str]:
+        if not segment_ids:
+            return {}
+        with self.database.session() as session:
+            rows = list(
+                session.scalars(
+                    select(SpeakerAttributionRecord).where(
+                        SpeakerAttributionRecord.segment_id.in_(segment_ids),
+                        SpeakerAttributionRecord.status == "approved",
+                        SpeakerAttributionRecord.character_id.is_not(None),
+                    )
+                )
+            )
+            assignments = self._voice_assignments(session, [row.character_id for row in rows])
+            return {
+                row.segment_id: assignments[row.character_id]
+                for row in rows
+                if row.character_id and row.character_id in assignments
+            }
+
+    def upsert(
+        self,
+        project_id: str,
+        segment_id: str,
+        *,
+        character_id: str | None,
+        speaker_name: str | None,
+        method: str,
+        evidence: dict[str, object],
+        confidence: float,
+        status: str,
+    ) -> SpeakerAttribution:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            record = session.scalar(
+                select(SpeakerAttributionRecord).where(
+                    SpeakerAttributionRecord.segment_id == segment_id
+                )
+            )
+            if record and record.user_locked:
+                assignment = self._voice_assignments(session, [record.character_id]).get(
+                    record.character_id
+                ) if record.character_id else None
+                return _speaker_attribution(record, assignment)
+            if not record:
+                record = SpeakerAttributionRecord(
+                    id=f"spkattr_{uuid4().hex[:16]}",
+                    project_id=project_id,
+                    segment_id=segment_id,
+                    created_at=now,
+                    updated_at=now,
+                    character_id=character_id,
+                    speaker_name=speaker_name,
+                    method=method,
+                    evidence_json=json.dumps(evidence),
+                    confidence=confidence,
+                    status=status,
+                    user_locked=False,
+                )
+                session.add(record)
+            else:
+                record.character_id = character_id
+                record.speaker_name = speaker_name
+                record.method = method
+                record.evidence_json = json.dumps(evidence)
+                record.confidence = confidence
+                record.status = status
+                record.updated_at = now
+            session.commit()
+            assignment = self._voice_assignments(session, [record.character_id]).get(
+                record.character_id
+            ) if record.character_id else None
+            return _speaker_attribution(record, assignment)
+
+    def update(
+        self,
+        attribution_id: str,
+        *,
+        character_id: str | None,
+        update_character: bool,
+        speaker_name: str | None,
+        status: str | None,
+        user_locked: bool | None,
+    ) -> SpeakerAttribution | None:
+        with self.database.session() as session:
+            record = session.get(SpeakerAttributionRecord, attribution_id)
+            if not record:
+                return None
+            if update_character:
+                if character_id is None:
+                    record.character_id = None
+                else:
+                    character = session.get(CharacterRecord, character_id)
+                    if not character or character.project_id != record.project_id:
+                        raise ValueError("Character must belong to the same project.")
+                    record.character_id = character_id
+            if speaker_name is not None:
+                record.speaker_name = speaker_name.strip() or None
+            if status is not None:
+                record.status = status
+            if user_locked is not None:
+                record.user_locked = user_locked
+            record.updated_at = datetime.now(UTC)
+            session.commit()
+            assignment = self._voice_assignments(session, [record.character_id]).get(
+                record.character_id
+            ) if record.character_id else None
+            return _speaker_attribution(record, assignment)
+
+    @staticmethod
+    def _voice_assignments(session: Any, character_ids: list[str | None]) -> dict[str, str]:
+        ids = [item for item in character_ids if item]
+        if not ids:
+            return {}
+        rows = session.scalars(
+            select(CharacterVoiceAssignmentRecord).where(
+                CharacterVoiceAssignmentRecord.character_id.in_(ids)
+            )
+        )
+        return {row.character_id: row.voice_profile_id for row in rows}
 
 
 class CastingRepository:
