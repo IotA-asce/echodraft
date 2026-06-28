@@ -30,10 +30,11 @@ The source files above remain raw reference inputs. The documents in this direct
 11. [tts-production-upgrade.md](tts-production-upgrade.md)
 12. [sound-design.md](sound-design.md)
 13. [readiness-qa.md](readiness-qa.md)
-14. [qa-rulebook.md](qa-rulebook.md)
-15. [api-spec.yaml](api-spec.yaml)
-16. [repository-blueprint.md](repository-blueprint.md)
-17. [platform-evolution.md](platform-evolution.md)
+14. [review-patch-workbench.md](review-patch-workbench.md)
+15. [qa-rulebook.md](qa-rulebook.md)
+16. [api-spec.yaml](api-spec.yaml)
+17. [repository-blueprint.md](repository-blueprint.md)
+18. [platform-evolution.md](platform-evolution.md)
 
 ## How to use this set
 - Start with the overview and MVP spec to understand scope and success criteria.

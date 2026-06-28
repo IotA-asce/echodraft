@@ -55,6 +55,7 @@ from echodraft_domain import (
     SegmentMergeRequest,
     SegmentPatchRequest,
     SegmentPatchResult,
+    SegmentReviewInspector,
     SegmentRender,
     SegmentRenderComparison,
     SegmentRenderRequest,
@@ -108,6 +109,7 @@ from .direction import DirectionService
 from .rendering import SegmentRenderer
 from .assembly import ChapterAssembler
 from .review import ReviewService
+from .review_workbench import ReviewWorkbenchService
 from .exporting import ExportService
 from .production import ProductionService
 from .readiness import ReadinessService
@@ -1205,6 +1207,28 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                     "previous_render": segment_render_with_url(project_id, comparison.previous_render)
                     if comparison.previous_render
                     else None,
+                }
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/projects/{project_id}/segments/{segment_id}/review-inspector",
+        response_model=SegmentReviewInspector,
+    )
+    def get_segment_review_inspector(
+        project_id: str, segment_id: str, request: Request
+    ) -> SegmentReviewInspector:
+        try:
+            inspector = ReviewWorkbenchService(request.app.state.container).inspector(
+                project_id, segment_id
+            )
+            return inspector.model_copy(
+                update={
+                    "render_history": [
+                        segment_render_with_url(project_id, item)
+                        for item in inspector.render_history
+                    ]
                 }
             )
         except ValueError as error:
