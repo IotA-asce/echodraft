@@ -427,6 +427,36 @@ Fields:
 - `duration_ms`
 - `status`
 
+### SoundAsset
+Local sound design asset metadata.
+
+Fields:
+- `id`
+- `project_id`
+- `name`
+- `asset_type`
+- `asset_path`
+- `audio_url`
+- `duration_ms`
+- `license_note`
+- `provenance`
+
+### SoundCue
+Scene-level assignment of a sound asset into a chapter mix.
+
+Fields:
+- `id`
+- `scene_id`
+- `asset_id`
+- `cue_type`
+- `start_ms`
+- `gain_db`
+- `fade_in_ms`
+- `fade_out_ms`
+- `ducking`
+- `render_mode`
+- `no_sfx`
+
 ### PronunciationEntry
 Pronunciation or replacement override.
 

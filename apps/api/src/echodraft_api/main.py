@@ -3,9 +3,21 @@ import json
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
+import wave
 
-from echodraft_db.models import ChapterRecord, CharacterRecord, SceneRecord, SegmentRecord
+from echodraft_db.models import (
+    AmbienceAssetRecord,
+    AmbienceCueRecord,
+    ChapterRecord,
+    CharacterRecord,
+    SceneRecord,
+    SegmentRecord,
+)
 from echodraft_domain import (
+    AmbienceAsset,
+    AmbienceAssetCreate,
+    AmbienceCue,
+    AmbienceCueCreate,
     AssignVoice,
     Chapter,
     ChapterAssemblyRequest,
@@ -137,6 +149,55 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     def chapter_render_with_url(project_id: str, render: ChapterRender) -> ChapterRender:
         path = render.mixed_audio_path or render.speech_path
         return render.model_copy(update={"audio_url": artifact_url(project_id, path)})
+
+    def ambience_asset_model(record: AmbienceAssetRecord) -> AmbienceAsset:
+        return AmbienceAsset.model_validate(
+            {
+                "id": record.id,
+                "projectId": record.project_id,
+                "name": record.name,
+                "assetType": record.asset_type,
+                "assetPath": record.asset_path,
+                "audioUrl": artifact_url(record.project_id, record.asset_path),
+                "durationMs": record.duration_ms,
+                "licenseNote": record.license_note,
+                "provenance": record.provenance,
+            }
+        )
+
+    def ambience_cue_model(record: AmbienceCueRecord) -> AmbienceCue:
+        return AmbienceCue.model_validate(
+            {
+                "id": record.id,
+                "sceneId": record.scene_id,
+                "assetId": record.asset_id,
+                "cueType": record.cue_type,
+                "startMs": record.start_ms,
+                "gainDb": record.gain_db,
+                "fadeInMs": record.fade_in_ms,
+                "fadeOutMs": record.fade_out_ms,
+                "ducking": record.ducking,
+                "renderMode": record.render_mode,
+                "noSfx": record.no_sfx,
+            }
+        )
+
+    def wav_duration_ms(path: Path) -> int:
+        with wave.open(str(path), "rb") as source:
+            if source.getnchannels() < 1:
+                raise ValueError("Sound asset WAV has no channels.")
+            if source.getnframes() <= 0:
+                raise ValueError("Sound asset WAV has no audio frames.")
+            return int(source.getnframes() / source.getframerate() * 1000)
+
+    def validate_sound_choice(value: str, allowed: set[str], label: str) -> str:
+        normalized = value.strip().lower().replace("-", "_")
+        if normalized not in allowed:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unsupported {label}: {value}. Use one of {', '.join(sorted(allowed))}.",
+            )
+        return normalized
 
     def _json_list(value: str | None) -> list[object]:
         if not value:
@@ -1145,6 +1206,160 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             )
         except ValueError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/projects/{project_id}/sound-assets",
+        response_model=list[AmbienceAsset],
+    )
+    def list_sound_assets(project_id: str, request: Request) -> list[AmbienceAsset]:
+        container: AppContainer = request.app.state.container
+        if not container.projects.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        return [ambience_asset_model(item) for item in container.ambience.assets(project_id)]
+
+    @app.post(
+        "/api/v1/projects/{project_id}/sound-assets/from-path",
+        response_model=AmbienceAsset,
+        status_code=201,
+    )
+    def create_sound_asset_from_path(
+        project_id: str, payload: AmbienceAssetCreate, request: Request
+    ) -> AmbienceAsset:
+        container: AppContainer = request.app.state.container
+        if not container.projects.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        asset_type = validate_sound_choice(
+            payload.asset_type, {"ambience", "music", "sfx"}, "asset type"
+        )
+        asset_path = Path(payload.asset_path).expanduser()
+        if not asset_path.is_file():
+            raise HTTPException(status_code=422, detail="Sound asset file was not found.")
+        try:
+            duration_ms = payload.duration_ms if payload.duration_ms is not None else wav_duration_ms(asset_path)
+        except (wave.Error, ValueError, OSError) as error:
+            raise HTTPException(
+                status_code=422, detail=f"Sound asset must be a readable WAV file: {error}."
+            ) from error
+        record = container.ambience.create_asset(
+            project_id,
+            payload.name.strip() or asset_path.stem,
+            str(asset_path),
+            payload.license_note,
+            payload.provenance,
+            asset_type=asset_type,
+            duration_ms=duration_ms,
+        )
+        return ambience_asset_model(record)
+
+    @app.post(
+        "/api/v1/projects/{project_id}/sound-assets",
+        response_model=AmbienceAsset,
+        status_code=201,
+    )
+    async def upload_sound_asset(
+        project_id: str,
+        request: Request,
+        file: UploadFile = File(...),
+        asset_type: str = Form("ambience"),
+        name: str | None = Form(None),
+        license_note: str = Form(""),
+        provenance: str = Form("local_upload"),
+    ) -> AmbienceAsset:
+        container: AppContainer = request.app.state.container
+        project = container.projects.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        normalized_type = validate_sound_choice(asset_type, {"ambience", "music", "sfx"}, "asset type")
+        filename = Path(file.filename or "sound.wav").name
+        if Path(filename).suffix.lower() not in {".wav", ".wave"}:
+            raise HTTPException(
+                status_code=422,
+                detail="Sound Design currently accepts WAV assets for local Python mixing.",
+            )
+        root = Path(project.artifact_path) / "sound-design" / "assets"
+        root.mkdir(parents=True, exist_ok=True)
+        asset_path = root / f"{uuid4().hex}_{filename}"
+        asset_path.write_bytes(await file.read())
+        try:
+            duration_ms = wav_duration_ms(asset_path)
+        except (wave.Error, ValueError, OSError) as error:
+            asset_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=422, detail=f"Sound asset must be a readable WAV file: {error}."
+            ) from error
+        record = container.ambience.create_asset(
+            project_id,
+            (name or Path(filename).stem).strip(),
+            str(asset_path),
+            license_note,
+            provenance,
+            asset_type=normalized_type,
+            duration_ms=duration_ms,
+        )
+        return ambience_asset_model(record)
+
+    @app.get(
+        "/api/v1/projects/{project_id}/chapters/{chapter_id}/sound-cues",
+        response_model=list[AmbienceCue],
+    )
+    def list_chapter_sound_cues(
+        project_id: str, chapter_id: str, request: Request
+    ) -> list[AmbienceCue]:
+        container: AppContainer = request.app.state.container
+        chapter = container.structure.chapter(chapter_id)
+        if not chapter or chapter.project_id != project_id:
+            raise HTTPException(status_code=404, detail="Chapter or project not found.")
+        return [ambience_cue_model(item) for item in container.ambience.cues_for_chapter(chapter_id)]
+
+    @app.get(
+        "/api/v1/scenes/{scene_id}/sound-cues",
+        response_model=list[AmbienceCue],
+    )
+    def list_scene_sound_cues(scene_id: str, request: Request) -> list[AmbienceCue]:
+        scene = request.app.state.container.structure.scene(scene_id)
+        if not scene:
+            raise HTTPException(status_code=404, detail="Scene not found.")
+        return [ambience_cue_model(item) for item in request.app.state.container.ambience.cues_for_scene(scene_id)]
+
+    @app.post(
+        "/api/v1/projects/{project_id}/sound-cues",
+        response_model=AmbienceCue,
+        status_code=201,
+    )
+    def create_sound_cue(
+        project_id: str, payload: AmbienceCueCreate, request: Request
+    ) -> AmbienceCue:
+        container: AppContainer = request.app.state.container
+        scene = container.structure.scene(payload.scene_id)
+        chapter = container.structure.chapter(scene.chapter_id) if scene else None
+        if not scene or not chapter or chapter.project_id != project_id:
+            raise HTTPException(status_code=404, detail="Scene or project not found.")
+        cue_type = validate_sound_choice(payload.cue_type, {"ambience", "music", "sfx"}, "cue type")
+        render_mode = validate_sound_choice(
+            payload.render_mode, {"light", "light_cinematic", "dramatized", "all"}, "render mode"
+        )
+        if not payload.asset_id:
+            raise HTTPException(status_code=422, detail="Sound cues require an assetId.")
+        asset = container.ambience.asset(payload.asset_id)
+        if not asset or asset.project_id != project_id:
+            raise HTTPException(status_code=422, detail="Sound cue asset was not found in this project.")
+        if payload.start_ms < 0 or payload.fade_in_ms < 0 or payload.fade_out_ms < 0:
+            raise HTTPException(status_code=422, detail="Cue timing values cannot be negative.")
+        if payload.gain_db > 6 or payload.gain_db < -80:
+            raise HTTPException(status_code=422, detail="Cue gain must be between -80 dB and 6 dB.")
+        record = container.ambience.create_cue(
+            payload.scene_id,
+            payload.asset_id,
+            cue_type,
+            payload.start_ms,
+            payload.gain_db,
+            payload.fade_in_ms,
+            payload.fade_out_ms,
+            payload.ducking,
+            render_mode,
+            payload.no_sfx,
+        )
+        return ambience_cue_model(record)
 
     @app.post(
         "/api/v1/projects/{project_id}/chapters/{chapter_id}/assemble",
