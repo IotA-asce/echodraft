@@ -103,6 +103,22 @@ class Database:
                     repairs.append(
                         f"ALTER TABLE speaker_attributions ADD COLUMN {column_name} {column_type}"
                     )
+        if "segment_directions" in tables:
+            columns = {column["name"] for column in inspector.get_columns("segment_directions")}
+            direction_columns = {
+                "project_id": "VARCHAR(64)",
+                "direction_json": "TEXT NOT NULL DEFAULT '{}'",
+                "source": "VARCHAR(32) NOT NULL DEFAULT 'manual'",
+                "user_locked": "BOOLEAN NOT NULL DEFAULT 0",
+                "direction_fingerprint": "VARCHAR(64) NOT NULL DEFAULT ''",
+                "created_at": "DATETIME",
+                "updated_at": "DATETIME",
+            }
+            for column_name, column_type in direction_columns.items():
+                if column_name not in columns:
+                    repairs.append(
+                        f"ALTER TABLE segment_directions ADD COLUMN {column_name} {column_type}"
+                    )
         for table_name in ("chapters", "scenes", "segments"):
             if table_name in tables:
                 columns = {column["name"] for column in inspector.get_columns(table_name)}

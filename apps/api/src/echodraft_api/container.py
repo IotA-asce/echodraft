@@ -11,6 +11,7 @@ from echodraft_db import (
     ProjectRepository,
     ProductionSettingsRepository,
     ReviewRepository,
+    SegmentDirectionRepository,
     SpeakerAttributionRepository,
     SourceArtifactRepository,
     SourceDocumentRepository,
@@ -40,6 +41,7 @@ class AppContainer:
     speaker_attributions: SpeakerAttributionRepository
     ambience: AmbienceRepository
     production: ProductionSettingsRepository
+    segment_directions: SegmentDirectionRepository
     local_ai: LocalAiRepository
     llm_runs: LlmRunRepository
     tts_settings: TtsSettingsStore
@@ -68,6 +70,7 @@ def build_container(settings: AppSettings) -> AppContainer:
         speaker_attributions=SpeakerAttributionRepository(database),
         ambience=AmbienceRepository(database),
         production=ProductionSettingsRepository(database),
+        segment_directions=SegmentDirectionRepository(database),
         local_ai=LocalAiRepository(database),
         llm_runs=LlmRunRepository(database),
         tts_settings=tts_settings,
