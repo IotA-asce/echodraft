@@ -41,6 +41,7 @@ Echodraft can currently:
 * configure Piper fallback and consent-gated XTTS-v2 local provider settings;
 * render missing or stale segment audio;
 * assemble immutable chapter renders;
+* import local WAV sound assets and assemble optional light or dramatized chapter mixes;
 * review issues, leave comments, patch weak lines, and reassemble chapters;
 * export selected chapters as WAV or MP3 ZIP packages with manifests and checksums.
 
@@ -83,7 +84,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | WAV export                          | Working         | ZIP package with manifest/checksum data                                                    |
 | MP3 export                          | Working         | Requires FFmpeg with MP3 support                                                           |
 | M4B export                          | Not implemented | Planned/future                                                                             |
-| Ambience mixing                     | Partial         | Schemas/render modes exist; full source-asset mixing and dashboard controls are incomplete |
+| Sound Design                        | Alpha           | Local WAV ambience/music/SFX import, scene cue assignment, and explicit light/dramatized mixing |
 | Cloud execution                     | Not included    | MVP is local-first                                                                         |
 
 ---

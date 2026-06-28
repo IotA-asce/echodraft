@@ -66,6 +66,28 @@ class Database:
                 repairs.append("ALTER TABLE chapter_renders ADD COLUMN ambience_stem_path TEXT")
             if "mixed_audio_path" not in columns:
                 repairs.append("ALTER TABLE chapter_renders ADD COLUMN mixed_audio_path TEXT")
+        if "ambience_assets" in tables:
+            columns = {column["name"] for column in inspector.get_columns("ambience_assets")}
+            if "asset_type" not in columns:
+                repairs.append(
+                    "ALTER TABLE ambience_assets "
+                    "ADD COLUMN asset_type VARCHAR(32) NOT NULL DEFAULT 'ambience'"
+                )
+            if "duration_ms" not in columns:
+                repairs.append("ALTER TABLE ambience_assets ADD COLUMN duration_ms INTEGER")
+        if "ambience_cues" in tables:
+            columns = {column["name"] for column in inspector.get_columns("ambience_cues")}
+            cue_columns = {
+                "cue_type": "VARCHAR(32) NOT NULL DEFAULT 'ambience'",
+                "start_ms": "INTEGER NOT NULL DEFAULT 0",
+                "ducking": "BOOLEAN NOT NULL DEFAULT 1",
+                "render_mode": "VARCHAR(32) NOT NULL DEFAULT 'light'",
+            }
+            for column_name, column_type in cue_columns.items():
+                if column_name not in columns:
+                    repairs.append(
+                        f"ALTER TABLE ambience_cues ADD COLUMN {column_name} {column_type}"
+                    )
         if "characters" in tables:
             columns = {column["name"] for column in inspector.get_columns("characters")}
             character_columns = {
