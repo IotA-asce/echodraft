@@ -11,6 +11,8 @@ Readiness QA runs locally and checks:
 - unresolved parser warnings
 - speaker attribution review state
 - narrator voice configuration
+- character voice coverage
+- narrator fallback rows from unvoiced or narrator-approved cast rows
 - segment direction coverage
 - chapter and segment audio artifacts
 - stale segment renders

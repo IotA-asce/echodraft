@@ -8,11 +8,16 @@ from uuid import uuid4
 
 from echodraft_db.models import ChapterRecord, SceneRecord, SegmentRecord, SegmentRevisionRecord
 
-from echodraft_domain import Chapter, Scene, Segment, SegmentRevision
+from echodraft_domain import Chapter, LlmExtractionRequest, Scene, Segment, SegmentRevision
 
 from .container import AppContainer
+from .local_llm import LocalLlmService
 
-STRUCTURE_PARSER_VERSION = "structure-parser-0.2.0"
+STRUCTURE_PARSER_VERSION = "structure-parser-0.3.0"
+DEFAULT_REFINEMENT_MODEL = "qwen3:4b"
+DEFAULT_REFINEMENT_MODEL_KEY = "qwen3_4b_ollama"
+LLM_REFINEMENT_BATCH_CHARS = 3200
+SPEAKER_NAME_PATTERN = r"([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*){0,3})"
 CHAPTER_RE = re.compile(
     r"^(?P<markdown>#{1,3}\s+)?(?P<title>(?:chapter\s+(?:\d+|[ivxlcdm]+|[a-z]+)"
     r"(?:\s*[:.-]\s*.+)?|prologue|epilogue|afterword|acknowledg(?:e)?ments|"
@@ -31,9 +36,50 @@ SCENE_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 SPEAKER_RE = re.compile(
-    r"\b([A-Z][a-z]{1,30})\s+(?:said|asked|replied|whispered|shouted|murmured)\b"
+    rf"\b{SPEAKER_NAME_PATTERN}\s+"
+    r"(?:said|asked|replied|whispered|shouted|murmured|called|answered)\b"
 )
-COLON_SPEAKER_RE = re.compile(r"^([A-Z][A-Za-z]{1,30}):\s+")
+COLON_SPEAKER_RE = re.compile(rf"^{SPEAKER_NAME_PATTERN}:\s+")
+IGNORED_SPEAKER_CANDIDATES = {
+    "he",
+    "she",
+    "they",
+    "we",
+    "you",
+    "i",
+    "it",
+    "narrator",
+}
+
+SEGMENT_REFINEMENT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "segments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "roughSegmentId": {"type": "string"},
+                    "segmentType": {"type": "string"},
+                    "text": {"type": "string"},
+                    "speakerHint": {"type": "string"},
+                    "confidence": {"type": "number"},
+                    "evidence": {"type": "string"},
+                },
+                "required": [
+                    "roughSegmentId",
+                    "segmentType",
+                    "text",
+                    "speakerHint",
+                    "confidence",
+                    "evidence",
+                ],
+            },
+        },
+        "warnings": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["segments", "warnings"],
+}
 
 
 @dataclass(frozen=True)
@@ -50,14 +96,24 @@ class StructureService:
     def __init__(self, container: AppContainer) -> None:
         self.container = container
 
-    def extract(self, project_id: str, max_chars: int) -> None:
+    def extract(self, project_id: str, max_chars: int, job_id: str | None = None) -> None:
         source = self.container.sources.latest(project_id)
         project = self.container.projects.get(project_id)
         if not source or not source.canonical_path or not project:
             raise ValueError("A successfully imported canonical source is required.")
         text = Path(source.canonical_path).read_text(encoding="utf-8")
+        if job_id:
+            self.container.jobs_repository.set_progress(
+                job_id, {"phase": "deterministic_structure", "message": "Drafting structure locally."}
+            )
         hierarchy, warnings = self._hierarchy(project_id, source.id, text, max_chars)
+        hierarchy = self._refine_hierarchy(project_id, source.id, hierarchy, warnings, job_id)
+        if job_id:
+            self.container.jobs_repository.set_progress(
+                job_id, {"phase": "saving_structure", "message": "Saving refined structure."}
+            )
         self.container.structure.replace(project_id, hierarchy, warnings)
+        self._run_cast_and_speaker_draft(project_id, source.id, job_id)
         manifest = {
             "manifestType": "structure_manifest",
             "schemaVersion": "0.2.0",
@@ -79,6 +135,12 @@ class StructureService:
                 "sourceDocumentId": source.id,
                 "maxSegmentChars": max_chars,
                 "parserVersion": STRUCTURE_PARSER_VERSION,
+                "pipeline": [
+                    "deterministic_parser",
+                    "llm_segment_refinement",
+                    "cast_discovery",
+                    "speaker_attribution",
+                ],
                 "chapters": hierarchy,
             },
         }
@@ -264,6 +326,7 @@ class StructureService:
             speaker, speaker_confidence = self._speaker(segment_text)
             evidence = {
                 "parserVersion": STRUCTURE_PARSER_VERSION,
+                "sources": ["deterministic_parser"],
                 "segmentTypeRule": segment_type,
                 "speakerRule": "deterministic" if speaker else None,
             }
@@ -334,12 +397,334 @@ class StructureService:
     @staticmethod
     def _speaker(text: str) -> tuple[str | None, float]:
         colon = COLON_SPEAKER_RE.match(text)
-        if colon:
-            return colon.group(1), 0.86
+        if colon and not _ignored_speaker(colon.group(1)):
+            return colon.group(1).strip(), 0.86
         speaker = SPEAKER_RE.search(text)
-        if speaker:
-            return speaker.group(1), 0.75
+        if speaker and not _ignored_speaker(speaker.group(1)):
+            return speaker.group(1).strip(), 0.75
         return None, 0.0
+
+    def _refine_hierarchy(
+        self,
+        project_id: str,
+        source_id: str,
+        hierarchy: list[dict[str, object]],
+        warnings: list[dict[str, object]],
+        job_id: str | None,
+    ) -> list[dict[str, object]]:
+        ready, message = self._local_llm_ready()
+        if not ready:
+            warnings.append(
+                self._warning(
+                    project_id,
+                    source_id,
+                    "project",
+                    project_id,
+                    "info",
+                    "LLM segment refinement not run; deterministic structure was kept.",
+                    {
+                        "source": "llm_segment_refinement",
+                        "model": DEFAULT_REFINEMENT_MODEL,
+                        "reason": message or "Local Ollama model is not ready.",
+                    },
+                    0.8,
+                )
+            )
+            return hierarchy
+
+        total = sum(
+            len(cast(list[dict[str, object]], scene["segments"]))
+            for chapter in hierarchy
+            for scene in cast(list[dict[str, object]], chapter["scenes"])
+        )
+        processed = 0
+        llm = LocalLlmService(self.container)
+        for chapter in hierarchy:
+            for scene in cast(list[dict[str, object]], chapter["scenes"]):
+                segments = cast(list[dict[str, object]], scene["segments"])
+                refined: list[dict[str, object]] = []
+                for batch in self._segment_batches(segments):
+                    if job_id:
+                        self.container.jobs_repository.set_progress(
+                            job_id,
+                            {
+                                "phase": "llm_segment_refinement",
+                                "current": processed,
+                                "total": total,
+                                "message": "Refining deterministic segments with local Ollama.",
+                            },
+                        )
+                    refined.extend(
+                        self._refine_batch(project_id, source_id, llm, segments, batch, warnings, job_id)
+                    )
+                    processed += len(batch)
+                for order, segment in enumerate(refined):
+                    segment["order_index"] = order
+                scene["segments"] = refined
+        return hierarchy
+
+    def _refine_batch(
+        self,
+        project_id: str,
+        source_id: str,
+        llm: LocalLlmService,
+        scene_segments: list[dict[str, object]],
+        batch: list[dict[str, object]],
+        warnings: list[dict[str, object]],
+        job_id: str | None,
+    ) -> list[dict[str, object]]:
+        prompt = self._refinement_prompt(scene_segments, batch)
+        try:
+            result = llm.extract(
+                project_id,
+                LlmExtractionRequest(
+                    model=DEFAULT_REFINEMENT_MODEL,
+                    task="llm_segment_refinement",
+                    schema=SEGMENT_REFINEMENT_SCHEMA,
+                    prompt=prompt,
+                ),
+                job_id,
+            )
+        except ValueError as error:
+            warnings.append(
+                self._warning(
+                    project_id,
+                    source_id,
+                    "segment",
+                    str(batch[0]["id"]),
+                    "warning",
+                    "LLM segment refinement failed; deterministic segments were kept.",
+                    {
+                        "source": "llm_segment_refinement",
+                        "segmentIds": [str(item["id"]) for item in batch],
+                        "error": str(error)[:500],
+                    },
+                    0.6,
+                )
+            )
+            return batch
+
+        raw_segments = result.result.get("segments")
+        if not isinstance(raw_segments, list):
+            warnings.append(
+                self._warning(
+                    project_id,
+                    source_id,
+                    "segment",
+                    str(batch[0]["id"]),
+                    "warning",
+                    "LLM segment refinement returned no segment list; deterministic segments were kept.",
+                    {"source": "llm_segment_refinement", "llmRunId": result.run.id},
+                    0.5,
+                )
+            )
+            return batch
+        grouped: dict[str, list[dict[str, object]]] = {}
+        for item in raw_segments:
+            if not isinstance(item, dict):
+                continue
+            payload = cast(dict[str, object], item)
+            rough_id = payload.get("roughSegmentId")
+            if isinstance(rough_id, str):
+                grouped.setdefault(rough_id, []).append(payload)
+
+        output: list[dict[str, object]] = []
+        for rough in batch:
+            rough_id = str(rough["id"])
+            pieces = grouped.get(rough_id, [])
+            if not pieces:
+                warnings.append(
+                    self._warning(
+                        project_id,
+                        source_id,
+                        "segment",
+                        rough_id,
+                        "warning",
+                        "LLM segment refinement omitted a deterministic segment; original segment was kept.",
+                        {"source": "llm_segment_refinement", "llmRunId": result.run.id},
+                        0.5,
+                    )
+                )
+                output.append(rough)
+                continue
+            refined = self._validated_refinement(project_id, source_id, rough, pieces, result.run.id, warnings)
+            output.extend(refined or [rough])
+        return output
+
+    def _validated_refinement(
+        self,
+        project_id: str,
+        source_id: str,
+        rough: dict[str, object],
+        pieces: list[dict[str, object]],
+        run_id: str,
+        warnings: list[dict[str, object]],
+    ) -> list[dict[str, object]] | None:
+        rough_text = str(rough["text_content"])
+        piece_texts = [str(piece.get("text") or "").strip() for piece in pieces]
+        allowed_types = {"narration", "dialogue", "performance_beat"}
+        if (
+            not all(piece_texts)
+            or _normalized_compare(" ".join(piece_texts)) != _normalized_compare(rough_text)
+            or any(str(piece.get("segmentType") or "") not in allowed_types for piece in pieces)
+        ):
+            warnings.append(
+                self._warning(
+                    project_id,
+                    source_id,
+                    "segment",
+                    str(rough["id"]),
+                    "warning",
+                    "LLM segment refinement failed validation; deterministic segment was kept.",
+                    {
+                        "source": "llm_segment_refinement",
+                        "llmRunId": run_id,
+                        "roughSegmentId": rough["id"],
+                        "reason": "text mismatch, empty text, or unsupported segment type",
+                    },
+                    0.55,
+                )
+            )
+            return None
+
+        output: list[dict[str, object]] = []
+        cursor = 0
+        rough_start = _int_value(rough["start_offset"])
+        for piece in pieces:
+            text = str(piece["text"]).strip()
+            local_start = rough_text.find(text, cursor)
+            if local_start < 0:
+                local_start = cursor
+            cursor = min(len(rough_text), local_start + len(text))
+            segment_type = str(piece["segmentType"])
+            speaker_hint = str(piece.get("speakerHint") or "").strip()
+            confidence = _clamp_float(piece.get("confidence"), 0.0, 1.0)
+            detected_speaker, detected_confidence = self._speaker(text)
+            speaker = speaker_hint if speaker_hint and not _ignored_speaker(speaker_hint) else detected_speaker
+            speaker_confidence = confidence if speaker_hint else detected_confidence
+            deterministic_evidence = _evidence(str(rough.get("parser_evidence_json") or "{}"))
+            evidence = {
+                **deterministic_evidence,
+                "sources": ["deterministic_parser", "llm_segment_refinement"],
+                "roughSegmentId": rough["id"],
+                "llmRunId": run_id,
+                "llmEvidence": piece.get("evidence"),
+                "llmConfidence": confidence,
+            }
+            output.append(
+                {
+                    "id": f"seg_{uuid4().hex[:16]}",
+                    "scene_id": rough["scene_id"],
+                    "order_index": _int_value(rough["order_index"]) + len(output),
+                    "text_content": text,
+                    "normalized_text": text,
+                    "segment_type": segment_type,
+                    "speaker_candidate": speaker,
+                    "speaker_confidence": speaker_confidence,
+                    "start_offset": rough_start + local_start,
+                    "end_offset": rough_start + local_start + len(text),
+                    "revision": 1,
+                    "status": "ready",
+                    "parser_evidence_json": json.dumps(evidence),
+                }
+            )
+        return output
+
+    def _refinement_prompt(
+        self, scene_segments: list[dict[str, object]], batch: list[dict[str, object]]
+    ) -> str:
+        first_index = scene_segments.index(batch[0])
+        last_index = scene_segments.index(batch[-1])
+        previous_text = str(scene_segments[first_index - 1]["text_content"])[-240:] if first_index else ""
+        next_text = (
+            str(scene_segments[last_index + 1]["text_content"])[:240]
+            if last_index + 1 < len(scene_segments)
+            else ""
+        )
+        rough_lines = "\n\n".join(
+            (
+                f"ROUGH_SEGMENT {segment['id']}\n"
+                f"type={segment['segment_type']} speakerHint={segment.get('speaker_candidate') or ''}\n"
+                f"text={segment['text_content']}"
+            )
+            for segment in batch
+        )
+        return (
+            "Refine deterministic audiobook structure into ordered renderable subsegments. "
+            "Return only JSON that matches the supplied schema.\n\n"
+            "Rules:\n"
+            "- Never invent, rewrite, summarize, or drop manuscript text.\n"
+            "- Preserve source order exactly.\n"
+            "- Split each rough segment only into narration, dialogue, or performance_beat pieces.\n"
+            "- Every returned item must use the exact roughSegmentId it came from.\n"
+            "- speakerHint must be an observed proper name or an empty string.\n"
+            "- Do not use text from adjacent context in returned segments.\n\n"
+            f"Previous context snippet:\n{previous_text}\n\n"
+            f"Next context snippet:\n{next_text}\n\n"
+            f"Rough segments:\n{rough_lines}"
+        )
+
+    @staticmethod
+    def _segment_batches(segments: list[dict[str, object]]) -> list[list[dict[str, object]]]:
+        batches: list[list[dict[str, object]]] = []
+        current: list[dict[str, object]] = []
+        current_chars = 0
+        for segment in segments:
+            length = len(str(segment["text_content"]))
+            if current and current_chars + length > LLM_REFINEMENT_BATCH_CHARS:
+                batches.append(current)
+                current = []
+                current_chars = 0
+            current.append(segment)
+            current_chars += length
+        if current:
+            batches.append(current)
+        return batches
+
+    def _local_llm_ready(self) -> tuple[bool, str | None]:
+        installation = self.container.local_ai.installation(DEFAULT_REFINEMENT_MODEL_KEY)
+        if installation and installation.status == "installed":
+            return True, "Local Ollama model is marked installed in Model Center."
+        return False, "Ollama model qwen3:4b is not marked installed in Model Center."
+
+    def _run_cast_and_speaker_draft(
+        self, project_id: str, source_id: str, job_id: str | None
+    ) -> None:
+        ready, _message = self._local_llm_ready()
+        if job_id:
+            self.container.jobs_repository.set_progress(
+                job_id,
+                {"phase": "cast_discovery", "message": "Discovering cast from refined segments."},
+            )
+        from .cast_discovery import CastDiscoveryService
+        from .speaker_attribution import SpeakerAttributionService
+
+        CastDiscoveryService(self.container).discover(
+            project_id, source_id=source_id, use_local_llm=ready, job_id=job_id
+        )
+        if job_id:
+            self.container.jobs_repository.set_progress(
+                job_id,
+                {"phase": "speaker_attribution", "message": "Linking speakers to cast records."},
+            )
+        try:
+            SpeakerAttributionService(self.container).generate(
+                project_id, use_local_llm=ready, model=DEFAULT_REFINEMENT_MODEL, job_id=job_id
+            )
+        except ValueError as error:
+            self.container.review.create_issue(
+                project_id=project_id,
+                category="cast_discovery",
+                severity="warning",
+                title="LLM speaker attribution needs review",
+                description="Local LLM speaker attribution failed after deterministic rows were created.",
+                metadata={
+                    "sourceDocumentId": source_id,
+                    "model": DEFAULT_REFINEMENT_MODEL,
+                    "error": str(error)[:500],
+                },
+                dedupe_key=f"cast-speaker-llm:{project_id}:{source_id}",
+            )
 
     @staticmethod
     def _warning(
@@ -365,6 +750,36 @@ class StructureService:
             "resolved": False,
             "created_at": datetime.now(UTC),
         }
+
+
+def _ignored_speaker(value: str | None) -> bool:
+    if not value:
+        return True
+    return re.sub(r"[^a-z]+", "", value.casefold()) in IGNORED_SPEAKER_CANDIDATES
+
+
+def _normalized_compare(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _clamp_float(value: object, minimum: float, maximum: float) -> float:
+    if isinstance(value, (int, float, str)):
+        try:
+            numeric = float(value)
+        except ValueError:
+            numeric = minimum
+    else:
+        numeric = minimum
+    return min(max(numeric, minimum), maximum)
+
+
+def _int_value(value: object) -> int:
+    if isinstance(value, (int, str)):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
 
 
 def _evidence(payload: str | None) -> dict[str, object]:

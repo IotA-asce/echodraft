@@ -1,4 +1,8 @@
 import time
+from types import SimpleNamespace
+
+import echodraft_api.cast_discovery as cast_discovery_module
+import echodraft_api.structure as structure_module
 
 
 def wait_for_job(client, job_id: str) -> dict:
@@ -110,3 +114,170 @@ def test_segment_split_merge_and_lock_survives_reextract(client) -> None:
         segment["id"] == merged_segment["id"] and segment["userLocked"]
         for segment in all_segments
     )
+
+
+def test_llm_structure_refinement_creates_cast_and_speaker_rows(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        structure_module.StructureService,
+        "_local_llm_ready",
+        lambda _self: (True, "ready"),
+    )
+    monkeypatch.setattr(
+        cast_discovery_module.CastDiscoveryService,
+        "_local_llm_ready",
+        lambda _self: True,
+    )
+
+    def fake_extract(_self, _project_id, request, _job_id=None):
+        if request.task == "llm_segment_refinement":
+            rough_id = request.prompt.split("ROUGH_SEGMENT ", 1)[1].splitlines()[0]
+            return SimpleNamespace(
+                run=SimpleNamespace(id="llmrun_segments"),
+                result={
+                    "segments": [
+                        {
+                            "roughSegmentId": rough_id,
+                            "segmentType": "dialogue",
+                            "text": "Mara: We leave now.",
+                            "speakerHint": "Mara",
+                            "confidence": 0.93,
+                            "evidence": "speaker label",
+                        },
+                        {
+                            "roughSegmentId": rough_id,
+                            "segmentType": "narration",
+                            "text": "The rain answered.",
+                            "speakerHint": "",
+                            "confidence": 0.9,
+                            "evidence": "narrative sentence",
+                        },
+                    ],
+                    "warnings": [],
+                },
+            )
+        if request.task == "cast_discovery":
+            segment_id = request.prompt.split("- ", 1)[1].split(" ", 1)[0]
+            return SimpleNamespace(
+                run=SimpleNamespace(id="llmrun_cast"),
+                result={
+                    "characters": [
+                        {
+                            "displayName": "Mara",
+                            "canonicalName": "Mara",
+                            "aliases": [],
+                            "firstSeenSegmentId": segment_id,
+                            "roleGuess": "supporting",
+                            "confidence": 0.94,
+                            "evidence": ["Mara: We leave now."],
+                        }
+                    ],
+                    "warnings": [],
+                },
+            )
+        if request.task == "cast_merge_verification":
+            return SimpleNamespace(
+                run=SimpleNamespace(id="llmrun_merge"),
+                result={
+                    "decisions": [
+                        {
+                            "displayName": "Mara",
+                            "action": "create_new",
+                            "targetName": "",
+                            "aliases": [],
+                            "confidence": 0.94,
+                            "reason": "unique observed speaker",
+                        }
+                    ],
+                    "warnings": [],
+                },
+            )
+        return SimpleNamespace(run=SimpleNamespace(id="llmrun_empty"), result={"attributions": [], "warnings": []})
+
+    monkeypatch.setattr(structure_module.LocalLlmService, "extract", fake_extract)
+    project = project_with_source(
+        client,
+        "Chapter 1\n\nMara: We leave now. The rain answered.",
+    )
+
+    extract(client, project)
+
+    chapter = client.get(f"/api/v1/projects/{project}/chapters").json()[0]
+    scene = client.get(f"/api/v1/chapters/{chapter['id']}/scenes").json()[0]
+    segments = client.get(f"/api/v1/scenes/{scene['id']}/segments").json()
+    assert [segment["segmentType"] for segment in segments] == ["dialogue", "narration"]
+    assert segments[0]["speakerCandidate"] == "Mara"
+    assert "llm_segment_refinement" in segments[0]["parserEvidence"]["sources"]
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    mara = next(character for character in characters if character["displayName"] == "Mara")
+    attributions = client.get(f"/api/v1/projects/{project}/speaker-attributions").json()
+    mara_row = next(item for item in attributions if item["speakerName"] == "Mara")
+    assert mara_row["status"] == "approved"
+    assert mara_row["characterId"] == mara["id"]
+
+
+def test_invalid_llm_structure_refinement_falls_back_with_warning(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        structure_module.StructureService,
+        "_local_llm_ready",
+        lambda _self: (True, "ready"),
+    )
+    monkeypatch.setattr(
+        cast_discovery_module.CastDiscoveryService,
+        "_local_llm_ready",
+        lambda _self: True,
+    )
+
+    def fake_extract(_self, _project_id, request, _job_id=None):
+        if request.task == "llm_segment_refinement":
+            rough_id = request.prompt.split("ROUGH_SEGMENT ", 1)[1].splitlines()[0]
+            return SimpleNamespace(
+                run=SimpleNamespace(id="llmrun_bad_segments"),
+                result={
+                    "segments": [
+                        {
+                            "roughSegmentId": rough_id,
+                            "segmentType": "dialogue",
+                            "text": "Mara: We leave now. Invented text.",
+                            "speakerHint": "Mara",
+                            "confidence": 0.9,
+                            "evidence": "bad output",
+                        }
+                    ],
+                    "warnings": [],
+                },
+            )
+        return SimpleNamespace(
+            run=SimpleNamespace(id="llmrun_empty"),
+            result={"characters": [], "decisions": [], "attributions": [], "warnings": []},
+        )
+
+    monkeypatch.setattr(structure_module.LocalLlmService, "extract", fake_extract)
+    project = project_with_source(client, "Chapter 1\n\nMara: We leave now.")
+
+    extract(client, project)
+
+    chapter = client.get(f"/api/v1/projects/{project}/chapters").json()[0]
+    scene = client.get(f"/api/v1/chapters/{chapter['id']}/scenes").json()[0]
+    segments = client.get(f"/api/v1/scenes/{scene['id']}/segments").json()
+    assert [segment["textContent"] for segment in segments] == ["Mara: We leave now."]
+    warnings = client.get(f"/api/v1/projects/{project}/structure-warnings").json()
+    assert any("failed validation" in warning["message"] for warning in warnings)
+
+
+def test_cast_discovery_uses_aliases_without_creating_duplicates(client) -> None:
+    project = project_with_source(client, "Chapter 1\n\nCaptain Vale: Report.")
+    character = client.post(
+        f"/api/v1/projects/{project}/characters",
+        json={"displayName": "Mara", "aliases": ["Captain Vale"]},
+    ).json()
+
+    extract(client, project)
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    active = [item for item in characters if not item["mergedIntoCharacterId"]]
+    assert [item["displayName"] for item in active] == ["Mara"]
+    attributions = client.get(f"/api/v1/projects/{project}/speaker-attributions").json()
+    row = next(item for item in attributions if item["speakerName"] == "Captain Vale")
+    assert row["status"] == "approved"
+    assert row["characterId"] == character["id"]
