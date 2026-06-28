@@ -88,17 +88,17 @@ export function VoiceBiblePanel({
   onAddPronunciation: (value: string) => Promise<void>;
 }) {
   return (
-    <section className="studio-section voice-bible-panel">
+    <section className="studio-section voice-bible-panel" aria-labelledby="voice-bible-title">
       <div>
         <p className="eyebrow">04 / Voices & Cast</p>
-        <h2>Voice Bible</h2>
+        <h2 id="voice-bible-title">Voice Bible</h2>
         <p className="lede">Review cast, merge duplicates, assign local voices, and keep narrator fallback explicit.</p>
       </div>
       <div className="studio-card">
         <NarratorCard narrator={narrator} />
         <form className="inline-form" onSubmit={onAddVoice}>
-          <input placeholder="Profile name" value={voiceName} onChange={(event) => onVoiceNameChange(event.target.value)} />
-          <input placeholder="Local provider voice ID or preset ID" value={providerVoiceId} onChange={(event) => onProviderVoiceIdChange(event.target.value)} />
+          <input aria-label="Voice profile name" placeholder="Profile name" value={voiceName} onChange={(event) => onVoiceNameChange(event.target.value)} />
+          <input aria-label="Local provider voice ID or preset ID" placeholder="Local provider voice ID or preset ID" value={providerVoiceId} onChange={(event) => onProviderVoiceIdChange(event.target.value)} />
           <button>Add voice</button>
         </form>
         {voices.length ? (

@@ -20,7 +20,7 @@ export function StudioHero({
           <span className="wordmark-mark">e</span>
           <span>echodraft</span>
         </a>
-        <p>{tts?.ready ? `${tts.provider} local runtime ready` : "TTS needs local setup"}</p>
+        <p>{tts?.ready ? `${tts.provider} local voice runtime ready` : "Voice engine needs local setup"}</p>
       </header>
       <section className="hero studio-hero" id="top">
         <div>

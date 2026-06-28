@@ -35,7 +35,7 @@ export function ChapterAudioPlayer({
       ) : activeRender?.audioUrl ? (
         <>
           <audio controls src={assetUrl(activeRender.audioUrl)} className="audio-player" />
-          {provider === "mock" ? <p className="chapter-audio-note">Mock TTS creates silent workflow audio.</p> : null}
+          {provider === "mock" ? <p className="chapter-audio-note">Mock voice engine creates silent workflow audio.</p> : null}
         </>
       ) : (
         <p className="import-placeholder">Produce this chapter to create playable audio.</p>

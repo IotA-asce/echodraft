@@ -16,7 +16,7 @@ export function StudioShell({
   return (
     <div className="studio-shell-grid">
       <WorkflowSidebar steps={steps} activeStep={activeStep} onStepChange={onStepChange} />
-      <div className="studio-active-panel">{children}</div>
+      <main className="studio-active-panel">{children}</main>
     </div>
   );
 }
