@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import {
   addComment, assembleChapter, assetUrl, compareSegmentRenders, createCharacter, createExport, createProject, createPronunciation, createSoundCue, createVoice, deleteVoice,
   extractStructure, getJob, getKokoroSetup, getLocalAiInstallJob, getProductionSettings, getProductionStatus, getSegmentReviewInspector,
@@ -13,17 +13,27 @@ import {
   type ProductionSettings, type ProductionStatus, type Pronunciation, type Project, type RenderQueueItem, type Scene, type Segment,
   type SegmentDirection, type SegmentRenderComparison, type SegmentReviewInspector, type SoundAsset, type SoundCue, type SourceDocument, type SourcePage, type SpeakerAttribution, type StructureParserWarning, type TextCleanlinessIssue, type TtsProvider, type TtsProviderInfo, type TtsSettings, type VoiceProfile,
 } from "./api";
+import { ReferenceForm } from "./components/common/ReferenceForm";
+import { CleanTextReview } from "./components/manuscript/CleanTextReview";
+import { ImportProgress } from "./components/manuscript/ImportProgress";
+import { ImportReview } from "./components/manuscript/ImportReview";
+import { ChapterAudioPlayer } from "./components/production/ChapterAudioPlayer";
+import { RenderQueuePanel } from "./components/production/RenderQueuePanel";
+import { ReadinessReportPanel } from "./components/review/ReadinessReportPanel";
+import { SegmentInspectorPanel } from "./components/review/SegmentInspectorPanel";
+import { ModelCenter } from "./components/setup/ModelCenter";
+import { LocalProviderSetup } from "./components/setup/LocalProviderSetup";
+import { ProviderStatus } from "./components/setup/ProviderStatus";
+import { SoundDesignPanel } from "./components/sound/SoundDesignPanel";
+import { DirectionControls } from "./components/structure/DirectionControls";
+import { StructureWarnings } from "./components/structure/StructureWarnings";
+import { CastReview } from "./components/voices/CastReview";
+import { CharacterBible } from "./components/voices/CharacterBible";
+import { formatBytes, formatStructureStatus } from "./lib/format";
 
 const directionFor = (scopeType: string, scopeId: string): Direction => ({ scopeType, scopeId, pace: 1, intensity: 0.4, tone: "neutral", emotion: "neutral", pauseBeforeMs: 0, pauseAfterMs: 120, stylePrompt: "Clear, restrained audiobook narration", emphasis: false, whisper: false, noSfx: true });
 const emptyTts = (provider: TtsProvider): TtsSettings => ({ provider, setupMode: provider === "kokoro" ? "managed_onnx" : provider === "piper" ? "local_cli" : provider === "xtts_v2" ? "coqui_local" : null, ready: false, availableVoices: [], referenceVoiceConsent: false, language: "en" });
 const messageOf = (cause: unknown) => cause instanceof Error ? cause.message : "The local studio could not complete that request.";
-const structureStatusLabels: Record<string, string> = { draft: "Draft", structured: "Structured", unresolved: "Needs review" };
-
-function formatStructureStatus(status: string, confidence: number) {
-  const label = structureStatusLabels[status] ?? status.replaceAll("_", " ").replace(/^\w/, (match) => match.toUpperCase());
-  return `${label} · auto-structure confidence ${Math.round(confidence * 100)}%`;
-}
-
 function csvList(value: string) {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
@@ -207,168 +217,4 @@ export function ProjectDashboard() {
       {chapters.length ? <section className="studio-section exports"><div><p className="eyebrow">07 / Export</p><h2>Package selected current chapters</h2><p className="lede">Exports include the chosen chapter assembly, metadata, checksums, readiness summary, source lineage, and render lineage.</p></div><div className="studio-card"><div className="chapter-checks">{chapters.map((chapter) => <label key={chapter.id}><input type="checkbox" checked={selectedExportIds.includes(chapter.id)} onChange={(event) => setSelectedExportIds((current) => event.target.checked ? [...current, chapter.id] : current.filter((id) => id !== chapter.id))} />{chapter.title || "Untitled"}</label>)}</div><div className="export-polish-grid"><label>Audio<select value={exportAudioVariant} onChange={(event) => setExportAudioVariant(event.currentTarget.value as "active" | "clean" | "mixed")}><option value="active">Active render</option><option value="clean">Clean narration</option><option value="mixed">Mixed render</option></select></label><label>Title<input value={exportTitle} placeholder={project.title} onChange={(event) => setExportTitle(event.currentTarget.value)} /></label><label>Author<input value={exportAuthor} placeholder={project.author ?? "Author"} onChange={(event) => setExportAuthor(event.currentTarget.value)} /></label><label>Album<input value={exportAlbum} placeholder={project.title} onChange={(event) => setExportAlbum(event.currentTarget.value)} /></label><label>Publisher<input value={exportPublisher} onChange={(event) => setExportPublisher(event.currentTarget.value)} /></label><label>Language<input value={exportLanguage} onChange={(event) => setExportLanguage(event.currentTarget.value)} /></label><label className="cover-field">Cover path<input value={exportCoverPath} placeholder="/path/to/cover.jpg" onChange={(event) => setExportCoverPath(event.currentTarget.value)} /></label></div><div className="export-actions"><button type="button" disabled={!selectedExportIds.length} onClick={() => void exportSelected("wav")}>Export WAV ZIP</button><button type="button" disabled={!selectedExportIds.length} onClick={() => void exportSelected("mp3")}>Export MP3 ZIP</button><button type="button" disabled>M4B planned</button></div>{exports.map((item) => <p className="export-row" key={item.id}><span>{item.format.toUpperCase()} · {item.audioVariant} · {item.chapterCount || selectedExportIds.length} chapters · {formatBytes(item.estimatedSizeBytes)}{item.checksum ? ` · ${item.checksum.slice(0, 10)}` : ""}</span>{item.downloadUrl ? <a href={assetUrl(item.downloadUrl)}>Download ZIP</a> : null}</p>)}</div></section> : null}
     </> : null}
   </main>;
-}
-
-function CharacterBible({
-  characters,
-  voices,
-  name,
-  aliases,
-  traits,
-  onNameChange,
-  onAliasesChange,
-  onTraitsChange,
-  onAdd,
-  onSave,
-  onMerge,
-  onSplit,
-}: {
-  characters: Character[];
-  voices: VoiceProfile[];
-  name: string;
-  aliases: string;
-  traits: string;
-  onNameChange: (value: string) => void;
-  onAliasesChange: (value: string) => void;
-  onTraitsChange: (value: string) => void;
-  onAdd: (event: FormEvent) => void;
-  onSave: (characterId: string, payload: Parameters<typeof updateCharacter>[1]) => Promise<void>;
-  onMerge: (source: Character, targetId: string) => Promise<void>;
-  onSplit: (character: Character) => Promise<void>;
-}) {
-  const activeCharacters = characters.filter((item) => !item.mergedIntoCharacterId);
-  return <div className="character-bible"><div className="source-heading"><strong>Character Bible</strong><span>{activeCharacters.length} active · {characters.length - activeCharacters.length} merged</span></div><form className="character-create" onSubmit={onAdd}><input placeholder="Character name" value={name} onChange={(event) => onNameChange(event.target.value)} /><input placeholder="Aliases, comma separated" value={aliases} onChange={(event) => onAliasesChange(event.target.value)} /><input placeholder="Traits, comma separated" value={traits} onChange={(event) => onTraitsChange(event.target.value)} /><button>Add character</button></form><div className="character-grid">{characters.map((character) => { const merged = Boolean(character.mergedIntoCharacterId); return <article className={merged ? "character-card merged" : "character-card"} key={character.id}><div className="character-heading"><div><strong>{character.displayName}</strong><small>{character.canonicalName || "No canonical name"} · {Math.round(character.confidence * 100)}%</small></div><span className={character.userLocked ? "character-badge locked" : "character-badge"}>{merged ? "merged" : character.userLocked ? "locked" : character.roleType}</span></div><div className="character-fields"><label>Display<input disabled={merged} defaultValue={character.displayName} onBlur={(event) => { const value = event.currentTarget.value.trim(); if (value && value !== character.displayName) void onSave(character.id, { displayName: value }); }} /></label><label>Canonical<input disabled={merged} defaultValue={character.canonicalName ?? ""} onBlur={(event) => { const value = event.currentTarget.value.trim(); if (value !== (character.canonicalName ?? "")) void onSave(character.id, { canonicalName: value }); }} /></label><label>Aliases<input disabled={merged} defaultValue={character.aliases.join(", ")} onBlur={(event) => { const value = csvList(event.currentTarget.value); if (value.join("|") !== character.aliases.join("|")) void onSave(character.id, { aliases: value }); }} /></label><label>Traits<input disabled={merged} defaultValue={character.traits.join(", ")} onBlur={(event) => { const value = csvList(event.currentTarget.value); if (value.join("|") !== character.traits.join("|")) void onSave(character.id, { traits: value }); }} /></label><label>Role<select disabled={merged} value={character.roleType} onChange={(event) => void onSave(character.id, { roleType: event.currentTarget.value })}><option value="major">Major</option><option value="supporting">Supporting</option><option value="minor">Minor</option><option value="narrator">Narrator</option></select></label><label>Voice<select disabled={merged} value={character.voiceProfileId ?? ""} onChange={(event) => void onSave(character.id, { voiceProfileId: event.currentTarget.value || null })}><option value="">No voice link</option>{voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}</select></label></div><div className="character-actions"><button type="button" className="small-button" disabled={merged} onClick={() => void onSave(character.id, { userLocked: !character.userLocked, lockReason: character.userLocked ? null : "Locked in Character Bible" })}>{character.userLocked ? "Unlock" : "Lock"}</button><button type="button" className="small-button" disabled={merged} onClick={() => void onSplit(character)}>Split</button><select disabled={merged} value="" aria-label={`Merge ${character.displayName}`} onChange={(event) => void onMerge(character, event.currentTarget.value)}><option value="">Merge into...</option>{activeCharacters.filter((target) => target.id !== character.id).map((target) => <option key={target.id} value={target.id}>{target.displayName}</option>)}</select></div>{character.mergeHistory.length || character.splitHistory.length || character.lockReason ? <p className="character-history">{character.lockReason ? `${character.lockReason} · ` : ""}{character.mergeHistory.length} merges · {character.splitHistory.length} splits</p> : null}</article>; })}</div></div>;
-}
-
-function CastReview({ attributions, characters, onRun, onSave, busy }: { attributions: SpeakerAttribution[]; characters: Character[]; onRun: (useLocalLlm?: boolean) => Promise<void>; onSave: (attributionId: string, payload: Parameters<typeof updateSpeakerAttribution>[1]) => Promise<void>; busy: boolean }) {
-  const activeCharacters = characters.filter((item) => !item.mergedIntoCharacterId);
-  const open = attributions.filter((item) => item.status !== "approved");
-  const approved = attributions.filter((item) => item.status === "approved");
-  const narratorFallback = approved.filter((item) => !item.characterId || !item.voiceProfileId).length;
-  return <div className="cast-review"><div className="source-heading"><strong>Cast Review</strong><span>{activeCharacters.length} detected · {approved.length} approved · {open.length} review · {narratorFallback} narrator fallback</span></div><div className="cast-actions"><button type="button" className="small-button" disabled={busy} onClick={() => void onRun(false)}>Refresh speaker rows</button><button type="button" className="small-button" disabled={busy} onClick={() => void onRun(true)}>Use local Ollama speaker assist</button></div>{attributions.length ? <div className="cast-grid">{attributions.map((item) => { const preview = typeof item.evidence.textPreview === "string" ? item.evidence.textPreview : "No preview available."; return <article className={item.status === "approved" ? "cast-card approved" : "cast-card review"} key={item.id}><div><b>{item.status.replaceAll("_", " ")}</b><strong>{item.speakerName || "Unknown speaker"}</strong><p>{preview}</p><small>{item.method} · {Math.round(item.confidence * 100)}% confidence{item.characterId ? " · character linked" : " · narrator fallback"}{item.voiceProfileId ? " · voice linked" : ""}{item.userLocked ? " · locked" : ""}</small></div><div className="cast-card-actions"><select value={item.characterId ?? ""} onChange={(event) => void onSave(item.id, { characterId: event.currentTarget.value || null, status: event.currentTarget.value ? "approved" : "needs_review", userLocked: true })}><option value="">No character</option>{activeCharacters.map((character) => <option key={character.id} value={character.id}>{character.displayName}</option>)}</select><button type="button" className="small-button" onClick={() => void onSave(item.id, { characterId: null, status: "approved", userLocked: true })}>Narrator</button><button type="button" className="small-button" onClick={() => void onSave(item.id, { status: "needs_review", userLocked: !item.userLocked })}>{item.userLocked ? "Unlock" : "Lock"}</button></div></article>; })}</div> : <p className="import-placeholder">Extract Structure to create the first cast and speaker draft.</p>}</div>;
-}
-
-function DirectionControls({ segment, saved, onSave }: { segment: Segment; saved?: SegmentDirection; onSave: (segmentId: string, direction: Direction) => Promise<void> }) {
-  const base = saved?.direction ?? directionFor("segment", segment.id);
-  const [draft, setDraft] = useState<Direction>(base);
-  const update = (patch: Partial<Direction>) => setDraft((current) => ({ ...current, ...patch, scopeType: "segment", scopeId: segment.id }));
-  return <div className="direction-studio"><div className="source-heading"><strong>Direction Studio</strong><span>{saved ? `${saved.source}${saved.userLocked ? " · locked" : ""}` : "default"}</span></div><div className="direction-controls"><label>Emotion<select value={draft.emotion} onChange={(event) => update({ emotion: event.currentTarget.value, tone: event.currentTarget.value })}><option value="neutral">Neutral</option><option value="warm">Warm</option><option value="tense">Tense</option><option value="quiet">Quiet</option><option value="urgent">Urgent</option><option value="somber">Somber</option><option value="bright">Bright</option><option value="fearful">Fearful</option><option value="angry">Angry</option></select></label><label>Pace<input type="range" min="0.5" max="2" step="0.05" value={draft.pace} onChange={(event) => update({ pace: Number(event.currentTarget.value) })} /><small>{draft.pace.toFixed(2)}x</small></label><label>Intensity<input type="range" min="0" max="1" step="0.05" value={draft.intensity} onChange={(event) => update({ intensity: Number(event.currentTarget.value) })} /><small>{Math.round(draft.intensity * 100)}%</small></label><label>Pause before<input type="number" min="0" max="5000" value={draft.pauseBeforeMs} onChange={(event) => update({ pauseBeforeMs: Number(event.currentTarget.value) })} /></label><label>Pause after<input type="number" min="0" max="5000" value={draft.pauseAfterMs} onChange={(event) => update({ pauseAfterMs: Number(event.currentTarget.value) })} /></label><label className="direction-check"><input type="checkbox" checked={draft.emphasis} onChange={(event) => update({ emphasis: event.currentTarget.checked })} />Emphasis</label><label className="direction-check"><input type="checkbox" checked={draft.whisper} onChange={(event) => update({ whisper: event.currentTarget.checked })} />Whisper</label></div><button type="button" className="small-button" onClick={() => void onSave(segment.id, draft)}>Save direction</button></div>;
-}
-
-function ProviderStatus({ providers, active }: { providers: TtsProviderInfo[]; active: TtsProvider }) {
-  return <div className="provider-status-grid">{providers.map((item) => <article className={item.provider === active ? "provider-status active" : "provider-status"} key={item.provider}><div><strong>{item.displayName}</strong><small>{item.setupMode || item.provider}</small></div><span className={item.ready ? "model-badge ready" : "model-badge missing"}>{item.ready ? "Ready" : "Setup"}</span>{item.message ? <p>{item.message}</p> : <p>{item.availableVoices.length ? `${item.availableVoices.length} local voices` : "No local voices registered"}</p>}</article>)}</div>;
-}
-
-function LocalProviderSetup({ provider, tts, onChange, onSave, busy }: { provider: TtsProvider; tts: TtsSettings; onChange: Dispatch<SetStateAction<TtsSettings | null>>; onSave: () => Promise<void>; busy: boolean }) {
-  if (provider === "piper") {
-    return <div className="advanced-tts provider-setup"><p className="capability">Piper fallback uses a local Piper CLI and ONNX voice model. Multi-speaker IDs can be entered as voice IDs such as speaker:0.</p><label>Executable<input value={tts.executable ?? ""} placeholder="piper" onChange={(event) => onChange((current) => ({ ...(current ?? emptyTts("piper")), provider: "piper", setupMode: "local_cli", executable: event.target.value }))} /></label><label>Piper model<input value={tts.piperModelPath ?? ""} placeholder="/path/to/voice.onnx" onChange={(event) => onChange((current) => ({ ...(current ?? emptyTts("piper")), provider: "piper", setupMode: "local_cli", piperModelPath: event.target.value }))} /></label><label>Piper config<input value={tts.piperConfigPath ?? ""} placeholder="/path/to/voice.onnx.json" onChange={(event) => onChange((current) => ({ ...(current ?? emptyTts("piper")), provider: "piper", setupMode: "local_cli", piperConfigPath: event.target.value }))} /></label><label>Voice registry<input value={tts.voiceRegistryPath ?? ""} placeholder="Optional text file of voice IDs" onChange={(event) => onChange((current) => ({ ...(current ?? emptyTts("piper")), provider: "piper", setupMode: "local_cli", voiceRegistryPath: event.target.value }))} /></label><button type="button" onClick={() => void onSave()} disabled={busy}>Save Piper fallback</button></div>;
-  }
-  return <div className="advanced-tts provider-setup"><p className="capability">XTTS-v2 is opt-in. Use only a local reference voice you have rights and consent to use.</p><label>Python runtime<input value={tts.pythonPath ?? ""} placeholder="/path/to/python" onChange={(event) => onChange((current) => ({ ...(current ?? emptyTts("xtts_v2")), provider: "xtts_v2", setupMode: "coqui_local", pythonPath: event.target.value }))} /></label><label>Reference voice WAV<input value={tts.referenceVoicePath ?? ""} placeholder="/path/to/reference.wav" onChange={(event) => onChange((current) => ({ ...(current ?? emptyTts("xtts_v2")), provider: "xtts_v2", setupMode: "coqui_local", referenceVoicePath: event.target.value }))} /></label><label>Language<input value={tts.language || "en"} onChange={(event) => onChange((current) => ({ ...(current ?? emptyTts("xtts_v2")), provider: "xtts_v2", setupMode: "coqui_local", language: event.target.value || "en" }))} /></label><label className="direction-check"><input type="checkbox" checked={tts.referenceVoiceConsent} onChange={(event) => onChange((current) => ({ ...(current ?? emptyTts("xtts_v2")), provider: "xtts_v2", setupMode: "coqui_local", referenceVoiceConsent: event.currentTarget.checked }))} />I have consent to use this local reference voice.</label><button type="button" onClick={() => void onSave()} disabled={busy || !tts.referenceVoiceConsent}>Save XTTS-v2</button></div>;
-}
-
-function RenderQueuePanel({ items, comparison }: { items: RenderQueueItem[]; comparison: SegmentRenderComparison | null }) {
-  return <div className="render-workbench"><div className="source-heading"><strong>Render queue</strong><span>{items.length ? `${items.filter((item) => item.status === "succeeded").length}/${items.length} succeeded` : "No queued renders"}</span></div>{items.length ? <div className="render-queue-list">{items.slice(0, 8).map((item) => <article className={`render-queue-item ${item.status}`} key={item.id}><div><strong>{item.status.replaceAll("_", " ")}</strong><small>{item.provider} · {item.segmentId}</small></div>{item.errorMessage ? <p>{item.errorMessage}</p> : <span>{item.renderKey ? item.renderKey.slice(0, 10) : "pending"}</span>}</article>)}</div> : <p className="import-placeholder">Produce a chapter to populate the local render queue.</p>}<div className="render-compare"><strong>Render compare</strong>{comparison?.currentRender ? <p>{comparison.previousRender ? `Changed: ${comparison.changedFields.length ? comparison.changedFields.join(", ") : "no request fields"}` : "Only one render exists for this segment."}</p> : <p>Select Compare on a segment after it has render history.</p>}</div></div>;
-}
-
-function SegmentInspectorPanel({ inspector, comparison }: { inspector: SegmentReviewInspector | null; comparison: SegmentRenderComparison | null }) {
-  if (!inspector) return <div className="segment-inspector empty"><div className="source-heading"><strong>Segment Inspector</strong><span>No segment selected</span></div><p className="import-placeholder">Select Inspect on a segment to load review layers.</p></div>;
-  const currentRender = comparison?.currentRender ?? inspector.renderHistory[0] ?? null;
-  const structureSegment = recordAt(inspector.structure, "segment");
-  const warnings = arrayRecords(inspector.structure.warnings);
-  const durationMs = typeof inspector.waveform.durationMs === "number" ? inspector.waveform.durationMs : currentRender?.durationMs;
-  return <div className="segment-inspector"><div className="source-heading"><strong>Segment Inspector</strong><span>{inspector.segment.segmentType.replaceAll("_", " ")} · r{inspector.segment.revision}</span></div><div className="inspector-grid"><section><div className="inspector-layer-title"><b>Source</b><span>{inspector.segment.id}</span></div><pre>{inspector.sourceText}</pre></section><section><div className="inspector-layer-title"><b>Canonical</b><span>{inspector.segment.status}</span></div><pre>{inspector.canonicalText}</pre></section><section><div className="inspector-layer-title"><b>Structure</b><span>{String(structureSegment.status ?? "unknown")}</span></div><div className="inspector-chips"><span>Chapter {String(recordAt(inspector.structure, "chapter").orderIndex ?? 0)}</span><span>Scene {String(recordAt(inspector.structure, "scene").orderIndex ?? 0)}</span><span>{Math.round(Number(structureSegment.speakerConfidence ?? 0) * 100)}% speaker</span>{inspector.segment.userLocked ? <span>Locked</span> : null}</div>{warnings.length ? <p>{warnings.length} parser warnings attached.</p> : <p>No parser warnings attached.</p>}</section><section><div className="inspector-layer-title"><b>Cast</b><span>{inspector.cast?.status ?? "unassigned"}</span></div><p>{inspector.cast?.speakerName ?? inspector.segment.speakerCandidate ?? "Narrator"}</p><small>{inspector.cast ? `${inspector.cast.method} · ${Math.round(inspector.cast.confidence * 100)}% confidence${inspector.cast.voiceProfileId ? " · voice linked" : ""}` : "No speaker attribution record."}</small></section><section><div className="inspector-layer-title"><b>Direction</b><span>{inspector.direction?.source ?? "default"}</span></div><p>{inspector.direction?.direction.emotion ?? "neutral"} · pace {inspector.direction?.direction.pace.toFixed(2) ?? "1.00"} · intensity {Math.round((inspector.direction?.direction.intensity ?? 0.4) * 100)}%</p><small>{inspector.direction?.userLocked ? "locked" : inspector.direction?.directionFingerprint?.slice(0, 12) ?? "No saved direction."}</small></section><section><div className="inspector-layer-title"><b>Waveform</b><span>{formatDuration(durationMs)}</span></div>{currentRender?.audioUrl ? <audio controls src={assetUrl(currentRender.audioUrl)} className="audio-player compact" /> : <p>No segment audio yet.</p>}<small>{inspector.waveform.sampleRate ? `${String(inspector.waveform.sampleRate)} Hz` : "sample rate pending"} · {Array.isArray(inspector.waveform.waveform) ? inspector.waveform.waveform.length : 0} peaks</small></section></div><div className="inspector-lists"><section><div className="inspector-layer-title"><b>Render history</b><span>{inspector.renderHistory.length}</span></div>{inspector.renderHistory.length ? inspector.renderHistory.slice(0, 5).map((render) => <p key={render.id}><span>{render.id}</span><small>{formatDuration(render.durationMs)} · {render.parentRenderId ? `parent ${render.parentRenderId}` : "root"}</small></p>) : <p>No render history.</p>}</section><section><div className="inspector-layer-title"><b>QA</b><span>{inspector.qaIssues.length}</span></div>{inspector.qaIssues.length ? inspector.qaIssues.slice(0, 5).map((issue) => <p key={issue.id}><span>{issue.title}</span><small>{issue.severity} · {issue.status}</small></p>) : <p>No segment QA findings.</p>}</section><section><div className="inspector-layer-title"><b>Comments</b><span>{inspector.comments.length}</span></div>{inspector.comments.length ? inspector.comments.slice(0, 5).map((comment) => <p key={comment.id}>{comment.body}</p>) : <p>No local comments.</p>}</section><section><div className="inspector-layer-title"><b>Patch queue</b><span>{inspector.patchQueue.length}</span></div>{inspector.patchQueue.length ? inspector.patchQueue.slice(0, 5).map((patch) => <p key={patch.id}><span>{patch.newRenderId}</span><small>{patch.issueId ?? "manual patch"} · chapter {patch.chapterRenderId}</small></p>) : <p>No patch attempts.</p>}</section></div></div>;
-}
-
-function SoundDesignPanel({ assets, cues, selectedAssetId, currentSceneId, assetType, cueType, renderMode, gain, busy, onAssetType, onAssetSelect, onCueType, onRenderMode, onGain, onFile, onAddCue, onAssemble }: { assets: SoundAsset[]; cues: SoundCue[]; selectedAssetId: string; currentSceneId: string | null; assetType: "ambience" | "music" | "sfx"; cueType: "ambience" | "music" | "sfx"; renderMode: "light" | "dramatized" | "all"; gain: number; busy: boolean; onAssetType: (value: "ambience" | "music" | "sfx") => void; onAssetSelect: (value: string) => void; onCueType: (value: "ambience" | "music" | "sfx") => void; onRenderMode: (value: "light" | "dramatized" | "all") => void; onGain: (value: number) => void; onFile: (event: ChangeEvent<HTMLInputElement>) => void; onAddCue: () => Promise<void>; onAssemble: (mode: "clean" | "light" | "dramatized") => Promise<void> }) {
-  const selected = assets.find((item) => item.id === selectedAssetId) ?? assets[0] ?? null;
-  return <div className="sound-design-panel"><div className="source-heading"><strong>Sound Design</strong><span>{cues.length} cues · clean by default</span></div><div className="sound-design-grid"><label>Import type<select value={assetType} onChange={(event) => onAssetType(event.currentTarget.value as "ambience" | "music" | "sfx")}><option value="ambience">Ambience</option><option value="music">Music</option><option value="sfx">SFX</option></select></label><label className="sound-upload">WAV asset<input type="file" accept=".wav,audio/wav,audio/x-wav" disabled={busy} onChange={onFile} /></label><label>Asset<select value={selected?.id ?? ""} onChange={(event) => onAssetSelect(event.currentTarget.value)}><option value="">No asset</option>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} · {asset.assetType}</option>)}</select></label><label>Cue type<select value={cueType} onChange={(event) => onCueType(event.currentTarget.value as "ambience" | "music" | "sfx")}><option value="ambience">Ambience</option><option value="music">Music</option><option value="sfx">SFX</option></select></label><label>Mix mode<select value={renderMode} onChange={(event) => onRenderMode(event.currentTarget.value as "light" | "dramatized" | "all")}><option value="light">Light</option><option value="dramatized">Dramatized</option><option value="all">Both</option></select></label><label>Gain<input type="range" min="-48" max="-6" step="1" value={gain} onChange={(event) => onGain(Number(event.currentTarget.value))} /><small>{gain} dB with ducking</small></label></div><div className="sound-actions"><button type="button" className="small-button" disabled={busy || !currentSceneId || !selected} onClick={() => void onAddCue()}>Assign to current scene</button><button type="button" className="small-button secondary" disabled={busy} onClick={() => void onAssemble("clean")}>Assemble clean</button><button type="button" className="small-button" disabled={busy} onClick={() => void onAssemble("light")}>Assemble light</button><button type="button" className="small-button" disabled={busy} onClick={() => void onAssemble("dramatized")}>Assemble dramatized</button></div>{assets.length ? <div className="sound-asset-list">{assets.slice(0, 4).map((asset) => <article key={asset.id}><strong>{asset.name}</strong><small>{asset.assetType} · {formatDuration(asset.durationMs)}{asset.audioUrl ? " · playable" : ""}</small></article>)}</div> : <p className="import-placeholder">Import local WAV ambience, music, or SFX to build optional chapter mixes.</p>}</div>;
-}
-
-function ReadinessReportPanel({ report, busy, onRun, onSetIssue }: { report: ReadinessReport | null; busy: boolean; onRun: () => Promise<void>; onSetIssue: (issueId: string, status: "resolved" | "ignored" | "locked") => Promise<void> }) {
-  const active = report?.checks.filter((check) => check.status !== "passed") ?? [];
-  return <div className="readiness-panel"><div className="source-heading"><strong>Readiness Report</strong><span>{report ? `${report.status.replaceAll("_", " ")} · ${report.score}%` : "Not run"}</span></div><button type="button" className="small-button" disabled={busy} onClick={() => void onRun()}>Run readiness QA</button>{report ? <div className="readiness-summary"><span>{report.summary.passed ?? 0} passed</span><span>{report.summary.warnings ?? 0} warnings</span><span>{report.summary.blocking ?? 0} blocking</span></div> : <p className="import-placeholder">Run deterministic readiness QA before export.</p>}{active.length ? <div className="readiness-list">{active.slice(0, 10).map((check) => <article className={`readiness-check ${check.severity}`} key={check.id}><div><b>{check.scope}</b><strong>{check.title}</strong><p>{check.description}</p><small>{check.resolutionStatus ?? "open"}</small></div>{check.issueId ? <span><button type="button" className="small-button" onClick={() => void onSetIssue(check.issueId!, "resolved")}>Resolve</button><button type="button" className="small-button secondary" onClick={() => void onSetIssue(check.issueId!, "ignored")}>Ignore</button><button type="button" className="small-button secondary" onClick={() => void onSetIssue(check.issueId!, "locked")}>Lock</button></span> : null}</article>)}</div> : report ? <p className="import-placeholder">No active readiness findings.</p> : null}</div>;
-}
-
-function ReferenceForm({ label, placeholder, items, onSubmit }: { label: string; placeholder: string; items: string[]; onSubmit: (value: string) => Promise<void> }) { const [value, setValue] = useState(""); return <div className="reference-card"><strong>{label}</strong><form onSubmit={(event) => { event.preventDefault(); if (value.trim()) void onSubmit(value.trim()).then(() => setValue("")); }}><input placeholder={placeholder} value={value} onChange={(event) => setValue(event.target.value)} /><button>Add</button></form>{items.map((item) => <small key={item}>{item}</small>)}</div>; }
-
-function StructureWarnings({ warnings }: { warnings: StructureParserWarning[] }) {
-  if (!warnings.length) return null;
-  return <div className="structure-warning-list">{warnings.slice(0, 6).map((warning) => <article key={warning.id}><b>{warning.severity}</b><strong>{warning.message}</strong><small>{warning.scopeType} · {Math.round(warning.confidence * 100)}% confidence</small></article>)}</div>;
-}
-
-function formatDuration(durationMs?: number | null) { if (durationMs == null) return "Duration pending"; const totalSeconds = Math.round(durationMs / 1000); const minutes = Math.floor(totalSeconds / 60); const seconds = String(totalSeconds % 60).padStart(2, "0"); return `${minutes}:${seconds}`; }
-
-function formatBytes(bytes?: number | null) { if (!bytes) return "Size pending"; if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`; return `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
-
-function recordAt(value: Record<string, unknown>, key: string): Record<string, unknown> {
-  const child = value[key];
-  return child && typeof child === "object" && !Array.isArray(child) ? child as Record<string, unknown> : {};
-}
-
-function arrayRecords(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item)) : [];
-}
-
-function progressNumber(value: unknown) { return typeof value === "number" && Number.isFinite(value) ? value : null; }
-
-function chapterJobProgress(job: Job | null) {
-  if (!job || !["queued", "running"].includes(job.status)) return null;
-  const phase = typeof job.progress.phase === "string" ? job.progress.phase : "queued";
-  const current = progressNumber(job.progress.current);
-  const total = progressNumber(job.progress.total);
-  const percent = total && current !== null ? Math.min(100, Math.max(0, Math.round((current / total) * 100))) : 0;
-  const label = phase === "rendering" && current !== null && total ? `Rendering segment ${current}/${total}` : phase === "assembling" ? "Assembling chapter audio" : "Preparing chapter production";
-  return { label, percent, detail: "Chapter production is running; audio will appear when complete." };
-}
-
-function jobProgressMessage(job: Job, fallback: string) {
-  if (typeof job.progress.message === "string") return job.progress.message;
-  if (typeof job.progress.phase === "string") return job.progress.phase.replaceAll("_", " ");
-  return fallback;
-}
-
-function ImportProgress({ job }: { job: Job | null }) {
-  if (!job || !["queued", "running"].includes(job.status)) return null;
-  return <div className="chapter-progress import-progress" aria-live="polite"><div className="chapter-progress-row"><span>{jobProgressMessage(job, "Working locally")}</span><span>{job.status}</span></div><progress aria-label="Manuscript import progress" className="chapter-progress-bar" /><p className="chapter-progress-detail">Keep this project open while Echodraft normalizes the manuscript. Page-aware PDFs and OCR can take a few minutes.</p></div>;
-}
-
-function ChapterAudioPlayer({ chapter, activeRender, job, provider }: { chapter: Chapter; activeRender?: ProductionStatus["activeRender"]; job: Job | null; provider?: TtsSettings["provider"] }) {
-  const progress = chapterJobProgress(job);
-  const renderMode = activeRender?.renderMode ? activeRender.renderMode.replaceAll("_", " ") : "speech only";
-  return <article className="chapter-audio-player" aria-label="Active chapter audio"><div className="chapter-audio-heading"><div><p className="eyebrow">Active chapter audio</p><h3>{chapter.title || "Untitled chapter"}</h3></div><small>{activeRender ? `${renderMode} · ${formatDuration(activeRender.durationMs)}` : "No active render"}</small></div>{progress ? <div className="chapter-progress" aria-live="polite"><div className="chapter-progress-row"><span>{progress.label}</span><span>{progress.percent}%</span></div><progress aria-label="Chapter production progress" className="chapter-progress-bar" value={progress.percent} max={100} /><p className="chapter-progress-detail">{progress.detail}</p></div> : activeRender?.audioUrl ? <><audio controls src={assetUrl(activeRender.audioUrl)} className="audio-player" />{provider === "mock" ? <p className="chapter-audio-note">Mock TTS creates silent workflow audio.</p> : null}</> : <p className="import-placeholder">Produce this chapter to create playable audio.</p>}</article>;
-}
-
-function capabilityLabel(value: string) {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (match) => match.toUpperCase());
-}
-
-function modelStatus(item: LocalAiCatalogItem) {
-  if (item.health === "ready") return "Ready";
-  if (item.status === "failed") return "Failed";
-  if (item.health === "missing") return "Missing";
-  if (item.health === "unavailable") return "Unavailable";
-  return item.status.replaceAll("_", " ");
-}
-
-function ModelCenter({ catalog, job, installJob, busy, onInstall, onVerify }: { catalog: LocalAiCatalogItem[]; job: Job | null; installJob: LocalAiInstallJob | null; busy: boolean; onInstall: (item: LocalAiCatalogItem) => Promise<void>; onVerify: (item: LocalAiCatalogItem) => Promise<void> }) {
-  const required = catalog.filter((item) => item.required);
-  const readyRequired = required.filter((item) => item.health === "ready").length;
-  const running = job && ["queued", "running"].includes(job.status);
-  const activeKey = installJob?.modelKey;
-  const groups = ["pdf_rendering", "ocr", "local_llm_runtime", "local_llm", "embeddings", "tts", "audio_processing"];
-  const ordered = [...catalog].sort((a, b) => groups.indexOf(a.capability) - groups.indexOf(b.capability));
-
-  return <section className="studio-section model-center"><div><p className="eyebrow">00 / Model Center</p><h2>Local capability setup</h2><p className="lede">Install and verify the local tools and models Echodraft uses for private audiobook production.</p><div className="model-summary"><strong>{readyRequired}/{required.length} required ready</strong><small>Runtime files and setup logs are stored under the local Echodraft workspace.</small></div>{running ? <div className="chapter-progress model-progress" aria-live="polite"><div className="chapter-progress-row"><span>{installJob?.currentStep || String(job.progress.message ?? "Working")}</span><span>{installJob?.progressPercent ?? progressNumber(job.progress.progressPercent) ?? 0}%</span></div><progress className="chapter-progress-bar" value={installJob?.progressPercent ?? progressNumber(job.progress.progressPercent) ?? 0} max={100} /><p className="chapter-progress-detail">{activeKey ? `Installing ${activeKey}` : "Local setup is running."}</p></div> : null}</div><div className="studio-card model-grid">{ordered.map((item) => <article className={`model-card ${item.health}`} key={item.modelKey}><div className="model-card-heading"><div><strong>{item.displayName}</strong><small>{capabilityLabel(item.capability)} · {item.provider}</small></div><span className={`model-badge ${item.health}`}>{modelStatus(item)}</span></div><p>{item.description}</p><div className="model-meta"><span>{item.installType.replaceAll("_", " ")}</span>{item.sizeMb ? <span>{item.sizeMb} MB</span> : null}{item.required ? <span>Required</span> : <span>Optional</span>}</div>{item.licenseSummary ? <small className="license-note">{item.licenseSummary}</small> : null}{item.installPath ? <small className="model-path">{item.installPath}</small> : null}<div className="model-actions"><button type="button" className="small-button" disabled={busy || Boolean(running)} onClick={() => void onInstall(item)}>{item.health === "ready" ? "Repair" : "Install"}</button><button type="button" className="small-button" disabled={busy || Boolean(running)} onClick={() => void onVerify(item)}>Verify</button></div></article>)}</div></section>;
-}
-
-function ImportReview({ pages }: { pages: SourcePage[] }) {
-  if (!pages.length) return null;
-  return <div className="import-review"><div className="source-heading"><strong>Import review</strong><span>{pages.length} pages</span></div><div className="page-review-grid">{pages.map((page) => <article className="page-review-card" key={page.id}>{page.imageUrl ? <object data={assetUrl(page.imageUrl)} type="image/png" aria-label={`Page ${page.pageNumber}`} /> : <div className="page-placeholder">Page {page.pageNumber}</div>}<div><div className="page-review-heading"><strong>Page {page.pageNumber}</strong><span>{page.extractionMethod.replaceAll("_", " ")}</span></div><p>{page.preview || "No readable text selected."}</p><div className="model-meta"><span>{Math.round(page.confidence * 100)}% confidence</span>{page.warnings.length ? <span>{page.warnings.length} warnings</span> : <span>Clean</span>}</div></div></article>)}</div></div>;
-}
-
-function CleanTextReview({ issues, onResolve }: { issues: TextCleanlinessIssue[]; onResolve: (issue: TextCleanlinessIssue) => Promise<void> }) {
-  if (!issues.length) return null;
-  const openIssues = issues.filter((issue) => issue.status === "open");
-  const applied = issues.filter((issue) => issue.status !== "open");
-  return <div className="clean-text-review"><div className="source-heading"><strong>Clean text review</strong><span>{openIssues.length} open · {applied.length} applied</span></div><div className="clean-issue-list">{issues.map((issue) => <article className={`clean-issue ${issue.status}`} key={issue.id}><div><b>{issue.severity}</b><strong>{issue.issueType.replaceAll("_", " ")}</strong><p>{issue.suggestedFix !== null && issue.suggestedFix !== undefined ? `Suggested replacement: ${issue.suggestedFix || "remove marker"}` : "Review this token in the canonical preview before structure extraction."}</p><small>Offsets {issue.canonicalSpanStart}-{issue.canonicalSpanEnd} · {Math.round(issue.confidence * 100)}% confidence</small></div>{issue.status === "open" ? <button type="button" className="small-button" onClick={() => void onResolve(issue)}>Mark reviewed</button> : <span className="clean-status">{issue.status}</span>}</article>)}</div></div>;
 }
