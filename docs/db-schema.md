@@ -278,6 +278,25 @@ Rules:
 - approved rows with character voice assignments are used for production voice resolution
 - segment voice overrides still take precedence over speaker attribution voices
 
+### `segment_directions`
+Purpose: active Direction Studio settings for one segment.
+
+Key columns:
+- `segment_id` FK PK
+- `project_id` FK
+- `direction_json` TEXT
+- `source` TEXT
+- `user_locked` BOOLEAN
+- `direction_fingerprint` TEXT
+- `created_at` DATETIME
+- `updated_at` DATETIME
+
+Rules:
+- one active direction row per segment
+- inference skips locked rows
+- production resolves direction from segment override, then `segment_directions`, then project default
+- render cache keys include the resolved direction payload
+
 ### `pronunciation_entries`
 Purpose: pronunciation overrides.
 

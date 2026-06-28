@@ -304,6 +304,35 @@ Rules:
 - `user_locked=true` protects manual decisions from reruns
 - approved attributions resolve to the linked character voice when available
 
+### SegmentDirection
+Reviewed delivery direction for one segment.
+
+Fields:
+- `segment_id`
+- `project_id`
+- `direction`
+- `source`
+- `user_locked`
+- `direction_fingerprint`
+- `created_at`
+- `updated_at`
+
+Direction fields:
+- `emotion`
+- `pace`
+- `intensity`
+- `pause_before_ms`
+- `pause_after_ms`
+- `emphasis`
+- `whisper`
+- `style_prompt`
+
+Rules:
+- emotion is restricted to the controlled local taxonomy
+- manual saves lock the row by default
+- deterministic inference skips locked rows
+- render freshness compares the resolved direction payload
+
 ### VoiceProfile
 Reusable voice configuration.
 

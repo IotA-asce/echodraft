@@ -10,7 +10,14 @@ from echodraft_domain import (
     SegmentProductionOverride,
     SegmentRenderRequest,
 )
-from echodraft_db.models import ChapterRecord, SceneRecord, SegmentRecord, SegmentRenderRecord
+from echodraft_db.models import (
+    ChapterRecord,
+    SceneRecord,
+    SegmentDirectionRecord,
+    SegmentProductionOverrideRecord,
+    SegmentRecord,
+    SegmentRenderRecord,
+)
 from sqlalchemy import select
 
 from .assembly import ChapterAssembler
@@ -103,13 +110,18 @@ class ProductionService:
         speaker_voices = self.container.speaker_attributions.resolved_voice_profiles(
             [segment.id for segment in segments]
         )
+        segment_directions = self.container.segment_directions.records([segment.id for segment in segments])
         current = 0
         with self.container.structure.database.session() as session:
             for segment in segments:
+                override = overrides.get(segment.id)
                 requested_voice = (
-                    overrides[segment.id].voice_profile_id
-                    if segment.id in overrides and overrides[segment.id].voice_profile_id
+                    override.voice_profile_id
+                    if override and override.voice_profile_id
                     else speaker_voices.get(segment.id, settings.narrator_voice_profile_id)
+                )
+                requested_direction = self._direction_for(
+                    segment.id, override, segment_directions, settings.default_direction
                 )
                 latest = session.scalar(
                     select(SegmentRenderRecord)
@@ -118,7 +130,12 @@ class ProductionService:
                 )
                 if latest:
                     payload = json.loads(latest.request_json)
-                    if payload.get("revision") == segment.revision and payload.get("voiceProfileId") == requested_voice:
+                    if (
+                        payload.get("revision") == segment.revision
+                        and payload.get("voiceProfileId") == requested_voice
+                        and payload.get("direction")
+                        == requested_direction.model_dump(by_alias=True)
+                    ):
                         current += 1
         readiness = self.container.tts_settings.status()
         return ChapterProductionStatus(
@@ -141,6 +158,7 @@ class ProductionService:
         speaker_voices = self.container.speaker_attributions.resolved_voice_profiles(
             [segment.id for segment in segments]
         )
+        segment_directions = self.container.segment_directions.records([segment.id for segment in segments])
         renderer = SegmentRenderer(self.container)
         for index, segment in enumerate(segments, 1):
             override = overrides.get(segment.id)
@@ -149,13 +167,9 @@ class ProductionService:
                 if override and override.voice_profile_id
                 else speaker_voices.get(segment.id, settings.narrator_voice_profile_id)
             )
-            direction = (
-                DirectionProfile.model_validate(json.loads(override.direction_json))
-                if override and override.direction_json
-                else settings.default_direction
+            direction = self._direction_for(
+                segment.id, override, segment_directions, settings.default_direction
             )
-            if not direction:
-                direction = DirectionProfile(scopeType="segment", scopeId=segment.id)
             self.container.jobs_repository.set_progress(
                 job_id,
                 {"phase": "rendering", "current": index, "total": len(segments), "segmentId": segment.id},
@@ -184,6 +198,21 @@ class ProductionService:
                     )
                 )
             return result
+
+    @staticmethod
+    def _direction_for(
+        segment_id: str,
+        override: SegmentProductionOverrideRecord | None,
+        segment_directions: dict[str, SegmentDirectionRecord],
+        default_direction: DirectionProfile | None,
+    ) -> DirectionProfile:
+        direction_json = getattr(override, "direction_json", None)
+        if direction_json:
+            return DirectionProfile.model_validate(json.loads(direction_json))
+        segment_direction = segment_directions.get(segment_id)
+        if segment_direction:
+            return DirectionProfile.model_validate(json.loads(segment_direction.direction_json))
+        return default_direction or DirectionProfile(scopeType="segment", scopeId=segment_id)
 
     def _validate_segment_project(self, project_id: str, segment_id: str) -> None:
         segment = self.container.structure.segment(segment_id)
