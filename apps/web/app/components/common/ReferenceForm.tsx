@@ -21,7 +21,7 @@ export function ReferenceForm({
           if (value.trim()) void onSubmit(value.trim()).then(() => setValue(""));
         }}
       >
-        <input placeholder={placeholder} value={value} onChange={(event) => setValue(event.target.value)} />
+        <input aria-label={label} placeholder={placeholder} value={value} onChange={(event) => setValue(event.target.value)} />
         <button>Add</button>
       </form>
       {items.map((item) => (

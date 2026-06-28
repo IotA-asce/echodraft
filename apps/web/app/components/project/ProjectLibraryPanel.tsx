@@ -11,11 +11,11 @@ export function ProjectLibraryPanel({
   onOpen: (projectId: string) => void;
 }) {
   return (
-    <section className="project-panel">
+    <section className="project-panel" aria-labelledby="project-library-title">
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Project library</p>
-          <h2>Your local productions</h2>
+          <h2 id="project-library-title">Your local productions</h2>
         </div>
         <span>{projects.length} projects</span>
       </div>

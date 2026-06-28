@@ -57,10 +57,10 @@ export function ReviewPatchPanel({
 
   const chapterIssues = issues.filter((issue) => issue.chapterId === selectedChapter.id || issue.segmentId);
   return (
-    <section className="studio-section review review-patch-panel">
+    <section className="studio-section review review-patch-panel" aria-labelledby="review-patch-title">
       <div>
         <p className="eyebrow">06 / Review & patch</p>
-        <h2>Review Patch Workbench</h2>
+        <h2 id="review-patch-title">Review Patch Workbench</h2>
         <p className="lede">Listen against the transcript timeline, inspect line evidence, and rebuild only the affected segment when needed.</p>
       </div>
       <div className="studio-card review-workbench-grid">

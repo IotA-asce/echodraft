@@ -126,10 +126,10 @@ export function StoryMapPanel({
   }
 
   return (
-    <section className="structure-view story-map-panel">
+    <section className="structure-view story-map-panel" aria-labelledby="story-map-title">
       <div>
         <p className="eyebrow">03 / Structure & Cast Draft</p>
-        <h2>Story Map</h2>
+        <h2 id="story-map-title">Story Map</h2>
         <p className="lede">Edit chapters, scenes, and segment-level performance direction while preserving renderable line history.</p>
         <button type="button" className="small-button direction-infer" disabled={busy} onClick={onInferDirections}>
           Infer directions

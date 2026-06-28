@@ -48,7 +48,7 @@ export function SegmentEditorCard({
       >
         <span>{segment.textContent}</span>
         <small>
-          r{segment.revision} · {segment.segmentType.replaceAll("_", " ")} · {segment.speakerCandidate || "narration"}
+          r{segment.revision} · {(segment.segmentType ?? "narration").replaceAll("_", " ")} · {segment.speakerCandidate || "narration"}
           {segment.userLocked ? " · locked" : ""}
         </small>
       </button>
