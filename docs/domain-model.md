@@ -24,6 +24,8 @@ Project
 ├─ Comment
 ├─ PatchAttempt
 ├─ SegmentReviewInspector
+├─ ExportBlocker
+├─ ExportEstimate
 ├─ ExportPackage
 └─ RightsDeclaration
 ```
@@ -564,17 +566,49 @@ Fields:
 - `created_by`
 - `created_at`
 
+### ExportBlocker
+Deterministic reason an export request cannot be packaged.
+
+Fields:
+- `code`
+- `severity`
+- `message`
+- `scope`
+- `chapter_id`
+- `issue_id`
+
+### ExportEstimate
+Preflight result for an export request.
+
+Fields:
+- `project_id`
+- `format`
+- `audio_variant`
+- `chapter_count`
+- `estimated_size_bytes`
+- `blockers`
+- `metadata`
+- `m4b_planned`
+
 ### ExportPackage
-Export artifact record.
+Completed local export package.
 
 Fields:
 - `id`
 - `project_id`
 - `format`
-- `scope`
-- `metadata`
-- `output_path`
 - `status`
+- `output_path`
+- `manifest_path`
+- `archive_path`
+- `download_url`
+- `audio_variant`
+- `chapter_count`
+- `estimated_size_bytes`
+- `checksum`
+- `metadata`
+- `manifest_summary`
+- `blockers`
 
 ### RightsDeclaration
 User rights assertion used for export gating.
