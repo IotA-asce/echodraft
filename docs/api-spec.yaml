@@ -50,6 +50,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/TtsSettings"
 
+  /api/v1/settings/tts/providers:
+    get:
+      tags: [Settings]
+      summary: List local TTS provider readiness and capabilities
+      responses:
+        "200":
+          description: Local provider status list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TtsProviderInfo"
+
   /api/v1/settings/tts/kokoro/setup:
     get:
       tags: [Settings]
@@ -1190,6 +1204,42 @@ paths:
               schema:
                 $ref: "#/components/schemas/JobAcceptedResponse"
 
+  /api/v1/projects/{projectId}/segments/{segmentId}/renders/compare:
+    get:
+      tags: [Rendering]
+      summary: Compare the latest segment render with its parent render
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/SegmentId"
+      responses:
+        "200":
+          description: Segment render comparison
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SegmentRenderComparison"
+
+  /api/v1/projects/{projectId}/render-queue:
+    get:
+      tags: [Rendering]
+      summary: List local render queue rows for a project or chapter
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: chapter_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Render queue rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RenderQueueItem"
+
   /api/v1/projects/{projectId}/chapters/{chapterId}/assemble:
     post:
       tags: [Rendering]
@@ -1554,12 +1604,12 @@ components:
       properties:
         provider:
           type: string
-          enum: [mock, kokoro]
+          enum: [mock, kokoro, piper, xtts_v2]
         setupMode:
           type:
             - string
             - "null"
-          enum: [managed_onnx, custom_adapter, null]
+          enum: [managed_onnx, custom_adapter, local_cli, coqui_local, null]
         executable:
           type:
             - string
@@ -1584,6 +1634,22 @@ components:
           type:
             - string
             - "null"
+        piperModelPath:
+          type:
+            - string
+            - "null"
+        piperConfigPath:
+          type:
+            - string
+            - "null"
+        referenceVoicePath:
+          type:
+            - string
+            - "null"
+        referenceVoiceConsent:
+          type: boolean
+        language:
+          type: string
         ready:
           type: boolean
         message:
@@ -1600,12 +1666,12 @@ components:
       properties:
         provider:
           type: string
-          enum: [mock, kokoro]
+          enum: [mock, kokoro, piper, xtts_v2]
         setupMode:
           type:
             - string
             - "null"
-          enum: [managed_onnx, custom_adapter, null]
+          enum: [managed_onnx, custom_adapter, local_cli, coqui_local, null]
         executable:
           type:
             - string
@@ -1627,6 +1693,57 @@ components:
             - string
             - "null"
         voiceRegistryPath:
+          type:
+            - string
+            - "null"
+        piperModelPath:
+          type:
+            - string
+            - "null"
+        piperConfigPath:
+          type:
+            - string
+            - "null"
+        referenceVoicePath:
+          type:
+            - string
+            - "null"
+        referenceVoiceConsent:
+          type: boolean
+        language:
+          type: string
+    TtsProviderInfo:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [mock, kokoro, piper, xtts_v2]
+        displayName:
+          type: string
+        setupMode:
+          type:
+            - string
+            - "null"
+        ready:
+          type: boolean
+        message:
+          type:
+            - string
+            - "null"
+        availableVoices:
+          type: array
+          items:
+            type: string
+        capabilities:
+          type: object
+          additionalProperties: true
+        requiresReferenceConsent:
+          type: boolean
+        referenceVoiceConsent:
+          type:
+            - boolean
+            - "null"
+        referenceVoicePath:
           type:
             - string
             - "null"
@@ -2591,6 +2708,90 @@ components:
           additionalProperties: true
         force:
           type: boolean
+    SegmentRender:
+      type: object
+      properties:
+        id:
+          type: string
+        segmentId:
+          type: string
+        renderKey:
+          type: string
+        status:
+          type: string
+        audioPath:
+          type: string
+        metadataPath:
+          type: string
+        durationMs:
+          type: integer
+        parentRenderId:
+          type:
+            - string
+            - "null"
+        audioUrl:
+          type:
+            - string
+            - "null"
+    SegmentRenderComparison:
+      type: object
+      properties:
+        segmentId:
+          type: string
+        currentRender:
+          anyOf:
+            - $ref: "#/components/schemas/SegmentRender"
+            - type: "null"
+        previousRender:
+          anyOf:
+            - $ref: "#/components/schemas/SegmentRender"
+            - type: "null"
+        changedFields:
+          type: array
+          items:
+            type: string
+    RenderQueueItem:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        chapterId:
+          type: string
+        segmentId:
+          type: string
+        jobId:
+          type: string
+        status:
+          type: string
+        voiceProfileId:
+          type:
+            - string
+            - "null"
+        provider:
+          type: string
+        renderKey:
+          type:
+            - string
+            - "null"
+        errorMessage:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        finishedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
     UpdateIssueRequest:
       type: object
       properties:

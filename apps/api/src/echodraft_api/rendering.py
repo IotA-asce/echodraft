@@ -3,10 +3,12 @@ import json
 import wave
 from pathlib import Path
 from uuid import uuid4
-from echodraft_domain import SegmentRender, SegmentRenderRequest
+from echodraft_domain import SegmentRender, SegmentRenderComparison, SegmentRenderRequest
 from echodraft_db.models import SegmentRenderRecord
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 from .container import AppContainer
+from .direction import apply_pronunciations
 from .review import ReviewService
 
 
@@ -23,14 +25,20 @@ class SegmentRenderer:
         if not segment or not project:
             raise ValueError("Segment or project not found.")
         provider_voice_id = self._resolve_voice(request.voice_profile_id)
+        synthesis_text, pronunciations = apply_pronunciations(
+            segment.normalized_text, self.container.casting.pronunciations(project_id)
+        )
+        provider_identity = self.adapter.render_identity()
         payload = {
             "text": segment.normalized_text,
+            "synthesisText": synthesis_text,
             "revision": segment.revision,
             "voice": provider_voice_id,
             "voiceProfileId": request.voice_profile_id,
             "direction": request.direction.model_dump(by_alias=True),
             "format": request.output_format,
-            "adapter": "mock-0.1",
+            "ttsProvider": provider_identity,
+            "pronunciationsApplied": pronunciations,
         }
         key = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
         if not request.force:
@@ -52,10 +60,11 @@ class SegmentRenderer:
         audio = root / "speech.wav"
         metadata = root / "metadata.json"
         provenance = self.adapter.preview(
-            segment.normalized_text, provider_voice_id, audio, request.direction
+            synthesis_text, provider_voice_id, audio, request.direction
         )
         with wave.open(str(audio)) as wav:
             duration = int(wav.getnframes() / wav.getframerate() * 1000)
+            sample_rate = wav.getframerate()
         metadata.write_text(
             json.dumps(
                 {
@@ -63,7 +72,7 @@ class SegmentRenderer:
                     "tts": provenance,
                     "renderKey": key,
                     "durationMs": duration,
-                    "sampleRate": 16000,
+                    "sampleRate": sample_rate,
                     "peak": 0,
                     "silenceRanges": [[0, duration]],
                     "waveform": [],
@@ -72,14 +81,7 @@ class SegmentRenderer:
             )
         )
         with self.container.structure.database.session() as session:
-            previous = session.scalar(
-                select(SegmentRenderRecord)
-                .where(
-                    SegmentRenderRecord.segment_id == segment_id,
-                    SegmentRenderRecord.status == "succeeded",
-                )
-                .order_by(SegmentRenderRecord.id.desc())
-            )
+            previous = self._latest_successful(session, segment_id)
         record = SegmentRenderRecord(
             id=render_id,
             segment_id=segment_id,
@@ -106,6 +108,35 @@ class SegmentRenderer:
             parentRenderId=record.parent_render_id,
         )
 
+    def compare(self, project_id: str, segment_id: str) -> SegmentRenderComparison:
+        segment = self.container.structure.segment(segment_id)
+        if not segment:
+            raise ValueError("Segment not found.")
+        with self.container.structure.database.session() as session:
+            from echodraft_db.models import ChapterRecord, SceneRecord
+
+            scene = session.get(SceneRecord, segment.scene_id)
+            chapter = session.get(ChapterRecord, scene.chapter_id) if scene else None
+            if not chapter or chapter.project_id != project_id:
+                raise ValueError("Segment or project not found.")
+            records = list(
+                session.scalars(
+                    select(SegmentRenderRecord)
+                    .where(SegmentRenderRecord.segment_id == segment_id)
+                )
+            )
+        current = self._tip(records)
+        previous = next(
+            (record for record in records if current and record.id == current.parent_render_id), None
+        )
+        changed = self._changed_fields(previous, current) if previous and current else []
+        return SegmentRenderComparison(
+            segmentId=segment_id,
+            currentRender=self._model(current) if current else None,
+            previousRender=self._model(previous) if previous else None,
+            changedFields=changed,
+        )
+
     def history(self, project_id: str, segment_id: str) -> list[SegmentRender]:
         segment = self.container.structure.segment(segment_id)
         if not segment:
@@ -129,6 +160,48 @@ class SegmentRenderer:
     def _resolve_voice(self, requested_voice: str) -> str:
         profile = self.container.casting.voice(requested_voice)
         return profile.provider_voice_id if profile and profile.provider_voice_id else requested_voice
+
+    @staticmethod
+    def _changed_fields(
+        previous: SegmentRenderRecord | None, current: SegmentRenderRecord | None
+    ) -> list[str]:
+        if not previous or not current:
+            return []
+        try:
+            before = json.loads(previous.request_json)
+            after = json.loads(current.request_json)
+        except json.JSONDecodeError:
+            return ["request"]
+        fields = [
+            "text",
+            "synthesisText",
+            "revision",
+            "voiceProfileId",
+            "direction",
+            "ttsProvider",
+            "pronunciationsApplied",
+        ]
+        return [field for field in fields if before.get(field) != after.get(field)]
+
+    @staticmethod
+    def _latest_successful(session: Session, segment_id: str) -> SegmentRenderRecord | None:
+        records = list(
+            session.scalars(
+                select(SegmentRenderRecord).where(
+                    SegmentRenderRecord.segment_id == segment_id,
+                    SegmentRenderRecord.status == "succeeded",
+                )
+            )
+        )
+        return SegmentRenderer._tip(records)
+
+    @staticmethod
+    def _tip(records: list[SegmentRenderRecord]) -> SegmentRenderRecord | None:
+        if not records:
+            return None
+        parent_ids = {record.parent_render_id for record in records if record.parent_render_id}
+        tips = [record for record in records if record.id not in parent_ids]
+        return tips[-1] if tips else records[-1]
 
     @staticmethod
     def _model(record: SegmentRenderRecord) -> SegmentRender:

@@ -23,7 +23,7 @@ from echodraft_domain import (
 )
 
 from .config import AppSettings
-from .direction import ManagedKokoroOnnxAdapter
+from .tts_providers import ManagedKokoroOnnxAdapter
 from .tts_settings import TtsSettingsStore
 
 KOKORO_ONNX_VERSION = "0.4.7"
