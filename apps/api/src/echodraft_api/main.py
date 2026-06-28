@@ -43,6 +43,8 @@ from echodraft_domain import (
     ProjectCreate,
     PronunciationCreate,
     PronunciationEntry,
+    ReadinessReport,
+    ReadinessRunRequest,
     RenderQueueItem,
     ReparseRequest,
     Scene,
@@ -108,6 +110,7 @@ from .assembly import ChapterAssembler
 from .review import ReviewService
 from .exporting import ExportService
 from .production import ProductionService
+from .readiness import ReadinessService
 from .kokoro_setup import ManagedKokoroSetupService
 from .local_ai import LocalAiService
 from .local_llm import LocalLlmService
@@ -1461,6 +1464,47 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             return chapter_render_with_url(
                 project_id, ChapterAssembler(request.app.state.container).active(project_id, chapter_id)
             )
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post(
+        "/api/v1/projects/{project_id}/readiness/run",
+        response_model=ReadinessReport,
+    )
+    def run_readiness_report(
+        project_id: str,
+        request: Request,
+        payload: ReadinessRunRequest | None = None,
+    ) -> ReadinessReport:
+        try:
+            return ReadinessService(request.app.state.container).run(
+                project_id, payload.chapter_id if payload else None
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/projects/{project_id}/readiness/latest",
+        response_model=ReadinessReport,
+    )
+    def latest_readiness_report(
+        project_id: str, request: Request, chapter_id: str | None = None
+    ) -> ReadinessReport:
+        try:
+            report = ReadinessService(request.app.state.container).latest(project_id, chapter_id)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        if not report:
+            raise HTTPException(status_code=404, detail="No readiness report has been run.")
+        return report
+
+    @app.get(
+        "/api/v1/projects/{project_id}/readiness/reports",
+        response_model=list[ReadinessReport],
+    )
+    def list_readiness_reports(project_id: str, request: Request) -> list[ReadinessReport]:
+        try:
+            return ReadinessService(request.app.state.container).reports(project_id)
         except ValueError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 

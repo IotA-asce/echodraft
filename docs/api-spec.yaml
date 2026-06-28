@@ -1406,6 +1406,61 @@ paths:
         "404":
           description: Chapter not found or no assembled render exists
 
+  /api/v1/projects/{projectId}/readiness/run:
+    post:
+      tags: [Review]
+      summary: Run deterministic readiness QA
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReadinessRunRequest"
+      responses:
+        "200":
+          description: Readiness report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessReport"
+
+  /api/v1/projects/{projectId}/readiness/latest:
+    get:
+      tags: [Review]
+      summary: Get latest readiness report
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: chapter_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest readiness report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessReport"
+
+  /api/v1/projects/{projectId}/readiness/reports:
+    get:
+      tags: [Review]
+      summary: List readiness report history
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Readiness report history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReadinessReport"
+
   /api/v1/jobs/{jobId}:
     get:
       tags: [Jobs]
@@ -2498,6 +2553,64 @@ components:
         metadata:
           type: object
           additionalProperties: true
+    ReadinessRunRequest:
+      type: object
+      properties:
+        chapterId:
+          type: string
+          nullable: true
+    ReadinessCheck:
+      type: object
+      properties:
+        id:
+          type: string
+        scope:
+          type: string
+        status:
+          type: string
+        severity:
+          type: string
+        category:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        issueId:
+          type: string
+          nullable: true
+        resolutionStatus:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+    ReadinessReport:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        chapterId:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [ready, needs_review, blocked]
+        score:
+          type: integer
+        summary:
+          type: object
+          additionalProperties:
+            type: integer
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReadinessCheck"
+        createdAt:
+          type: string
+          format: date-time
     IssueCreate:
       type: object
       required: [category, title, description]

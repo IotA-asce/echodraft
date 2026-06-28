@@ -400,6 +400,19 @@ class IssueRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class ReadinessReportRecord(Base):
+    __tablename__ = "readiness_reports"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    chapter_id: Mapped[str | None] = mapped_column(ForeignKey("chapters.id"), index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    score: Mapped[int] = mapped_column(nullable=False)
+    summary_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    checks_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class CommentRecord(Base):
     __tablename__ = "comments"
 

@@ -31,6 +31,8 @@ export type ProductionStatus = { chapterId: string; ready: boolean; reason?: str
 export type SoundAsset = { id: string; projectId: string; name: string; assetType: "ambience" | "music" | "sfx" | string; assetPath: string; audioUrl?: string | null; durationMs?: number | null; licenseNote: string; provenance: string };
 export type SoundCue = { id: string; sceneId: string; assetId?: string | null; cueType: "ambience" | "music" | "sfx" | string; startMs: number; gainDb: number; fadeInMs: number; fadeOutMs: number; ducking: boolean; renderMode: string; noSfx: boolean };
 export type Issue = { id: string; projectId: string; chapterId?: string | null; segmentId?: string | null; severity: string; category: string; title: string; description: string; status: string };
+export type ReadinessCheck = { id: string; scope: string; status: string; severity: string; category: string; title: string; description: string; issueId?: string | null; resolutionStatus?: string | null; metadata: Record<string, unknown> };
+export type ReadinessReport = { id: string; projectId: string; chapterId?: string | null; status: string; score: number; summary: Record<string, number>; checks: ReadinessCheck[]; createdAt: string };
 export type Comment = { id: string; issueId: string; body: string; author: string; createdAt: string };
 export type ExportPackage = { id: string; projectId: string; format: string; status: string; outputPath: string; manifestPath: string; archivePath?: string | null; downloadUrl?: string | null };
 export type Character = {
@@ -136,6 +138,9 @@ export const listSoundAssets = (projectId: string) => request<SoundAsset[]>(`/ap
 export async function uploadSoundAsset(projectId: string, file: File, assetType: "ambience" | "music" | "sfx", name?: string, licenseNote?: string) { const form = new FormData(); form.set("file", file); form.set("asset_type", assetType); if (name) form.set("name", name); if (licenseNote) form.set("license_note", licenseNote); return request<SoundAsset>(`/api/v1/projects/${projectId}/sound-assets`, { method: "POST", body: form }); }
 export const listChapterSoundCues = (projectId: string, chapterId: string) => request<SoundCue[]>(`/api/v1/projects/${projectId}/chapters/${chapterId}/sound-cues`);
 export const createSoundCue = (projectId: string, payload: { sceneId: string; assetId: string; cueType: "ambience" | "music" | "sfx"; startMs?: number; gainDb?: number; fadeInMs?: number; fadeOutMs?: number; ducking?: boolean; renderMode?: "light" | "dramatized" | "all"; noSfx?: boolean }) => request<SoundCue>(`/api/v1/projects/${projectId}/sound-cues`, json("POST", payload));
+export const runReadiness = (projectId: string, chapterId?: string | null) => request<ReadinessReport>(`/api/v1/projects/${projectId}/readiness/run`, json("POST", chapterId ? { chapterId } : {}));
+export const getLatestReadiness = (projectId: string, chapterId?: string | null) => request<ReadinessReport>(`/api/v1/projects/${projectId}/readiness/latest${chapterId ? `?chapter_id=${encodeURIComponent(chapterId)}` : ""}`);
+export const listReadinessReports = (projectId: string) => request<ReadinessReport[]>(`/api/v1/projects/${projectId}/readiness/reports`);
 export const listIssues = (projectId: string) => request<Issue[]>(`/api/v1/projects/${projectId}/issues`);
 export const updateIssue = (issueId: string, payload: { status?: string; severity?: string }) => request<Issue>(`/api/v1/issues/${issueId}`, json("PATCH", payload));
 export const listComments = (issueId: string) => request<Comment[]>(`/api/v1/issues/${issueId}/comments`);
