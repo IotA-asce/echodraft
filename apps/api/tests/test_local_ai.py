@@ -58,6 +58,34 @@ def test_verify_persists_system_tool_installation(app, monkeypatch: pytest.Monke
     assert app.state.container.local_ai.installation("ffmpeg") is not None
 
 
+def test_verify_accepts_ollama_latest_tag(app, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        local_ai_service.shutil,
+        "which",
+        lambda command: "/usr/local/bin/ollama" if command == "ollama" else None,
+    )
+    monkeypatch.setattr(
+        LocalAiService,
+        "_ollama_tags",
+        lambda _self: [
+            {
+                "name": "qwen3-embedding:latest",
+                "model": "qwen3-embedding:latest",
+                "digest": "digest-test",
+                "size": 1234,
+            }
+        ],
+    )
+
+    installation = LocalAiService(app.state.container).verify("qwen3_embedding_ollama")
+
+    assert installation.model_key == "qwen3_embedding_ollama"
+    assert installation.status == "installed"
+    assert installation.install_path == "ollama://qwen3-embedding:latest"
+    assert installation.version == "digest-test"
+    assert installation.size_bytes == 1234
+
+
 def test_system_tool_install_uses_existing_tool_without_package_command(
     app, monkeypatch: pytest.MonkeyPatch
 ) -> None:
