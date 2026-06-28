@@ -449,10 +449,29 @@ class DirectionProfile(ApiModel):
     pace: float = Field(default=1.0, ge=0.5, le=2.0)
     intensity: float = Field(default=0.5, ge=0.0, le=1.0)
     tone: str = "neutral"
+    emotion: str = "neutral"
+    pause_before_ms: int = Field(default=0, ge=0, le=5000, alias="pauseBeforeMs")
+    pause_after_ms: int = Field(default=0, ge=0, le=5000, alias="pauseAfterMs")
     style_prompt: str | None = Field(default=None, alias="stylePrompt")
     emphasis: bool = False
     whisper: bool = False
     no_sfx: bool = Field(default=True, alias="noSfx")
+
+
+class SegmentDirection(ApiModel):
+    segment_id: str = Field(alias="segmentId")
+    project_id: str = Field(alias="projectId")
+    direction: DirectionProfile
+    source: str
+    user_locked: bool = Field(default=False, alias="userLocked")
+    direction_fingerprint: str = Field(alias="directionFingerprint")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+
+class SegmentDirectionUpdate(ApiModel):
+    direction: DirectionProfile
+    user_locked: bool = Field(default=True, alias="userLocked")
 
 
 class VoicePreviewRequest(ApiModel):

@@ -454,6 +454,19 @@ class SegmentProductionOverrideRecord(Base):
     direction_json: Mapped[str | None] = mapped_column(Text)
 
 
+class SegmentDirectionRecord(Base):
+    __tablename__ = "segment_directions"
+
+    segment_id: Mapped[str] = mapped_column(ForeignKey("segments.id"), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    direction_json: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
+    direction_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class CharacterVoiceAssignmentRecord(Base):
     __tablename__ = "character_voice_assignments"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

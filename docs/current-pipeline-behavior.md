@@ -48,7 +48,8 @@ The current TTS layer exposes mock audio and Kokoro setup paths through the dash
 - Mock TTS emits silent WAV files for validating the workflow.
 - Managed Kokoro ONNX setup creates a local runtime, downloads model assets, builds a voice registry, and verifies previews.
 - Segment renders are immutable and stored under the project artifact store.
-- Render cache keys are derived from segment text, revision, voice, direction, output format, and adapter marker.
+- Render cache keys are derived from segment text, revision, resolved voice, resolved direction, output format, and adapter marker.
+- Direction Studio persists segment-level emotion, pace, intensity, pause, emphasis, and whisper controls; current Kokoro adapters apply supported pace data and retain unsupported controls in metadata.
 - A cache hit returns the existing render; forced regeneration creates a new render linked to the prior render through `parent_render_id`.
 
 ## Local LLM

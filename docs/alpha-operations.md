@@ -17,6 +17,6 @@ Use `blocking` for an inability to import, render, assemble, patch, or export. I
 - In-process jobs cannot resume mid-operation.
 - MP3 export requires local FFmpeg with an MP3 encoder. M4B remains unsupported.
 - Ambience asset mixing remains intentionally deferred; speech-only output is the stable alpha path.
-- Mock TTS is intentionally silent. Managed Kokoro ONNX setup downloads local runtime assets only after explicit user action and applies the selected voice ID; direction controls are retained as manifest notes and may not alter synthesis.
+- Mock TTS is intentionally silent. Managed Kokoro ONNX setup downloads local runtime assets only after explicit user action and applies the selected voice ID; Direction Studio controls are retained in render metadata, with current Kokoro adapters applying supported pace data and reporting unsupported expressive controls.
 - Managed Kokoro setup is CPU-oriented. GPU/provider tuning and automatic OS package manager repair are out of scope.
 - Text PDFs import directly. Scanned PDFs require `pdftoppm` from Poppler and English Tesseract data on `PATH`; OCR runs locally at 200 DPI and is capped at 150 low-text pages per import.

@@ -35,6 +35,8 @@ from echodraft_domain import (
     Scene,
     SceneUpdate,
     Segment,
+    SegmentDirection,
+    SegmentDirectionUpdate,
     SegmentMergeRequest,
     SegmentPatchRequest,
     SegmentPatchResult,
@@ -752,6 +754,69 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/projects/{project_id}/segment-directions",
+        response_model=list[SegmentDirection],
+    )
+    def list_segment_directions(project_id: str, request: Request) -> list[SegmentDirection]:
+        try:
+            return DirectionService(request.app.state.container).list_segment_directions(project_id)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/projects/{project_id}/segments/{segment_id}/direction",
+        response_model=SegmentDirection,
+    )
+    def get_segment_direction(
+        project_id: str, segment_id: str, request: Request
+    ) -> SegmentDirection:
+        try:
+            return DirectionService(request.app.state.container).segment_direction(
+                project_id, segment_id
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.put(
+        "/api/v1/projects/{project_id}/segments/{segment_id}/direction",
+        response_model=SegmentDirection,
+    )
+    def update_segment_direction(
+        project_id: str,
+        segment_id: str,
+        payload: SegmentDirectionUpdate,
+        request: Request,
+    ) -> SegmentDirection:
+        try:
+            return DirectionService(request.app.state.container).update_segment_direction(
+                project_id, segment_id, payload.direction, payload.user_locked
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/v1/projects/{project_id}/directions/infer",
+        response_model=Job,
+        status_code=202,
+    )
+    def infer_segment_directions(project_id: str, request: Request) -> Job:
+        container: AppContainer = request.app.state.container
+        service = DirectionService(container)
+        try:
+            service.list_segment_directions(project_id)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+        def run(job_id: str) -> None:
+            service.infer_segment_directions(project_id, job_id)
+
+        return container.jobs.submit_with_job(
+            "directions.infer",
+            run,
+            project_id,
+        )
 
     @app.get("/api/v1/projects/{project_id}/characters", response_model=list[Character])
     def list_characters(project_id: str, request: Request) -> list[Character]:

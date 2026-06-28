@@ -756,6 +756,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/Segment"
 
+  /api/v1/projects/{projectId}/segment-directions:
+    get:
+      tags: [Direction]
+      summary: List segment directions
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Segment direction list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SegmentDirection"
+
+  /api/v1/projects/{projectId}/segments/{segmentId}/direction:
+    get:
+      tags: [Direction]
+      summary: Get segment direction
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/SegmentId"
+      responses:
+        "200":
+          description: Segment direction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SegmentDirection"
+    put:
+      tags: [Direction]
+      summary: Save segment direction
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/SegmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSegmentDirectionRequest"
+      responses:
+        "200":
+          description: Segment direction saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SegmentDirection"
+
+  /api/v1/projects/{projectId}/directions/infer:
+    post:
+      tags: [Direction]
+      summary: Infer local deterministic segment directions
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "202":
+          description: Direction inference job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+
   /api/v1/projects/{projectId}/characters:
     get:
       tags: [Casting]
@@ -2386,8 +2450,74 @@ components:
         speakerCharacterId:
           type: string
         direction:
-          type: object
-          additionalProperties: true
+          $ref: "#/components/schemas/DirectionProfile"
+    DirectionProfile:
+      type: object
+      required: [scopeType, scopeId]
+      properties:
+        scopeType:
+          type: string
+        scopeId:
+          type: string
+        pace:
+          type: number
+          minimum: 0.5
+          maximum: 2
+        intensity:
+          type: number
+          minimum: 0
+          maximum: 1
+        tone:
+          type: string
+        emotion:
+          type: string
+          enum: [neutral, warm, tense, quiet, urgent, somber, bright, fearful, angry]
+        pauseBeforeMs:
+          type: integer
+          minimum: 0
+          maximum: 5000
+        pauseAfterMs:
+          type: integer
+          minimum: 0
+          maximum: 5000
+        stylePrompt:
+          type: string
+          nullable: true
+        emphasis:
+          type: boolean
+        whisper:
+          type: boolean
+        noSfx:
+          type: boolean
+    SegmentDirection:
+      type: object
+      properties:
+        segmentId:
+          type: string
+        projectId:
+          type: string
+        direction:
+          $ref: "#/components/schemas/DirectionProfile"
+        source:
+          type: string
+        userLocked:
+          type: boolean
+        directionFingerprint:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    UpdateSegmentDirectionRequest:
+      type: object
+      required: [direction]
+      properties:
+        direction:
+          $ref: "#/components/schemas/DirectionProfile"
+        userLocked:
+          type: boolean
     ChapterUpdate:
       type: object
       properties:
@@ -2477,8 +2607,7 @@ components:
         voiceProfileId:
           type: string
         direction:
-          type: object
-          additionalProperties: true
+          $ref: "#/components/schemas/DirectionProfile"
         textContent:
           type: string
         issueId:

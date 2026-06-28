@@ -75,6 +75,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | Managed Kokoro setup                | Alpha           | Local CPU-oriented ONNX flow from the dashboard                                            |
 | Character Bible                     | Alpha           | Canonical names, aliases, traits, locks, voice links, merge/split history, and dashboard UI |
 | Speaker attribution                 | Alpha           | Deterministic Cast Review rows, review locks, Ollama fallback hooks, and cast voice use     |
+| Direction Studio                    | Alpha           | Segment emotions, pace/intensity, pause controls, inference, and render-stale fingerprinting |
 | Review and patching                 | Working         | Segment-level patch loop with chapter reassembly                                           |
 | WAV export                          | Working         | ZIP package with manifest/checksum data                                                    |
 | MP3 export                          | Working         | Requires FFmpeg with MP3 support                                                           |
@@ -424,6 +425,12 @@ Use **Voice bible** to maintain project cast records before production. Characte
 Character voice links become production inputs after Cast Review approves a segment speaker attribution.
 
 Run **Cast Review** after structure extraction to create speaker attribution rows for every segment. Approved character attributions with voice links are used during chapter production unless a segment-level voice override is set.
+
+---
+
+### Direction Studio
+
+Use **Infer directions** after structure extraction to seed segment delivery settings locally. Segment direction records store controlled emotion labels, pace, intensity, pauses, emphasis, whispering, lock state, and a direction fingerprint. Manual Direction Studio saves are locked and take effect in chapter production unless an older production override already supplies a direction.
 
 ---
 
