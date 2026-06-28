@@ -44,7 +44,7 @@ Echodraft can currently:
 * import local WAV sound assets and assemble optional light or dramatized chapter mixes;
 * run deterministic readiness QA before export;
 * inspect segment review layers, leave comments, patch weak lines, and reassemble chapters;
-* export selected chapters as WAV or MP3 ZIP packages with manifests and checksums.
+* export selected chapters as WAV or MP3 ZIP packages with metadata, manifests, lineage, estimates, and checksums.
 
 ---
 
@@ -82,9 +82,9 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | Direction Studio                    | Alpha           | Segment emotions, pace/intensity, pause controls, inference, and render-stale fingerprinting |
 | Render queue and compare            | Alpha           | Per-segment queue rows and latest-vs-parent render request comparison                      |
 | Review and patching                 | Alpha           | Segment inspector, QA/comments, patch queue, render lineage, and chapter reassembly         |
-| WAV export                          | Working         | ZIP package with manifest/checksum data                                                    |
-| MP3 export                          | Working         | Requires FFmpeg with MP3 support                                                           |
-| M4B export                          | Not implemented | Planned/future                                                                             |
+| WAV export                          | Working         | ZIP package with metadata, source/render lineage, QA summary, estimates, and checksums      |
+| MP3 export                          | Working         | Same package contract as WAV; requires FFmpeg with MP3 support                              |
+| M4B export                          | Planned         | Marked as planned until a media adapter is implemented                                      |
 | Sound Design                        | Alpha           | Local WAV ambience/music/SFX import, scene cue assignment, and explicit light/dramatized mixing |
 | Readiness QA                        | Alpha           | Deterministic text, structure, speaker, voice, direction, audio, stale-render, and export-blocker reports |
 | Cloud execution                     | Not included    | MVP is local-first                                                                         |
