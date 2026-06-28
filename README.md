@@ -43,7 +43,7 @@ Echodraft can currently:
 * assemble immutable chapter renders;
 * import local WAV sound assets and assemble optional light or dramatized chapter mixes;
 * run deterministic readiness QA before export;
-* review issues, leave comments, patch weak lines, and reassemble chapters;
+* inspect segment review layers, leave comments, patch weak lines, and reassemble chapters;
 * export selected chapters as WAV or MP3 ZIP packages with manifests and checksums.
 
 ---
@@ -81,7 +81,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | Speaker attribution                 | Alpha           | Deterministic Cast Review rows, review locks, Ollama fallback hooks, and cast voice use     |
 | Direction Studio                    | Alpha           | Segment emotions, pace/intensity, pause controls, inference, and render-stale fingerprinting |
 | Render queue and compare            | Alpha           | Per-segment queue rows and latest-vs-parent render request comparison                      |
-| Review and patching                 | Working         | Segment-level patch loop with chapter reassembly                                           |
+| Review and patching                 | Alpha           | Segment inspector, QA/comments, patch queue, render lineage, and chapter reassembly         |
 | WAV export                          | Working         | ZIP package with manifest/checksum data                                                    |
 | MP3 export                          | Working         | Requires FFmpeg with MP3 support                                                           |
 | M4B export                          | Not implemented | Planned/future                                                                             |

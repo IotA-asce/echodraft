@@ -22,6 +22,8 @@ Project
 ├─ LlmRun
 ├─ Issue
 ├─ Comment
+├─ PatchAttempt
+├─ SegmentReviewInspector
 ├─ ExportPackage
 └─ RightsDeclaration
 ```
@@ -380,6 +382,38 @@ Fields:
 - `previous_render`
 - `changed_fields`
 
+### PatchAttempt
+Append-only record that links a review patch to the old segment render, new segment render, and reassembled chapter render.
+
+Fields:
+- `id`
+- `issue_id`
+- `segment_id`
+- `old_render_id`
+- `new_render_id`
+- `chapter_render_id`
+- `created_at`
+
+### SegmentReviewInspector
+Read model for the Review & Patch Workbench. It is assembled from existing DB rows and artifact metadata, not stored as a separate table.
+
+Fields:
+- `project_id`
+- `chapter_id`
+- `chapter_title`
+- `scene_id`
+- `segment`
+- `source_text`
+- `canonical_text`
+- `structure`
+- `cast`
+- `direction`
+- `render_history`
+- `waveform`
+- `qa_issues`
+- `comments`
+- `patch_queue`
+
 ### RenderQueueItem
 Per-segment queue row for chapter production.
 
@@ -562,6 +596,7 @@ Fields:
 - a `Character` may have one active voice assignment
 - a `Segment` may reference one `Character` as speaker
 - a `Segment` has many `SegmentRenders`
+- a `Segment` has many `PatchAttempts`
 - a `Chapter` has many `ChapterRenders`
 
 ## Lifecycle rules
