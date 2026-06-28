@@ -36,7 +36,8 @@ export type ReadinessReport = { id: string; projectId: string; chapterId?: strin
 export type Comment = { id: string; issueId: string; body: string; author: string; createdAt: string };
 export type PatchAttempt = { id: string; issueId?: string | null; segmentId: string; oldRenderId?: string | null; newRenderId: string; chapterRenderId: string; createdAt: string };
 export type SegmentReviewInspector = { projectId: string; chapterId: string; chapterTitle?: string | null; sceneId: string; segment: Segment; sourceText: string; canonicalText: string; structure: Record<string, unknown>; cast?: SpeakerAttribution | null; direction?: SegmentDirection | null; renderHistory: SegmentRender[]; waveform: Record<string, unknown>; qaIssues: Issue[]; comments: Comment[]; patchQueue: PatchAttempt[] };
-export type ExportPackage = { id: string; projectId: string; format: string; status: string; outputPath: string; manifestPath: string; archivePath?: string | null; downloadUrl?: string | null };
+export type ExportBlocker = { code: string; severity: string; message: string; scope: string; chapterId?: string | null; issueId?: string | null };
+export type ExportPackage = { id: string; projectId: string; format: string; status: string; outputPath: string; manifestPath: string; archivePath?: string | null; downloadUrl?: string | null; audioVariant: string; chapterCount: number; estimatedSizeBytes: number; checksum?: string | null; metadata: Record<string, unknown>; manifestSummary: Record<string, unknown>; blockers: ExportBlocker[] };
 export type Character = {
   id: string;
   projectId: string;
@@ -149,5 +150,5 @@ export const updateIssue = (issueId: string, payload: { status?: string; severit
 export const listComments = (issueId: string) => request<Comment[]>(`/api/v1/issues/${issueId}/comments`);
 export const addComment = (issueId: string, body: string) => request<Comment>(`/api/v1/issues/${issueId}/comments`, json("POST", { body }));
 export const patchSegment = (projectId: string, segmentId: string, payload: { textContent?: string; issueId?: string; voiceProfileId: string; direction: Direction }) => request<unknown>(`/api/v1/projects/${projectId}/segments/${segmentId}/patch`, json("POST", payload));
-export const createExport = (projectId: string, format: "wav" | "mp3", chapterIds: string[]) => request<ExportPackage>(`/api/v1/projects/${projectId}/exports`, json("POST", { format, chapterIds }));
+export const createExport = (projectId: string, format: "wav" | "mp3", chapterIds: string[], payload: { audioVariant?: "active" | "clean" | "mixed"; title?: string; author?: string; album?: string; publisher?: string; language?: string; coverImagePath?: string } = {}) => request<ExportPackage>(`/api/v1/projects/${projectId}/exports`, json("POST", { format, chapterIds, ...payload }));
 export const listExports = (projectId: string) => request<ExportPackage[]>(`/api/v1/projects/${projectId}/exports`);

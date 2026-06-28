@@ -883,6 +883,15 @@ class SegmentReviewInspector(ApiModel):
     patch_queue: list[PatchAttempt] = Field(default_factory=list, alias="patchQueue")
 
 
+class ExportBlocker(ApiModel):
+    code: str
+    severity: str = "blocking"
+    message: str
+    scope: str
+    chapter_id: str | None = Field(default=None, alias="chapterId")
+    issue_id: str | None = Field(default=None, alias="issueId")
+
+
 class ExportPackage(ApiModel):
     id: str
     project_id: str = Field(alias="projectId")
@@ -892,11 +901,37 @@ class ExportPackage(ApiModel):
     manifest_path: str = Field(alias="manifestPath")
     archive_path: str | None = Field(default=None, alias="archivePath")
     download_url: str | None = Field(default=None, alias="downloadUrl")
+    audio_variant: str = Field(default="active", alias="audioVariant")
+    chapter_count: int = Field(default=0, alias="chapterCount")
+    estimated_size_bytes: int = Field(default=0, alias="estimatedSizeBytes")
+    checksum: str | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+    manifest_summary: dict[str, object] = Field(default_factory=dict, alias="manifestSummary")
+    blockers: list[ExportBlocker] = Field(default_factory=list)
 
 
 class ExportRequest(ApiModel):
     format: str = "wav"
     chapter_ids: list[str] = Field(default_factory=list, alias="chapterIds")
+    audio_variant: str = Field(default="active", alias="audioVariant")
+    title: str | None = None
+    author: str | None = None
+    album: str | None = None
+    publisher: str | None = None
+    copyright: str | None = None
+    language: str | None = None
+    cover_image_path: str | None = Field(default=None, alias="coverImagePath")
+
+
+class ExportEstimate(ApiModel):
+    project_id: str = Field(alias="projectId")
+    format: str
+    audio_variant: str = Field(alias="audioVariant")
+    chapter_count: int = Field(alias="chapterCount")
+    estimated_size_bytes: int = Field(alias="estimatedSizeBytes")
+    blockers: list[ExportBlocker] = Field(default_factory=list)
+    metadata: dict[str, object] = Field(default_factory=dict)
+    m4b_planned: bool = Field(default=False, alias="m4bPlanned")
 
 
 class ChapterProductionStatus(ApiModel):

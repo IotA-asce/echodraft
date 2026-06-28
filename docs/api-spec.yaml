@@ -1656,7 +1656,7 @@ paths:
                   $ref: "#/components/schemas/ExportPackage"
     post:
       tags: [Exports]
-      summary: Create export
+      summary: Create export package
       parameters:
         - $ref: "#/components/parameters/ProjectId"
       requestBody:
@@ -1667,17 +1667,38 @@ paths:
               $ref: "#/components/schemas/CreateExportRequest"
       responses:
         "202":
-          description: Export job accepted
+          description: Export package created
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/JobAcceptedResponse"
+                $ref: "#/components/schemas/ExportPackage"
 
-  /api/v1/exports/{exportId}:
+  /api/v1/projects/{projectId}/exports/estimate:
+    post:
+      tags: [Exports]
+      summary: Estimate an export and return blockers
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateExportRequest"
+      responses:
+        "200":
+          description: Export preflight estimate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportEstimate"
+
+  /api/v1/projects/{projectId}/exports/{exportId}:
     get:
       tags: [Exports]
       summary: Get export detail
       parameters:
+        - $ref: "#/components/parameters/ProjectId"
         - $ref: "#/components/parameters/ExportId"
       responses:
         "200":
@@ -1686,6 +1707,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExportPackage"
+
+  /api/v1/projects/{projectId}/exports/{exportId}/download:
+    get:
+      tags: [Exports]
+      summary: Download export ZIP
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/ExportId"
+      responses:
+        "200":
+          description: Export ZIP archive
 
   /api/v1/projects/{projectId}/rights:
     get:
@@ -2672,6 +2704,47 @@ components:
           type: string
         author:
           type: string
+    ExportBlocker:
+      type: object
+      properties:
+        code:
+          type: string
+        severity:
+          type: string
+        message:
+          type: string
+        scope:
+          type: string
+        chapterId:
+          type:
+            - string
+            - "null"
+        issueId:
+          type:
+            - string
+            - "null"
+    ExportEstimate:
+      type: object
+      properties:
+        projectId:
+          type: string
+        format:
+          type: string
+        audioVariant:
+          type: string
+        chapterCount:
+          type: integer
+        estimatedSizeBytes:
+          type: integer
+        blockers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportBlocker"
+        metadata:
+          type: object
+          additionalProperties: true
+        m4bPlanned:
+          type: boolean
     ExportPackage:
       type: object
       properties:
@@ -2681,15 +2754,40 @@ components:
           type: string
         format:
           type: string
-        scope:
+        status:
           type: string
+        outputPath:
+          type: string
+        manifestPath:
+          type: string
+        archivePath:
+          type:
+            - string
+            - "null"
+        downloadUrl:
+          type:
+            - string
+            - "null"
+        audioVariant:
+          type: string
+        chapterCount:
+          type: integer
+        estimatedSizeBytes:
+          type: integer
+        checksum:
+          type:
+            - string
+            - "null"
         metadata:
           type: object
           additionalProperties: true
-        outputPath:
-          type: string
-        status:
-          type: string
+        manifestSummary:
+          type: object
+          additionalProperties: true
+        blockers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportBlocker"
     RightsDeclaration:
       type: object
       properties:
@@ -3284,15 +3382,30 @@ components:
           type: string
     CreateExportRequest:
       type: object
-      required: [format, scope]
       properties:
         format:
           type: string
-        scope:
+        chapterIds:
+          type: array
+          items:
+            type: string
+        audioVariant:
           type: string
-        metadata:
-          type: object
-          additionalProperties: true
+          enum: [active, clean, mixed]
+        title:
+          type: string
+        author:
+          type: string
+        album:
+          type: string
+        publisher:
+          type: string
+        copyright:
+          type: string
+        language:
+          type: string
+        coverImagePath:
+          type: string
     UpsertRightsDeclarationRequest:
       type: object
       required: [declarationType, status]

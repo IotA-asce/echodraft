@@ -476,16 +476,16 @@ Key columns:
 - `created_at` DATETIME
 
 ### `exports`
-Purpose: export job outputs.
+Purpose: export package path/status metadata. Detailed package metadata, QA summary, render lineage, checksums, and cover metadata are stored in `export_manifest.json` under artifacts.
 
 Key columns:
 - `id` TEXT PK
 - `project_id` FK
 - `format` TEXT NOT NULL
-- `scope` TEXT NOT NULL
-- `metadata_json` TEXT
-- `output_path` TEXT
 - `status` TEXT NOT NULL
+- `output_path` TEXT NOT NULL
+- `manifest_path` TEXT NOT NULL
+- `archive_path` TEXT
 
 ### `jobs`
 Purpose: long-running async operations.

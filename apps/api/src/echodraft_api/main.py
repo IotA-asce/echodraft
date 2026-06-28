@@ -32,6 +32,7 @@ from echodraft_domain import (
     Comment,
     CommentCreate,
     ExportPackage,
+    ExportEstimate,
     ExportRequest,
     EmbeddingRequest,
     EmbeddingResult,
@@ -1608,13 +1609,24 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.post(
+        "/api/v1/projects/{project_id}/exports/estimate", response_model=ExportEstimate
+    )
+    def estimate_export(
+        project_id: str, payload: ExportRequest, request: Request
+    ) -> ExportEstimate:
+        try:
+            return ExportService(request.app.state.container).estimate(project_id, payload)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
     @app.get("/api/v1/projects/{project_id}/exports", response_model=list[ExportPackage])
     def list_exports(project_id: str, request: Request) -> list[ExportPackage]:
         return [
             item.model_copy(
                 update={"download_url": f"/api/v1/projects/{project_id}/exports/{item.id}/download"}
             )
-            for item in ExportService(request.app.state.container).list(project_id)
+            for item in ExportService(request.app.state.container).list_packages(project_id)
         ]
 
     @app.get("/api/v1/projects/{project_id}/exports/{export_id}", response_model=ExportPackage)
