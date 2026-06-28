@@ -1,3 +1,4 @@
+import os
 import stat
 import time
 from pathlib import Path
@@ -138,9 +139,13 @@ def test_empty_managed_voice_list_fails_before_saving(client, monkeypatch: pytes
 
 
 def test_existing_custom_kokoro_adapter_settings_still_validate(client, tmp_path: Path) -> None:
-    executable = tmp_path / "echodraft-kokoro"
-    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
+    executable = tmp_path / ("echodraft-kokoro.cmd" if os.name == "nt" else "echodraft-kokoro")
+    executable.write_text(
+        "@echo off\r\nexit /b 0\r\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n",
+        encoding="utf-8",
+    )
+    if os.name != "nt":
+        executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
     model = tmp_path / "kokoro.onnx"
     model.write_bytes(b"model")
     registry = tmp_path / "voices.txt"

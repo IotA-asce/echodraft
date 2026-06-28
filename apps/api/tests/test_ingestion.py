@@ -161,7 +161,7 @@ def test_markdown_docx_and_epub_import(client, tmp_path: Path) -> None:
 
 
 def test_pdf_import_extracts_text_and_preserves_manifest(client, monkeypatch) -> None:
-    monkeypatch.setattr(ingestion.shutil, "which", lambda _: None)
+    monkeypatch.setattr(ingestion, "resolve_system_tool", lambda _: None)
     project = project_id(client)
     job = import_bytes(
         client,
@@ -178,7 +178,7 @@ def test_pdf_import_extracts_text_and_preserves_manifest(client, monkeypatch) ->
 
 
 def test_pdf_import_creates_page_review_records(client, app, monkeypatch) -> None:
-    monkeypatch.setattr(ingestion.shutil, "which", lambda _: None)
+    monkeypatch.setattr(ingestion, "resolve_system_tool", lambda _: None)
     project = project_id(client)
     job = import_bytes(
         client,
@@ -238,14 +238,16 @@ def test_pdf_ocr_candidates_and_failures(app, monkeypatch, tmp_path: Path) -> No
 
     monkeypatch.undo()
     monkeypatch.setattr(ingestion, "PdfReader", lambda _: FakeReader([FakePage("")]))
-    monkeypatch.setattr(ingestion.shutil, "which", lambda _: None)
+    monkeypatch.setattr(ingestion, "resolve_system_tool", lambda _: None)
     with pytest.raises(IngestionError, match="pdftoppm"):
         service._extract_pdf(tmp_path / "needs-ocr.pdf")
 
     monkeypatch.undo()
     monkeypatch.setattr(ingestion, "PdfReader", lambda _: FakeReader([FakePage("")]))
     monkeypatch.setattr(
-        ingestion.shutil, "which", lambda command: "/usr/bin/pdftoppm" if command == "pdftoppm" else None
+        ingestion,
+        "resolve_system_tool",
+        lambda command: "/usr/bin/pdftoppm" if command == "pdftoppm" else None,
     )
     with pytest.raises(IngestionError, match="Tesseract"):
         service._extract_pdf(tmp_path / "needs-tesseract.pdf")
@@ -326,8 +328,8 @@ def test_pdf_v2_scanned_page_records_ocr_artifacts(
     assert source
     monkeypatch.setattr(ingestion, "PdfReader", lambda _: FakeReader())
     monkeypatch.setattr(
-        ingestion.shutil,
-        "which",
+        ingestion,
+        "resolve_system_tool",
         lambda command: f"/usr/bin/{command}" if command in {"pdftoppm", "tesseract"} else None,
     )
     monkeypatch.setattr(IngestionService, "_render_pdf_page", staticmethod(fake_render))
