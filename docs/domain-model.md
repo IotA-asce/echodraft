@@ -457,6 +457,34 @@ Fields:
 - `render_mode`
 - `no_sfx`
 
+### ReadinessReport
+Persisted deterministic QA snapshot.
+
+Fields:
+- `id`
+- `project_id`
+- `chapter_id`
+- `status`
+- `score`
+- `summary`
+- `checks`
+- `created_at`
+
+### ReadinessCheck
+Individual readiness check result.
+
+Fields:
+- `id`
+- `scope`
+- `status`
+- `severity`
+- `category`
+- `title`
+- `description`
+- `issue_id`
+- `resolution_status`
+- `metadata`
+
 ### PronunciationEntry
 Pronunciation or replacement override.
 

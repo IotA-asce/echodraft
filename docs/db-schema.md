@@ -445,6 +445,24 @@ Indexes:
 - `(project_id, status)`
 - `(project_id, severity)`
 
+### `readiness_reports`
+Purpose: persisted readiness QA snapshots.
+
+Key columns:
+- `id` TEXT PK
+- `project_id` FK
+- `chapter_id` FK nullable
+- `status` TEXT NOT NULL
+- `score` INTEGER NOT NULL
+- `summary_json` TEXT NOT NULL
+- `checks_json` TEXT NOT NULL
+- `created_at` DATETIME NOT NULL
+
+Rules:
+- failed checks link to review issues when action is required
+- issue statuses such as `resolved`, `ignored`, and `locked` survive reruns
+- reports store metadata only, not audio or manuscript blobs
+
 ### `comments`
 Purpose: anchored human comments.
 

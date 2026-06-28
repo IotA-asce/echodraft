@@ -803,6 +803,34 @@ class IssueUpdate(ApiModel):
     severity: str | None = None
 
 
+class ReadinessCheck(ApiModel):
+    id: str
+    scope: str
+    status: str
+    severity: str
+    category: str
+    title: str
+    description: str
+    issue_id: str | None = Field(default=None, alias="issueId")
+    resolution_status: str | None = Field(default=None, alias="resolutionStatus")
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class ReadinessReport(ApiModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    chapter_id: str | None = Field(default=None, alias="chapterId")
+    status: str
+    score: int
+    summary: dict[str, int]
+    checks: list[ReadinessCheck]
+    created_at: datetime = Field(alias="createdAt")
+
+
+class ReadinessRunRequest(ApiModel):
+    chapter_id: str | None = Field(default=None, alias="chapterId")
+
+
 class Comment(ApiModel):
     id: str
     issue_id: str = Field(alias="issueId")

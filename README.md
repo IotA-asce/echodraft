@@ -42,6 +42,7 @@ Echodraft can currently:
 * render missing or stale segment audio;
 * assemble immutable chapter renders;
 * import local WAV sound assets and assemble optional light or dramatized chapter mixes;
+* run deterministic readiness QA before export;
 * review issues, leave comments, patch weak lines, and reassemble chapters;
 * export selected chapters as WAV or MP3 ZIP packages with manifests and checksums.
 
@@ -85,6 +86,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | MP3 export                          | Working         | Requires FFmpeg with MP3 support                                                           |
 | M4B export                          | Not implemented | Planned/future                                                                             |
 | Sound Design                        | Alpha           | Local WAV ambience/music/SFX import, scene cue assignment, and explicit light/dramatized mixing |
+| Readiness QA                        | Alpha           | Deterministic text, structure, speaker, voice, direction, audio, stale-render, and export-blocker reports |
 | Cloud execution                     | Not included    | MVP is local-first                                                                         |
 
 ---
