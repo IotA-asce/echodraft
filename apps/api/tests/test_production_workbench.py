@@ -1,3 +1,4 @@
+import json
 import time
 from pathlib import Path
 
@@ -50,12 +51,35 @@ def test_production_settings_produce_download_and_export(client) -> None:
     audio = client.get(after["activeRender"]["audioUrl"])
     assert audio.status_code == 200 and audio.headers["content-type"].startswith("audio/")
     package = client.post(
-        f"/api/v1/projects/{project}/exports", json={"format": "wav", "chapterIds": [chapter]}
+        f"/api/v1/projects/{project}/exports",
+        json={
+            "format": "wav",
+            "chapterIds": [chapter],
+            "audioVariant": "clean",
+            "title": "Exported Workbench",
+            "author": "Local Author",
+            "album": "Workbench Album",
+            "language": "en",
+        },
     ).json()
     downloaded = client.get(package["downloadUrl"])
     assert downloaded.status_code == 200
     assert downloaded.content[:2] == b"PK"
     assert Path(package["archivePath"]).is_file()
+    assert package["audioVariant"] == "clean"
+    assert package["chapterCount"] == 1
+    assert package["estimatedSizeBytes"] > 0
+    assert package["checksum"]
+    manifest = json.loads(Path(package["manifestPath"]).read_text(encoding="utf-8"))
+    assert manifest["manifestType"] == "export_manifest"
+    assert manifest["schemaVersion"] == "0.2.0"
+    assert manifest["metadata"]["title"] == "Exported Workbench"
+    assert manifest["metadata"]["author"] == "Local Author"
+    assert manifest["summary"]["chapterCount"] == 1
+    assert manifest["summary"]["archiveSha256"] == package["checksum"]
+    assert manifest["source"]["sourceDocumentId"]
+    assert manifest["outputs"][0]["sha256"]
+    assert manifest["renderLineage"][0]["segmentRenders"][0]["provider"] == "mock"
 
 
 def test_segment_render_cache_and_forced_lineage_are_append_only(client) -> None:
@@ -108,7 +132,13 @@ def test_export_refuses_open_blocking_issues(client) -> None:
         json={"format": "wav", "chapterIds": [chapter]},
     )
     assert blocked.status_code == 422
-    assert "blocking review issues" in blocked.json()["detail"]
+    assert "Resolve export blockers" in blocked.json()["detail"]
+    estimate = client.post(
+        f"/api/v1/projects/{project}/exports/estimate",
+        json={"format": "wav", "chapterIds": [chapter]},
+    ).json()
+    assert estimate["estimatedSizeBytes"] > 0
+    assert estimate["blockers"][0]["code"] == "open_blocking_issue"
 
     client.patch(f"/api/v1/issues/{issue['id']}", json={"status": "resolved"})
     assert (
@@ -118,6 +148,40 @@ def test_export_refuses_open_blocking_issues(client) -> None:
         ).status_code
         == 202
     )
+
+
+def test_export_estimate_marks_mixed_gate_and_m4b_as_planned(client) -> None:
+    project, chapter, _ = project_with_chapter(client)
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Narrator", "backend": "mock", "providerVoiceId": "mock-narrator"},
+    ).json()
+    client.put(
+        f"/api/v1/projects/{project}/production-settings",
+        json={"narratorVoiceProfileId": voice["id"]},
+    )
+    produced = client.post(f"/api/v1/projects/{project}/chapters/{chapter}/produce").json()
+    assert wait_for_job(client, produced["id"])["status"] == "succeeded"
+
+    mixed = client.post(
+        f"/api/v1/projects/{project}/exports/estimate",
+        json={"format": "wav", "chapterIds": [chapter], "audioVariant": "mixed"},
+    ).json()
+    assert mixed["blockers"][0]["code"] == "missing_mixed_render"
+
+    m4b = client.post(
+        f"/api/v1/projects/{project}/exports/estimate",
+        json={"format": "m4b", "chapterIds": [chapter]},
+    ).json()
+    assert m4b["m4bPlanned"] is True
+    assert m4b["blockers"][0]["code"] == "m4b_planned"
+    blocked = client.post(
+        f"/api/v1/projects/{project}/exports",
+        json={"format": "m4b", "chapterIds": [chapter]},
+    )
+    assert blocked.status_code == 422
+    assert "M4B export is planned" in blocked.json()["detail"]
 
 
 def test_artifact_route_rejects_escape_and_segment_override(client) -> None:
