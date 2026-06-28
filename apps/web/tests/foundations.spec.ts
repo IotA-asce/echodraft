@@ -43,6 +43,71 @@ test("creates a local project from the dashboard", async ({ page }) => {
   expect(existsSync(path.join(artifactRoot, createdDirectories[0], "manifests"))).toBeTruthy();
 });
 
+test("keeps manuscript intake polling until a slow import finishes", async ({ page }) => {
+  let importDone = false;
+  let polls = 0;
+
+  await page.route(/\/api\/v1\/projects\/[^/]+\/source$/, async (route) => {
+    if (!importDone) {
+      await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "No source" }) });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "source_slow_import",
+        projectId: "project_slow_import",
+        originalFilename: "slow.pdf",
+        status: "ready",
+        parserVersion: "ingestion-0.1.0",
+        canonicalPath: "/tmp/canonical.md",
+        manifestPath: "/tmp/source_manifest.json",
+        preview: "Long import manuscript ready.",
+        warnings: []
+      })
+    });
+  });
+  await page.route(/\/api\/v1\/projects\/[^/]+\/source\/import$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ id: "job_slow_import", status: "running", progress: { phase: "normalizing", message: "Normalizing manuscript locally." } })
+    });
+  });
+  await page.route(/\/api\/v1\/jobs\/job_slow_import$/, async (route) => {
+    polls += 1;
+    if (polls < 2) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ id: "job_slow_import", status: "running", progress: { phase: "normalizing", message: "Normalizing manuscript locally." } })
+      });
+      return;
+    }
+    importDone = true;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ id: "job_slow_import", status: "succeeded", progress: { phase: "completed", message: "Manuscript import completed." } })
+    });
+  });
+  await page.route(/\/api\/v1\/sources\/source_slow_import\/(pages|cleaning-issues)$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
+  });
+
+  const title = `Slow Import ${Date.now()}`;
+  await page.goto("/");
+  await page.getByLabel("Title").fill(title);
+  await page.getByLabel(/I confirm I have the rights/).check();
+  await page.getByRole("button", { name: "Create project" }).click();
+  await page.getByLabel("Manuscript file").setInputFiles({
+    name: "slow.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF slow import")
+  });
+
+  await expect(page.getByRole("progressbar", { name: "Manuscript import progress" })).toBeVisible();
+  await expect(page.getByText("Normalizing manuscript locally.")).toBeVisible();
+  await expect(page.getByText("Long import manuscript ready.")).toBeVisible({ timeout: 10_000 });
+});
+
 test("produces and exports a chapter entirely from the dashboard", async ({ page }) => {
   const title = `Production Desk ${Date.now()}`;
   await page.goto("/");
