@@ -6,6 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from echodraft_domain import (
+    DirectionProfile,
     Job,
     JobState,
     ParserWarning,
@@ -13,6 +14,7 @@ from echodraft_domain import (
     ProjectCreate,
     RightsStatus,
     SourceDocument,
+    SegmentDirection,
     SpeakerAttribution,
     StructureParserWarning,
 )
@@ -29,6 +31,7 @@ from .models import (
     ProjectRecord,
     RightsDeclarationRecord,
     SceneRecord,
+    SegmentDirectionRecord,
     SegmentRecord,
     SpeakerAttributionRecord,
     StructureLockRecord,
@@ -107,6 +110,21 @@ def _speaker_attribution(
             "status": record.status,
             "userLocked": record.user_locked,
             "voiceProfileId": voice_profile_id,
+            "createdAt": record.created_at,
+            "updatedAt": record.updated_at,
+        }
+    )
+
+
+def _segment_direction(record: SegmentDirectionRecord) -> SegmentDirection:
+    return SegmentDirection.model_validate(
+        {
+            "segmentId": record.segment_id,
+            "projectId": record.project_id,
+            "direction": DirectionProfile.model_validate(json.loads(record.direction_json)),
+            "source": record.source,
+            "userLocked": record.user_locked,
+            "directionFingerprint": record.direction_fingerprint,
             "createdAt": record.created_at,
             "updatedAt": record.updated_at,
         }
@@ -1239,3 +1257,69 @@ class ProductionSettingsRepository:
             record.direction_json = direction_json
             session.commit()
             return record
+
+
+class SegmentDirectionRepository:
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def all_for_project(self, project_id: str) -> list[SegmentDirection]:
+        with self.database.session() as session:
+            records = session.scalars(
+                select(SegmentDirectionRecord)
+                .where(SegmentDirectionRecord.project_id == project_id)
+                .order_by(SegmentDirectionRecord.updated_at.desc())
+            )
+            return [_segment_direction(record) for record in records]
+
+    def get(self, segment_id: str) -> SegmentDirection | None:
+        with self.database.session() as session:
+            record = session.get(SegmentDirectionRecord, segment_id)
+            return _segment_direction(record) if record else None
+
+    def records(self, segment_ids: list[str]) -> dict[str, SegmentDirectionRecord]:
+        if not segment_ids:
+            return {}
+        with self.database.session() as session:
+            rows = session.scalars(
+                select(SegmentDirectionRecord).where(
+                    SegmentDirectionRecord.segment_id.in_(segment_ids)
+                )
+            )
+            return {row.segment_id: row for row in rows}
+
+    def upsert(
+        self,
+        project_id: str,
+        segment_id: str,
+        direction_json: str,
+        source: str,
+        user_locked: bool,
+        direction_fingerprint: str,
+    ) -> SegmentDirection:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            record = session.get(SegmentDirectionRecord, segment_id)
+            if record and record.user_locked and source == "inferred":
+                return _segment_direction(record)
+            if not record:
+                record = SegmentDirectionRecord(
+                    segment_id=segment_id,
+                    project_id=project_id,
+                    direction_json=direction_json,
+                    source=source,
+                    user_locked=user_locked,
+                    direction_fingerprint=direction_fingerprint,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(record)
+            else:
+                record.project_id = project_id
+                record.direction_json = direction_json
+                record.source = source
+                record.user_locked = user_locked
+                record.direction_fingerprint = direction_fingerprint
+                record.updated_at = now
+            session.commit()
+            return _segment_direction(record)
