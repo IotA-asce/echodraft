@@ -516,16 +516,33 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             raise HTTPException(status_code=415, detail=str(error)) from error
         source = container.sources.latest(project_id)
         assert source
-        job = container.jobs.submit(
-            "source.import",
-            lambda: service.process(
+        def operation(job_id: str) -> None:
+            container.jobs_repository.set_progress(
+                job_id,
+                {
+                    "phase": "normalizing",
+                    "message": "Normalizing manuscript locally.",
+                },
+            )
+            service.process(
                 source_id,
                 project_id,
                 source.original_filename,
                 source.mime_type,
                 parser_version,
                 Path(source.original_path),
-            ),
+            )
+            container.jobs_repository.set_progress(
+                job_id,
+                {
+                    "phase": "completed",
+                    "message": "Manuscript import completed.",
+                },
+            )
+
+        job = container.jobs.submit_with_job(
+            "source.import",
+            operation,
             project_id,
         )
         return job
