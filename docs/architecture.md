@@ -101,6 +101,7 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
 - insert pauses and transitions
 - assemble speech and optional ambience stems
 - create chapter mix artifacts
+- import local WAV sound assets and apply scene cues only for explicit light/dramatized mixes
 
 ### QA
 - run technical, linguistic, and narrative checks

@@ -28,10 +28,11 @@ The source files above remain raw reference inputs. The documents in this direct
 9. [pipeline-manifest-spec.md](pipeline-manifest-spec.md)
 10. [voice-bible-spec.md](voice-bible-spec.md)
 11. [tts-production-upgrade.md](tts-production-upgrade.md)
-12. [qa-rulebook.md](qa-rulebook.md)
-13. [api-spec.yaml](api-spec.yaml)
-14. [repository-blueprint.md](repository-blueprint.md)
-15. [platform-evolution.md](platform-evolution.md)
+12. [sound-design.md](sound-design.md)
+13. [qa-rulebook.md](qa-rulebook.md)
+14. [api-spec.yaml](api-spec.yaml)
+15. [repository-blueprint.md](repository-blueprint.md)
+16. [platform-evolution.md](platform-evolution.md)
 
 ## How to use this set
 - Start with the overview and MVP spec to understand scope and success criteria.

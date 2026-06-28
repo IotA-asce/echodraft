@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from echodraft_domain import ChapterRender
 from echodraft_db.models import (
+    AmbienceAssetRecord,
+    AmbienceCueRecord,
     ChapterRenderRecord,
     SceneRecord,
     SegmentRecord,
@@ -26,6 +28,24 @@ class AssemblyInput:
     render: SegmentRenderRecord
 
 
+@dataclass(frozen=True)
+class SoundCueInput:
+    id: str
+    scene_id: str
+    asset_id: str
+    name: str
+    asset_path: str
+    asset_type: str
+    cue_type: str
+    start_ms: int
+    gain_db: float
+    fade_in_ms: int
+    fade_out_ms: int
+    ducking: bool
+    render_mode: str
+    no_sfx: bool
+
+
 class ChapterAssembler:
     """Build immutable chapter stems from the current successful segment renders."""
 
@@ -41,7 +61,8 @@ class ChapterAssembler:
     def assemble(
         self, project_id: str, chapter_id: str, render_mode: str = "speech_only"
     ) -> ChapterRender:
-        if render_mode not in {"speech_only", "multi_voice", "light_cinematic"}:
+        render_mode = self._canonical_render_mode(render_mode)
+        if render_mode not in {"speech_only", "multi_voice", "light_cinematic", "dramatized"}:
             raise ValueError("Unsupported render mode.")
         project = self.container.projects.get(project_id)
         chapter = self.container.structure.chapter(chapter_id)
@@ -54,14 +75,24 @@ class ChapterAssembler:
             root = Path(project.artifact_path) / "audio" / "chapters" / chapter_id / render_id
             root.mkdir(parents=True, exist_ok=True)
             speech_path = root / "speech.wav"
-            duration_ms = self._write_speech_stem(speech_path, inputs)
+            duration_ms, scene_offsets = self._write_speech_stem(speech_path, inputs)
             ambience_path = None
             mixed_path = None
-            if render_mode == "light_cinematic":
-                ambience_path = root / "ambience.wav"
+            sound_cues: list[SoundCueInput] = []
+            mix_warnings: list[str] = []
+            if render_mode in {"light_cinematic", "dramatized"}:
+                sound_cues = self._resolve_sound_cues(session, chapter_id, render_mode)
+                ambience_path = root / "sound-design.wav"
                 mixed_path = root / "mix.wav"
-                self._write_silence_stem(ambience_path, duration_ms)
-                mixed_path.write_bytes(speech_path.read_bytes())
+                mix_warnings = self._write_sound_mix(
+                    speech_path,
+                    ambience_path,
+                    mixed_path,
+                    duration_ms,
+                    scene_offsets,
+                    sound_cues,
+                    render_mode,
+                )
             manifest_path = root / "chapter_render_manifest.json"
             waveform_path = root / "waveform.json"
             validation_path = root / "validation_report.json"
@@ -90,7 +121,18 @@ class ChapterAssembler:
                         ],
                         "durationMs": duration_ms,
                         "renderMode": render_mode,
-                        "ambienceInputs": [],
+                        "ambienceInputs": [self._sound_cue_manifest(item) for item in sound_cues],
+                        "soundDesign": {
+                            "mode": self._public_render_mode(render_mode),
+                            "cleanNarrationDefault": render_mode == "speech_only",
+                            "cueCount": len(sound_cues),
+                            "outputs": {
+                                "speech": str(speech_path),
+                                "soundStem": str(ambience_path) if ambience_path else None,
+                                "mix": str(mixed_path) if mixed_path else None,
+                            },
+                            "warnings": mix_warnings,
+                        },
                     },
                     indent=2,
                     sort_keys=True,
@@ -102,8 +144,8 @@ class ChapterAssembler:
                     {
                         "status": "passed",
                         "inputCount": len(inputs),
-                        "warnings": [],
-                        "output": str(speech_path),
+                        "warnings": mix_warnings,
+                        "output": str(mixed_path or speech_path),
                     },
                     indent=2,
                     sort_keys=True,
@@ -123,7 +165,11 @@ class ChapterAssembler:
             session.add(record)
             session.commit()
         ReviewService(self.container).qa_chapter(
-            project_id, chapter_id, record.id, record.speech_path, record.duration_ms
+            project_id,
+            chapter_id,
+            record.id,
+            record.mixed_audio_path or record.speech_path,
+            record.duration_ms,
         )
         return self._model(record)
 
@@ -183,13 +229,20 @@ class ChapterAssembler:
             raise ValueError("Chapter has no renderable segments.")
         return inputs
 
-    def _write_speech_stem(self, output_path: Path, inputs: list[AssemblyInput]) -> int:
+    def _write_speech_stem(
+        self, output_path: Path, inputs: list[AssemblyInput]
+    ) -> tuple[int, dict[str, int]]:
+        frame_cursor = 0
+        scene_offsets: dict[str, int] = {}
         with wave.open(str(output_path), "wb") as target:
             target.setnchannels(self.channels)
             target.setsampwidth(self.sample_width)
             target.setframerate(self.sample_rate)
             for index, item in enumerate(inputs):
-                target.writeframes(self._normalized_frames(Path(item.render.audio_path)))
+                scene_offsets.setdefault(item.scene_id, self._frames_to_ms(frame_cursor))
+                frames = self._normalized_frames(Path(item.render.audio_path))
+                target.writeframes(frames)
+                frame_cursor += self._frame_count(frames)
                 if index < len(inputs) - 1:
                     next_item = inputs[index + 1]
                     pause = (
@@ -197,9 +250,147 @@ class ChapterAssembler:
                         if item.scene_id != next_item.scene_id
                         else self.paragraph_pause_ms
                     )
-                    target.writeframes(self._silence(pause))
-        with wave.open(str(output_path)) as output:
-            return int(output.getnframes() / output.getframerate() * 1000)
+                    silence = self._silence(pause)
+                    target.writeframes(silence)
+                    frame_cursor += self._frame_count(silence)
+        return self._frames_to_ms(frame_cursor), scene_offsets
+
+    def _resolve_sound_cues(
+        self, session: Session, chapter_id: str, render_mode: str
+    ) -> list[SoundCueInput]:
+        statement = (
+            select(AmbienceCueRecord, AmbienceAssetRecord)
+            .join(AmbienceAssetRecord, AmbienceAssetRecord.id == AmbienceCueRecord.asset_id)
+            .join(SceneRecord, SceneRecord.id == AmbienceCueRecord.scene_id)
+            .where(SceneRecord.chapter_id == chapter_id)
+            .order_by(SceneRecord.order_index, AmbienceCueRecord.start_ms)
+        )
+        resolved: list[SoundCueInput] = []
+        for cue, asset in session.execute(statement).all():
+            cue_mode = cue.render_mode or "light"
+            if render_mode == "light_cinematic" and cue_mode not in {"light", "all", "light_cinematic"}:
+                continue
+            if render_mode == "dramatized" and cue_mode not in {
+                "light",
+                "all",
+                "light_cinematic",
+                "dramatized",
+            }:
+                continue
+            resolved.append(
+                SoundCueInput(
+                    id=cue.id,
+                    scene_id=cue.scene_id,
+                    asset_id=asset.id,
+                    name=asset.name,
+                    asset_path=asset.asset_path,
+                    asset_type=asset.asset_type,
+                    cue_type=cue.cue_type,
+                    start_ms=cue.start_ms,
+                    gain_db=cue.gain_db,
+                    fade_in_ms=cue.fade_in_ms,
+                    fade_out_ms=cue.fade_out_ms,
+                    ducking=cue.ducking,
+                    render_mode=cue_mode,
+                    no_sfx=cue.no_sfx,
+                )
+            )
+        return resolved
+
+    def _write_sound_mix(
+        self,
+        speech_path: Path,
+        stem_path: Path,
+        mixed_path: Path,
+        duration_ms: int,
+        scene_offsets: dict[str, int],
+        cues: list[SoundCueInput],
+        render_mode: str,
+    ) -> list[str]:
+        speech_samples = self._samples_from_wav(speech_path)
+        target_length = max(len(speech_samples), int(self.sample_rate * duration_ms / 1000))
+        if len(speech_samples) < target_length:
+            speech_samples.extend([0] * (target_length - len(speech_samples)))
+        sound_stem = [0.0] * target_length
+        warnings: list[str] = []
+        for cue in cues:
+            if cue.no_sfx and (cue.asset_type == "sfx" or cue.cue_type == "sfx"):
+                warnings.append(f"Skipped SFX cue {cue.id} because noSfx is set.")
+                continue
+            asset_path = Path(cue.asset_path)
+            if not asset_path.is_file():
+                warnings.append(f"Skipped cue {cue.id}; asset file is missing.")
+                continue
+            try:
+                asset_samples = self._samples_from_wav(asset_path)
+            except (wave.Error, ValueError, OSError) as error:
+                warnings.append(f"Skipped cue {cue.id}; asset is not a readable WAV: {error}.")
+                continue
+            if not asset_samples:
+                warnings.append(f"Skipped cue {cue.id}; asset contains no audio frames.")
+                continue
+            start_frame = int(
+                self.sample_rate * ((scene_offsets.get(cue.scene_id, 0) + cue.start_ms) / 1000)
+            )
+            if start_frame >= target_length:
+                warnings.append(f"Skipped cue {cue.id}; start time is beyond the chapter length.")
+                continue
+            cue_samples = self._cue_samples(asset_samples, target_length - start_frame, cue)
+            gain = self._cue_gain(cue, render_mode)
+            fade_in_frames = int(self.sample_rate * max(0, cue.fade_in_ms) / 1000)
+            fade_out_frames = int(self.sample_rate * max(0, cue.fade_out_ms) / 1000)
+            for offset, sample in enumerate(cue_samples):
+                position = start_frame + offset
+                if position >= target_length:
+                    break
+                envelope = 1.0
+                if fade_in_frames and offset < fade_in_frames:
+                    envelope = min(envelope, offset / fade_in_frames)
+                if fade_out_frames and offset >= len(cue_samples) - fade_out_frames:
+                    remaining = max(0, len(cue_samples) - offset)
+                    envelope = min(envelope, remaining / fade_out_frames)
+                sound_stem[position] += sample * gain * envelope
+        stem_samples = [self._clip_sample(round(value)) for value in sound_stem]
+        mixed_samples = [
+            self._clip_sample(speech + stem) for speech, stem in zip(speech_samples, stem_samples)
+        ]
+        self._write_samples(stem_path, stem_samples)
+        self._write_samples(mixed_path, mixed_samples)
+        return warnings
+
+    def _cue_samples(
+        self, asset_samples: list[int], max_frames: int, cue: SoundCueInput
+    ) -> list[int]:
+        if cue.asset_type in {"ambience", "music"} or cue.cue_type in {"ambience", "music"}:
+            repeated: list[int] = []
+            while len(repeated) < max_frames:
+                repeated.extend(asset_samples[: max_frames - len(repeated)])
+            return repeated[:max_frames]
+        return asset_samples[:max_frames]
+
+    @staticmethod
+    def _cue_gain(cue: SoundCueInput, render_mode: str) -> float:
+        if render_mode == "light_cinematic":
+            maximum = -14.0 if cue.asset_type == "sfx" or cue.cue_type == "sfx" else -18.0
+        else:
+            maximum = -10.0 if cue.asset_type == "sfx" or cue.cue_type == "sfx" else -14.0
+        gain_db = min(cue.gain_db, maximum)
+        if cue.ducking:
+            gain_db -= 6.0
+        return 10 ** (gain_db / 20)
+
+    def _samples_from_wav(self, path: Path) -> list[int]:
+        frames = self._normalized_frames(path)
+        if not frames:
+            return []
+        return list(struct.unpack(f"<{len(frames) // self.sample_width}h", frames))
+
+    def _write_samples(self, path: Path, samples: list[int]) -> None:
+        with wave.open(str(path), "wb") as target:
+            target.setnchannels(self.channels)
+            target.setsampwidth(self.sample_width)
+            target.setframerate(self.sample_rate)
+            target.writeframes(struct.pack(f"<{len(samples)}h", *samples))
 
     def _normalized_frames(self, path: Path) -> bytes:
         with wave.open(str(path), "rb") as source:
@@ -259,6 +450,54 @@ class ChapterAssembler:
             target.setsampwidth(self.sample_width)
             target.setframerate(self.sample_rate)
             target.writeframes(self._silence(duration_ms))
+
+    def _frame_count(self, frames: bytes) -> int:
+        return len(frames) // (self.channels * self.sample_width)
+
+    def _frames_to_ms(self, frame_count: int) -> int:
+        return int(frame_count / self.sample_rate * 1000)
+
+    @staticmethod
+    def _clip_sample(value: float | int) -> int:
+        return max(-32_768, min(32_767, round(value)))
+
+    @staticmethod
+    def _canonical_render_mode(render_mode: str) -> str:
+        aliases = {
+            "clean": "speech_only",
+            "light": "light_cinematic",
+            "light_cinematic": "light_cinematic",
+            "speech_only": "speech_only",
+            "multi_voice": "multi_voice",
+            "dramatized": "dramatized",
+        }
+        return aliases.get(render_mode, render_mode)
+
+    @staticmethod
+    def _public_render_mode(render_mode: str) -> str:
+        if render_mode == "speech_only":
+            return "clean"
+        if render_mode == "light_cinematic":
+            return "light"
+        return render_mode
+
+    @staticmethod
+    def _sound_cue_manifest(cue: SoundCueInput) -> dict[str, object]:
+        return {
+            "id": cue.id,
+            "sceneId": cue.scene_id,
+            "assetId": cue.asset_id,
+            "assetName": cue.name,
+            "assetType": cue.asset_type,
+            "cueType": cue.cue_type,
+            "startMs": cue.start_ms,
+            "gainDb": cue.gain_db,
+            "fadeInMs": cue.fade_in_ms,
+            "fadeOutMs": cue.fade_out_ms,
+            "ducking": cue.ducking,
+            "renderMode": cue.render_mode,
+            "noSfx": cue.no_sfx,
+        }
 
     @staticmethod
     def _model(record: ChapterRenderRecord) -> ChapterRender:

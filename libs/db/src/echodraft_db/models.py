@@ -352,7 +352,9 @@ class AmbienceAssetRecord(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    asset_type: Mapped[str] = mapped_column(String(32), nullable=False, default="ambience")
     asset_path: Mapped[str] = mapped_column(Text, nullable=False)
+    duration_ms: Mapped[int | None] = mapped_column()
     license_note: Mapped[str] = mapped_column(Text, nullable=False)
     provenance: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -370,9 +372,13 @@ class AmbienceCueRecord(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     scene_id: Mapped[str] = mapped_column(ForeignKey("scenes.id"), index=True)
     asset_id: Mapped[str | None] = mapped_column(ForeignKey("ambience_assets.id"))
+    cue_type: Mapped[str] = mapped_column(String(32), nullable=False, default="ambience")
+    start_ms: Mapped[int] = mapped_column(nullable=False, default=0)
     gain_db: Mapped[float] = mapped_column(nullable=False)
     fade_in_ms: Mapped[int] = mapped_column(nullable=False)
     fade_out_ms: Mapped[int] = mapped_column(nullable=False)
+    ducking: Mapped[bool] = mapped_column(nullable=False, default=True)
+    render_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="light")
     no_sfx: Mapped[bool] = mapped_column(nullable=False, default=False)
 
 
