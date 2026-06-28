@@ -26,10 +26,10 @@ export function ManuscriptIntakePanel({
   onResolveCleaningIssue: (issue: TextCleanlinessIssue) => Promise<void>;
 }) {
   return (
-    <section className="import-desk">
+    <section className="import-desk" aria-labelledby="manuscript-intake-title">
       <div>
         <p className="eyebrow">02 / Manuscript intake</p>
-        <h2>Bring in the working text</h2>
+        <h2 id="manuscript-intake-title">Bring in the working text</h2>
         <p className="lede">TXT, Markdown, DOCX, EPUB, and PDF are normalized locally. Scanned PDF pages use local English OCR when Poppler and Tesseract are installed.</p>
       </div>
       <div className="import-card">

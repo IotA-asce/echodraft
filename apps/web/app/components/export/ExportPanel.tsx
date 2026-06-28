@@ -53,10 +53,10 @@ export function ExportPanel({
   }
 
   return (
-    <section className="studio-section exports export-panel">
+    <section className="studio-section exports export-panel" aria-labelledby="export-panel-title">
       <div>
         <p className="eyebrow">07 / Export</p>
-        <h2>Export Panel</h2>
+        <h2 id="export-panel-title">Export Panel</h2>
         <p className="lede">Choose chapters, package clean or mixed audio, and keep checksums, readiness summaries, and render lineage with each local ZIP.</p>
       </div>
       <div className="studio-card">

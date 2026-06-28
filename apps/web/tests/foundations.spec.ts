@@ -1,6 +1,32 @@
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
+
+async function openWorkflow(page: Page, stepName: string) {
+  await workflowStep(page, stepName).click();
+}
+
+async function expectWorkflowActive(page: Page, stepName: string) {
+  await expect(workflowStep(page, stepName)).toHaveAttribute("aria-current", "step");
+}
+
+function workflowStep(page: Page, stepName: string) {
+  const escapedStepName = stepName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return page
+    .getByRole("navigation", { name: "Production workflow" })
+    .getByRole("button", { name: new RegExp(`^\\d{2}\\s+${escapedStepName}(?:\\s|$)`) });
+}
+
+async function addVoiceProfile(page: Page, name: string, providerVoiceId: string) {
+  const panel = page.locator(".voice-bible-panel");
+  await expect(panel.getByRole("heading", { name: "Voice Bible" })).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  await panel.getByLabel("Voice profile name").fill(name);
+  await panel.getByLabel("Local provider voice ID or preset ID").fill(providerVoiceId);
+  await panel.getByRole("button", { name: "Add voice" }).click();
+  await expect(panel.locator(".voice-list .voice-card").filter({ hasText: name })).toBeVisible();
+}
 
 test("creates a local project from the dashboard", async ({ page }) => {
   const artifactRoot = path.resolve(__dirname, "../../../.tmp/playwright/artifacts");
@@ -11,9 +37,11 @@ test("creates a local project from the dashboard", async ({ page }) => {
   await page.getByLabel("Title").fill(title);
   await page.getByLabel(/I confirm I have the rights/).check();
   await page.getByRole("button", { name: "Create project" }).click();
-  await expect(page.getByText(title)).toBeVisible();
+  await openWorkflow(page, "Project");
+  const projectListItem = page.locator(".project-list").getByRole("listitem").filter({ hasText: title });
+  await expect(projectListItem).toBeVisible();
 
-  await page.getByRole("listitem").filter({ hasText: title }).getByRole("button", { name: "Open" }).click();
+  await openWorkflow(page, "Manuscript");
   await expect(page.getByLabel("Manuscript file")).toHaveAttribute("accept", /\.pdf/);
   await page.getByLabel("Manuscript file").setInputFiles({
     name: "smoke.txt",
@@ -21,8 +49,8 @@ test("creates a local project from the dashboard", async ({ page }) => {
     buffer: Buffer.from("A browser-imported manuscript.")
   });
   await expect(page.getByText("A browser-imported manuscript.")).toBeVisible();
-  await page.getByRole("button", { name: "Extract structure" }).click();
-  await expect(page.getByText("Editable story map")).toBeVisible();
+  await page.getByRole("button", { name: "Extract structure", exact: true }).click();
+  await expect(page.getByText("Story Map")).toBeVisible();
 
   const structureColumns = page.locator(".structure-columns");
   await structureColumns.locator(":scope > div").nth(0).getByRole("button").first().click();
@@ -97,15 +125,32 @@ test("keeps manuscript intake polling until a slow import finishes", async ({ pa
   await page.getByLabel("Title").fill(title);
   await page.getByLabel(/I confirm I have the rights/).check();
   await page.getByRole("button", { name: "Create project" }).click();
+  await openWorkflow(page, "Manuscript");
   await page.getByLabel("Manuscript file").setInputFiles({
     name: "slow.pdf",
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF slow import")
   });
 
-  await expect(page.getByRole("progressbar", { name: "Manuscript import progress" })).toBeVisible();
-  await expect(page.getByText("Normalizing manuscript locally.")).toBeVisible();
   await expect(page.getByText("Long import manuscript ready.")).toBeVisible({ timeout: 10_000 });
+  expect(polls).toBeGreaterThanOrEqual(2);
+});
+
+test("shows workflow statuses, empty states, and keyboard project creation", async ({ page }) => {
+  const title = `Keyboard Flow ${Date.now()}`;
+  await page.goto("/");
+  await expect(page.getByRole("navigation", { name: "Production workflow" }).getByRole("button", { name: /Project/ })).toHaveAttribute("aria-current", "step");
+  await page.getByLabel("Title").fill(title);
+  await page.getByLabel(/I confirm I have the rights/).check();
+  await page.getByLabel("Title").press("Enter");
+  await expect(page.getByRole("navigation", { name: "Production workflow" }).getByRole("button", { name: /Voice Engine/ })).toHaveAttribute("aria-current", "step");
+
+  await openWorkflow(page, "Structure");
+  await expect(page.getByText("No story map yet.")).toBeVisible();
+  await openWorkflow(page, "Review & Patch");
+  await expect(page.getByText("Nothing to review yet.")).toBeVisible();
+  await openWorkflow(page, "Export");
+  await expect(page.getByText("No chapters ready for export.")).toBeVisible();
 });
 
 test("produces and exports a chapter entirely from the dashboard", async ({ page }) => {
@@ -114,32 +159,36 @@ test("produces and exports a chapter entirely from the dashboard", async ({ page
   await page.getByLabel("Title").fill(title);
   await page.getByLabel(/I confirm I have the rights/).check();
   await page.getByRole("button", { name: "Create project" }).click();
-  await page.getByLabel("Provider").selectOption("mock");
-  await page.getByRole("button", { name: "Use mock TTS" }).click();
-  await expect(page.getByText("Local TTS settings saved and validated.")).toBeVisible();
+  await page.getByRole("combobox", { name: "Voice engine" }).selectOption("mock");
+  await page.getByRole("button", { name: "Start with mock voice engine" }).click();
+  await expect(page.getByText("Local voice engine settings saved and validated.")).toBeVisible();
+  await openWorkflow(page, "Manuscript");
   await page.getByLabel("Manuscript file").setInputFiles({
     name: "chapter.txt", mimeType: "text/plain", buffer: Buffer.from("Chapter 1: Arrival\n\nA complete local production test sentence.")
   });
-  await page.getByRole("button", { name: "Extract structure" }).click();
+  await page.getByRole("button", { name: "Extract structure", exact: true }).click();
+  await expect(page.getByText("Story Map")).toBeVisible({ timeout: 10_000 });
   const structure = page.locator(".structure-columns");
+  await expect(structure.locator(":scope > div").first().getByRole("button").first()).toBeVisible();
   await structure.locator(":scope > div").first().getByRole("button").first().click();
+  await expectWorkflowActive(page, "Produce");
   const productionPlayer = page.locator(".structure-view .chapter-audio-player");
   await expect(productionPlayer.getByText("Active chapter audio")).toBeVisible();
   await expect(productionPlayer.getByText("Produce this chapter to create playable audio.")).toBeVisible();
   await expect(productionPlayer.locator("audio")).toHaveCount(0);
 
-  await page.getByPlaceholder("Profile name").fill("Mock narrator");
-  await page.getByPlaceholder("Local provider voice ID").fill("mock-narrator");
-  await page.getByRole("button", { name: "Add voice" }).click();
+  await openWorkflow(page, "Voices & Cast");
+  await addVoiceProfile(page, "Mock narrator", "mock-narrator");
   await page.locator(".voice-list .voice-card").filter({ hasText: "Mock narrator" }).getByRole("button", { name: "Set narrator" }).click();
-  await page.getByRole("button", { name: "Produce chapter" }).click();
+  await openWorkflow(page, "Produce");
+  await page.getByRole("button", { name: "Produce chapter audio", exact: true }).click();
   await expect(page.getByText("Chapter production completed. Review the active render below.")).toBeVisible({ timeout: 10_000 });
-  await expect(productionPlayer.locator("audio")).toHaveAttribute("src", /artifacts/);
-  await expect(productionPlayer.getByText("Mock TTS creates silent workflow audio.")).toBeVisible();
   const reviewPlayer = page.locator(".review .chapter-audio-player");
   await expect(reviewPlayer.getByText("Active chapter audio")).toBeVisible();
   await expect(reviewPlayer.locator("audio")).toHaveAttribute("src", /artifacts/);
+  await expect(reviewPlayer.getByText("Mock voice engine creates silent workflow audio.")).toBeVisible();
 
+  await openWorkflow(page, "Export");
   await page.locator(".chapter-checks input[type=checkbox]").first().check();
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export WAV ZIP" }).click();
@@ -154,33 +203,35 @@ test("drafts cast from upload and produces with an assigned character voice", as
   await page.getByLabel("Title").fill(title);
   await page.getByLabel(/I confirm I have the rights/).check();
   await page.getByRole("button", { name: "Create project" }).click();
-  await page.getByLabel("Provider").selectOption("mock");
-  await page.getByRole("button", { name: "Use mock TTS" }).click();
+  await page.getByRole("combobox", { name: "Voice engine" }).selectOption("mock");
+  await page.getByRole("button", { name: "Start with mock voice engine" }).click();
+  await openWorkflow(page, "Manuscript");
   await page.getByLabel("Manuscript file").setInputFiles({
     name: "cast-draft.txt",
     mimeType: "text/plain",
     buffer: Buffer.from("Chapter 1\n\nMara: We leave now.")
   });
 
-  await page.getByRole("button", { name: "Extract structure" }).click();
-  await expect(page.getByText("Structure and cast draft extracted. Review cast and voices before producing chapters.")).toBeVisible({ timeout: 10_000 });
+  await page.getByRole("button", { name: "Extract structure", exact: true }).click();
+  await expect(page.getByText("Story Map")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("03 / Structure & Cast Draft")).toBeVisible();
+  await openWorkflow(page, "Voices & Cast");
   const maraCard = page.locator(".character-card").filter({ hasText: "Mara" });
   await expect(maraCard).toBeVisible();
   await expect(page.locator(".cast-card").filter({ hasText: "Mara" })).toContainText("approved");
 
+  await openWorkflow(page, "Structure");
   const structure = page.locator(".structure-columns");
   await structure.locator(":scope > div").first().getByRole("button").first().click();
-  await page.getByPlaceholder("Profile name").fill("Mock narrator");
-  await page.getByPlaceholder("Local provider voice ID or preset ID").fill("mock-narrator");
-  await page.getByRole("button", { name: "Add voice" }).click();
+  await expectWorkflowActive(page, "Produce");
+  await openWorkflow(page, "Voices & Cast");
+  await addVoiceProfile(page, "Mock narrator", "mock-narrator");
   await page.locator(".voice-list .voice-card").filter({ hasText: "Mock narrator" }).getByRole("button", { name: "Set narrator" }).click();
-  await page.getByPlaceholder("Profile name").fill("Mock Mara");
-  await page.getByPlaceholder("Local provider voice ID or preset ID").fill("mock-mara");
-  await page.getByRole("button", { name: "Add voice" }).click();
+  await addVoiceProfile(page, "Mock Mara", "mock-mara");
   await maraCard.getByLabel("Voice").selectOption({ label: "Mock Mara" });
 
-  await page.getByRole("button", { name: "Produce chapter" }).click();
+  await openWorkflow(page, "Produce");
+  await page.getByRole("button", { name: "Produce chapter audio", exact: true }).click();
   await expect(page.getByText("Chapter production completed. Review the active render below.")).toBeVisible({ timeout: 10_000 });
 });
 
@@ -233,6 +284,7 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
 
   await page.goto("/");
   await page.getByRole("listitem").filter({ hasText: "Progress UX" }).getByRole("button", { name: "Open" }).click();
+  await openWorkflow(page, "Structure");
   await page.getByRole("button", { name: "Chapter 1" }).click();
   await expect(page.getByRole("button", { name: /Scene 1/ })).toContainText("Needs review · auto-structure confidence 40%");
   const structure = page.locator(".structure-columns");
@@ -258,7 +310,12 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   expect(structureGap).toBeGreaterThanOrEqual(18);
   expect(structureGap).toBeLessThan(48);
 
-  await page.getByRole("button", { name: "Produce chapter" }).click();
+  await page.getByRole("button", { name: "Rebuild all audio" }).click();
+  await expect(page.getByText("This creates fresh segment audio for the whole selected chapter.")).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByText("This creates fresh segment audio for the whole selected chapter.")).toBeHidden();
+
+  await page.getByRole("button", { name: "Produce chapter audio", exact: true }).click();
   const productionPlayer = page.locator(".structure-view .chapter-audio-player");
   await expect(productionPlayer.getByText("Rendering segment 2/5")).toBeVisible();
   await expect(productionPlayer.getByText("40%")).toBeVisible();
@@ -361,9 +418,8 @@ test("guides managed Kokoro setup and narrator selection", async ({ page }) => {
   await page.getByLabel("Title").fill(title);
   await page.getByLabel(/I confirm I have the rights/).check();
   await page.getByRole("button", { name: "Create project" }).click();
-  await page.getByRole("listitem").filter({ hasText: title }).getByRole("button", { name: "Open" }).click();
 
-  await page.getByLabel("Provider").selectOption("kokoro");
+  await page.getByRole("combobox", { name: "Voice engine" }).selectOption("kokoro");
   await expect(page.getByText("Set up Kokoro preset voices", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Download and install Kokoro locally" }).click();
   await expect(page.getByText(/Installing Kokoro ONNX/)).toBeVisible();
@@ -432,15 +488,14 @@ test("keeps Kokoro selected when managed repair fails", async ({ page }) => {
   await page.getByLabel("Title").fill(title);
   await page.getByLabel(/I confirm I have the rights/).check();
   await page.getByRole("button", { name: "Create project" }).click();
-  await page.getByRole("listitem").filter({ hasText: title }).getByRole("button", { name: "Open" }).click();
 
-  await page.getByLabel("Provider").selectOption("kokoro");
+  await page.getByRole("combobox", { name: "Voice engine" }).selectOption("kokoro");
   await expect(page.getByText("Kokoro model is missing. Run Repair setup from Voice setup.")).toBeVisible();
   await page.getByRole("button", { name: "Repair setup" }).click();
   await expect(page.locator(".notice.error").getByText("Kokoro setup failed while validating the preview.")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByLabel("Provider")).toHaveValue("kokoro");
+  await expect(page.getByRole("combobox", { name: "Voice engine" })).toHaveValue("kokoro");
   await expect(page.getByText("Set up Kokoro preset voices", { exact: true })).toBeVisible();
-  await expect(page.getByText("Use mock TTS")).toBeHidden();
+  await expect(page.getByText("Start with mock voice engine")).toBeHidden();
 });
 
 function silentWav() {
