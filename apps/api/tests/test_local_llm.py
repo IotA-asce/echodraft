@@ -56,6 +56,11 @@ class FakeProvider:
         return EmbeddingResult(model="qwen3-embedding", embeddings=[[0.1, 0.2]])
 
 
+class LatestTaggedEmbeddingProvider(FakeProvider):
+    def tags(self) -> list[dict[str, object]]:
+        return [{"name": "qwen3-embedding:latest", "model": "qwen3-embedding:latest"}]
+
+
 def test_schema_validation_requires_declared_fields() -> None:
     errors = validate_json_schema({"characters": []}, local_llm.DEFAULT_EXTRACTION_SCHEMA)
     assert "$.warnings is required" in errors
@@ -92,6 +97,20 @@ def test_embedding_endpoint_uses_installed_ollama_model(
         "/api/v1/local-llm/embeddings",
         json={"model": "qwen3-embedding", "input": "Mara"},
     )
+    assert response.status_code == 200
+    assert response.json()["embeddings"] == [[0.1, 0.2]]
+
+
+def test_embedding_endpoint_accepts_ollama_latest_tag(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(local_llm, "OllamaProvider", LatestTaggedEmbeddingProvider)
+
+    response = client.post(
+        "/api/v1/local-llm/embeddings",
+        json={"model": "qwen3-embedding", "input": "Mara"},
+    )
+
     assert response.status_code == 200
     assert response.json()["embeddings"] == [[0.1, 0.2]]
 
