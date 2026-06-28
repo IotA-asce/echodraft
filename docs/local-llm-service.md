@@ -2,7 +2,8 @@
 
 Stage 5 adds the first local LLM runtime integration through Ollama. It uses the current Ollama API behavior documented in the official Ollama API docs:
 
-- `GET /api/tags` lists local models;
+- `GET /api/tags` lists local models, with untagged requested names treated as
+  matching Ollama's `:latest` tag;
 - `ollama pull <model>` is used by Model Center for model acquisition;
 - `POST /api/generate` accepts `stream: false` and a JSON Schema object in `format`;
 - `POST /api/embed` returns embedding vectors.
