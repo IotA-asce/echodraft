@@ -2,7 +2,8 @@
 * { box-sizing:border-box; }
 html { background:var(--paper); }
 body { margin:0; color:var(--ink); font-family:"Avenir Next", "Gill Sans", sans-serif; }
-button, input, textarea { font:inherit; }
+button, input, textarea, select { font:inherit; }
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible,.workflow-step:focus-visible,.tree-button:focus-visible,.segment-button:focus-visible,.timeline-item:focus-visible { outline:3px solid rgba(200,90,53,.58); outline-offset:3px; }
 .desk-shell { min-height:100vh; padding:28px clamp(22px,5vw,76px) 60px; position:relative; overflow:hidden; background:radial-gradient(circle at 83% 9%,rgba(200,90,53,.15),transparent 29rem),linear-gradient(130deg,#f7f3e9,var(--paper-deep)); }
 .grain { position:absolute; inset:0; pointer-events:none; opacity:.24; background-image:radial-gradient(rgba(29,33,29,.12) .55px,transparent .55px); background-size:7px 7px; mix-blend-mode:multiply; }
 .masthead,.hero,.workspace,.studio-shell-grid { position:relative; z-index:1; max-width:1260px; margin-inline:auto; }
@@ -37,7 +38,7 @@ h1 { margin:0; font-size:clamp(3.2rem,7vw,6.4rem); line-height:.86; letter-spaci
 .workflow-step-status.complete { color:var(--moss); border-color:rgba(48,75,61,.35); background:rgba(48,75,61,.08); }
 .workflow-step-status.needs_attention,.workflow-step-status.in_progress { color:var(--clay); border-color:rgba(200,90,53,.42); background:rgba(200,90,53,.08); }
 .workflow-step-status.blocked { color:#a42b22; border-color:rgba(164,43,34,.34); background:rgba(164,43,34,.07); }
-.studio-active-panel { min-width:0; }
+.studio-active-panel,.studio-panel { min-width:0; }
 .studio-active-panel > .studio-section,.studio-active-panel > .import-desk,.studio-active-panel > .structure-view,.studio-active-panel > .workspace { margin-top:0; }
 .create-card,.project-panel { border:1px solid var(--ink); background:rgba(250,247,239,.82); }
 .create-card { padding:29px; }
