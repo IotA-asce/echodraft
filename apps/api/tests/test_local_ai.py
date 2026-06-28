@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
 import echodraft_api.local_ai.service as local_ai_service
+import echodraft_api.system_tools as system_tools
 from echodraft_api.local_ai import LocalAiService
 from echodraft_domain import LocalAiInstallRequest
 
@@ -40,8 +42,8 @@ def test_local_ai_unknown_catalog_item_returns_not_found(client) -> None:
 
 def test_verify_persists_system_tool_installation(app, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        local_ai_service.shutil,
-        "which",
+        local_ai_service,
+        "resolve_system_tool",
         lambda command: "/usr/bin/ffmpeg" if command == "ffmpeg" else None,
     )
     monkeypatch.setattr(
@@ -96,8 +98,8 @@ def test_system_tool_install_uses_existing_tool_without_package_command(
         return CompletedCommand(stdout="ffmpeg version test\n")
 
     monkeypatch.setattr(
-        local_ai_service.shutil,
-        "which",
+        local_ai_service,
+        "resolve_system_tool",
         lambda command: "/usr/bin/ffmpeg" if command == "ffmpeg" else None,
     )
     monkeypatch.setattr(local_ai_service.subprocess, "run", fake_run)
@@ -116,3 +118,75 @@ def test_system_tool_install_uses_existing_tool_without_package_command(
     installation = app.state.container.local_ai.installation("ffmpeg")
     assert installation and installation.status == "installed"
     assert calls == [["/usr/bin/ffmpeg", "-version"], ["/usr/bin/ffmpeg", "-version"]]
+
+
+def test_system_tool_install_accepts_winget_already_installed_after_resolution(
+    app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ready = False
+
+    def fake_resolve(command: str) -> str | None:
+        if ready and command == "tesseract":
+            return r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        return None
+
+    def fake_run(command: list[str], **_kwargs: object) -> CompletedCommand:
+        nonlocal ready
+        if command[0] == r"C:\Windows\System32\winget.exe":
+            ready = True
+            return CompletedCommand(
+                returncode=1,
+                stdout=(
+                    "Found an existing package already installed. "
+                    "No available upgrade found."
+                ),
+            )
+        return CompletedCommand(stdout="tesseract 5.4.0\n")
+
+    monkeypatch.setattr(local_ai_service.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(
+        local_ai_service.shutil,
+        "which",
+        lambda command: r"C:\Windows\System32\winget.exe" if command == "winget" else None,
+    )
+    monkeypatch.setattr(local_ai_service, "resolve_system_tool", fake_resolve)
+    monkeypatch.setattr(local_ai_service.subprocess, "run", fake_run)
+    job = app.state.container.jobs_repository.create("local_ai.install", target_id="tesseract")
+
+    LocalAiService(app.state.container).install(
+        job.id,
+        "tesseract",
+        LocalAiInstallRequest(
+            confirmNetworkDownload=True,
+            confirmThirdPartyLicense=True,
+            confirmSystemInstall=True,
+        ),
+    )
+
+    installation = app.state.container.local_ai.installation("tesseract")
+    assert installation and installation.status == "installed"
+    assert installation.install_path == r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+
+def test_resolve_system_tool_finds_windows_winget_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = (
+        tmp_path
+        / "Microsoft"
+        / "WinGet"
+        / "Packages"
+        / "UB-Mannheim.TesseractOCR_Microsoft.Winget.Source_8wekyb3d8bbwe"
+        / "Tesseract-OCR"
+        / "tesseract.exe"
+    )
+    executable.parent.mkdir(parents=True)
+    executable.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(system_tools.shutil, "which", lambda _command: None)
+    monkeypatch.setattr(system_tools.platform, "system", lambda: "Windows")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "program-files"))
+    monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path / "program-files-x86"))
+
+    assert system_tools.resolve_system_tool("tesseract") == str(executable)
