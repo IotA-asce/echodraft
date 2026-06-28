@@ -855,6 +855,34 @@ class SegmentPatchResult(ApiModel):
     chapter_render: ChapterRender = Field(alias="chapterRender")
 
 
+class PatchAttempt(ApiModel):
+    id: str
+    issue_id: str | None = Field(default=None, alias="issueId")
+    segment_id: str = Field(alias="segmentId")
+    old_render_id: str | None = Field(default=None, alias="oldRenderId")
+    new_render_id: str = Field(alias="newRenderId")
+    chapter_render_id: str = Field(alias="chapterRenderId")
+    created_at: datetime = Field(alias="createdAt")
+
+
+class SegmentReviewInspector(ApiModel):
+    project_id: str = Field(alias="projectId")
+    chapter_id: str = Field(alias="chapterId")
+    chapter_title: str | None = Field(default=None, alias="chapterTitle")
+    scene_id: str = Field(alias="sceneId")
+    segment: Segment
+    source_text: str = Field(alias="sourceText")
+    canonical_text: str = Field(alias="canonicalText")
+    structure: dict[str, object] = Field(default_factory=dict)
+    cast: SpeakerAttribution | None = None
+    direction: SegmentDirection | None = None
+    render_history: list[SegmentRender] = Field(default_factory=list, alias="renderHistory")
+    waveform: dict[str, object] = Field(default_factory=dict)
+    qa_issues: list[Issue] = Field(default_factory=list, alias="qaIssues")
+    comments: list[Comment] = Field(default_factory=list)
+    patch_queue: list[PatchAttempt] = Field(default_factory=list, alias="patchQueue")
+
+
 class ExportPackage(ApiModel):
     id: str
     project_id: str = Field(alias="projectId")

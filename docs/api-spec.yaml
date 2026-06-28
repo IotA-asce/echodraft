@@ -1220,6 +1220,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/SegmentRenderComparison"
 
+  /api/v1/projects/{projectId}/segments/{segmentId}/review-inspector:
+    get:
+      tags: [Review]
+      summary: Load the layered segment review inspector
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/SegmentId"
+      responses:
+        "200":
+          description: Segment review inspector
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SegmentReviewInspector"
+
   /api/v1/projects/{projectId}/render-queue:
     get:
       tags: [Rendering]
@@ -3190,6 +3205,77 @@ components:
           $ref: "#/components/schemas/SegmentRender"
         chapterRender:
           $ref: "#/components/schemas/ChapterRender"
+    PatchAttempt:
+      type: object
+      properties:
+        id:
+          type: string
+        issueId:
+          type:
+            - string
+            - "null"
+        segmentId:
+          type: string
+        oldRenderId:
+          type:
+            - string
+            - "null"
+        newRenderId:
+          type: string
+        chapterRenderId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    SegmentReviewInspector:
+      type: object
+      properties:
+        projectId:
+          type: string
+        chapterId:
+          type: string
+        chapterTitle:
+          type:
+            - string
+            - "null"
+        sceneId:
+          type: string
+        segment:
+          $ref: "#/components/schemas/Segment"
+        sourceText:
+          type: string
+        canonicalText:
+          type: string
+        structure:
+          type: object
+          additionalProperties: true
+        cast:
+          anyOf:
+            - $ref: "#/components/schemas/SpeakerAttribution"
+            - type: "null"
+        direction:
+          anyOf:
+            - $ref: "#/components/schemas/SegmentDirection"
+            - type: "null"
+        renderHistory:
+          type: array
+          items:
+            $ref: "#/components/schemas/SegmentRender"
+        waveform:
+          type: object
+          additionalProperties: true
+        qaIssues:
+          type: array
+          items:
+            $ref: "#/components/schemas/Issue"
+        comments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Comment"
+        patchQueue:
+          type: array
+          items:
+            $ref: "#/components/schemas/PatchAttempt"
     CreateCommentRequest:
       type: object
       required: [body]
