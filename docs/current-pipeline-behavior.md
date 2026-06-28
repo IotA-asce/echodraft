@@ -29,14 +29,17 @@ PDF ingestion uses `pypdf` to extract embedded text per page and invokes local O
 
 ## Structure
 
-The structure service reads the latest canonical source and replaces the project chapter/scene/segment hierarchy.
+The structure service reads the latest canonical source and replaces the project chapter/scene/segment hierarchy. Extraction is now a staged local draft pipeline: deterministic parser, optional local Ollama segment refinement, cast discovery, and speaker attribution.
 
 - Chapters are detected from Markdown headings, `Chapter N`, prologue/epilogue, part, and book headings.
 - Text before the first chapter heading is represented as front matter.
 - If no chapter boundary is found, a single unresolved chapter is created with a parser warning.
 - Scenes are detected from separator lines such as `***`, `---`, `####`, or `Scene N`; otherwise a single inferred scene is created with a confidence note.
 - Segments are paragraph/sentence-batched under `maxSegmentChars`, with dialogue and performance-beat segment types.
-- Basic speaker candidates are inferred from `Name said/asked/replied/whispered` and `Name:` patterns.
+- Basic speaker candidates are inferred from multi-word `Name said/asked/replied/whispered` and `Name:` patterns.
+- When the default Ollama model is marked installed in Model Center, bounded segment windows are refined by the local LLM. Full chapters and books are not sent to the model.
+- Invalid LLM refinement is rejected and deterministic segments are kept with parser warnings.
+- Cast Discovery runs after structure save. It creates high-confidence unique Character Bible records, verifies candidates against existing aliases, and leaves ambiguous candidates as review issues.
 - Cast Review persists one speaker attribution per segment, leaves uncertain dialogue in a review queue, and uses approved character voice links during production unless a segment override is set.
 - Parser warnings include scope, evidence, and confidence.
 - User-locked segments are carried forward across structure re-extraction.
@@ -46,7 +49,7 @@ The structure service reads the latest canonical source and replaces the project
 The current TTS layer exposes a local provider registry through the dashboard.
 
 - Mock TTS emits silent WAV files for validating the workflow.
-- Managed Kokoro ONNX setup creates a local runtime, downloads model assets, builds a voice registry, and verifies previews.
+- Managed Kokoro ONNX setup creates a local runtime, downloads model assets, builds a fixed preset voice registry, and verifies previews.
 - Piper can be configured as a local CLI fallback with a local ONNX model and optional voice registry.
 - XTTS-v2 is opt-in and requires a local Python runtime, reference WAV, language, and explicit reference-voice consent.
 - Segment renders are immutable and stored under the project artifact store.
