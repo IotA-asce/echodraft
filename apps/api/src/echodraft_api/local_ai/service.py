@@ -24,6 +24,7 @@ from echodraft_domain import (
 
 from ..container import AppContainer
 from ..kokoro_setup import ManagedKokoroSetupService
+from ..ollama_models import find_ollama_model
 
 
 @dataclass(frozen=True)
@@ -226,7 +227,7 @@ class LocalAiService:
             models = self._ollama_tags()
         except ValueError as error:
             return self._health(entry, "unavailable", False, str(error))
-        match = next((item for item in models if item.get("name") == entry.ollama_model), None)
+        match = find_ollama_model(models, entry.ollama_model)
         if not match:
             return self._health(
                 entry,
@@ -234,13 +235,14 @@ class LocalAiService:
                 False,
                 f"Ollama model {entry.ollama_model} has not been pulled locally.",
             )
+        installed_name = str(match.get("name") or match.get("model") or entry.ollama_model)
         return self._health(
             entry,
             "ready",
             True,
             f"Ollama model {entry.ollama_model} is available.",
             version=str(match.get("digest") or match.get("modified_at") or ""),
-            install_path=f"ollama://{entry.ollama_model}",
+            install_path=f"ollama://{installed_name}",
             details={"size": match.get("size", 0)},
         )
 

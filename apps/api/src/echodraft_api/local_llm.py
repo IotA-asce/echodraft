@@ -14,6 +14,7 @@ from echodraft_domain import (
 )
 
 from .container import AppContainer
+from .ollama_models import find_ollama_model
 
 DEFAULT_EXTRACTION_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -214,7 +215,7 @@ class LocalLlmService:
 
     def _require_model(self, model: str) -> None:
         models = self.provider.tags()
-        if not any(item.get("name") == model for item in models):
+        if not find_ollama_model(models, model):
             raise ValueError(f"Ollama model {model} is not installed. Pull it in Model Center first.")
 
     @staticmethod

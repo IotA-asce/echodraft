@@ -37,6 +37,8 @@ Health checks are runtime checks, while installation records are persisted verif
 
 - System tools are checked with `PATH` lookup and version commands.
 - Ollama models are checked through the local Ollama tags API at `http://127.0.0.1:11434/api/tags`.
+  Untagged catalog names such as `qwen3-embedding` match Ollama's reported
+  `qwen3-embedding:latest` entry.
 - Kokoro health reuses the managed Kokoro setup status.
 
 Installation records live in `model_installations` and store model key, capability, provider, version/path, status, verification time, size estimate, license summary, and any error message.
