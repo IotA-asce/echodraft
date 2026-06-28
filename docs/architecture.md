@@ -83,8 +83,10 @@ The MVP must work without mandatory cloud services. Hosted evolution is additive
 
 ### TTS
 - expose backend-agnostic synthesis contracts
+- register local providers: mock, Kokoro, Piper, and consent-gated XTTS-v2
 - generate per-segment audio
-- persist alignment, waveform, and diagnostics
+- persist render metadata, provider provenance, queue status, and diagnostics
+- fail closed when a configured local provider is missing files, tools, or required consent
 
 ### Local AI / Model Center
 - maintain the local model and tool catalog
@@ -209,7 +211,7 @@ Cache hits avoid repeated inference during patch loops. Cache entries must still
 - Regeneration invalidates only affected downstream artifacts.
 
 ## Invalidation rules
-- Segment text, approved speaker attribution, voice, pronunciation, or direction changes stale the active segment render.
+- Segment text, approved speaker attribution, voice, pronunciation, direction, active provider, or provider model identity changes stale the active segment render.
 - Voice resolution precedence is segment override, approved character speaker attribution, then project narrator.
 - Direction resolution precedence is segment production override, Segment Direction record, project default, then neutral segment default.
 - New active segment renders stale any chapter render that includes the segment.

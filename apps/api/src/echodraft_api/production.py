@@ -16,12 +16,12 @@ from echodraft_db.models import (
     SegmentDirectionRecord,
     SegmentProductionOverrideRecord,
     SegmentRecord,
-    SegmentRenderRecord,
 )
 from sqlalchemy import select
 
 from .assembly import ChapterAssembler
 from .container import AppContainer
+from .direction import apply_pronunciations
 from .rendering import SegmentRenderer
 
 
@@ -111,6 +111,8 @@ class ProductionService:
             [segment.id for segment in segments]
         )
         segment_directions = self.container.segment_directions.records([segment.id for segment in segments])
+        pronunciation_entries = self.container.casting.pronunciations(project_id)
+        provider_identity = self.container.tts_adapter.render_identity()
         current = 0
         with self.container.structure.database.session() as session:
             for segment in segments:
@@ -123,18 +125,20 @@ class ProductionService:
                 requested_direction = self._direction_for(
                     segment.id, override, segment_directions, settings.default_direction
                 )
-                latest = session.scalar(
-                    select(SegmentRenderRecord)
-                    .where(SegmentRenderRecord.segment_id == segment.id, SegmentRenderRecord.status == "succeeded")
-                    .order_by(SegmentRenderRecord.id.desc())
-                )
+                latest = SegmentRenderer._latest_successful(session, segment.id)
                 if latest:
                     payload = json.loads(latest.request_json)
+                    synthesis_text, applied_pronunciations = apply_pronunciations(
+                        segment.normalized_text, pronunciation_entries
+                    )
                     if (
                         payload.get("revision") == segment.revision
+                        and payload.get("synthesisText") == synthesis_text
+                        and payload.get("pronunciationsApplied") == applied_pronunciations
                         and payload.get("voiceProfileId") == requested_voice
                         and payload.get("direction")
                         == requested_direction.model_dump(by_alias=True)
+                        and payload.get("ttsProvider") == provider_identity
                     ):
                         current += 1
         readiness = self.container.tts_settings.status()
@@ -174,11 +178,25 @@ class ProductionService:
                 job_id,
                 {"phase": "rendering", "current": index, "total": len(segments), "segmentId": segment.id},
             )
-            renderer.render(
+            queue_item = self.container.render_queue.enqueue(
                 project_id,
+                chapter_id,
                 segment.id,
-                SegmentRenderRequest(voiceProfileId=voice, direction=direction, force=force),
+                job_id,
+                voice,
+                self.container.tts_adapter.provider_id,
             )
+            self.container.render_queue.mark_running(queue_item.id)
+            try:
+                render = renderer.render(
+                    project_id,
+                    segment.id,
+                    SegmentRenderRequest(voiceProfileId=voice, direction=direction, force=force),
+                )
+            except Exception as error:
+                self.container.render_queue.mark_failed(queue_item.id, str(error))
+                raise
+            self.container.render_queue.mark_succeeded(queue_item.id, render.render_key)
         self.container.jobs_repository.set_progress(job_id, {"phase": "assembling", "current": len(segments), "total": len(segments)})
         ChapterAssembler(self.container).assemble(project_id, chapter_id, "speech_only")
         self.container.jobs_repository.set_progress(job_id, {"phase": "completed", "current": len(segments), "total": len(segments)})

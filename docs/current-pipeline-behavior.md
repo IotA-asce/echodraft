@@ -43,13 +43,16 @@ The structure service reads the latest canonical source and replaces the project
 
 ## TTS And Rendering
 
-The current TTS layer exposes mock audio and Kokoro setup paths through the dashboard.
+The current TTS layer exposes a local provider registry through the dashboard.
 
 - Mock TTS emits silent WAV files for validating the workflow.
 - Managed Kokoro ONNX setup creates a local runtime, downloads model assets, builds a voice registry, and verifies previews.
+- Piper can be configured as a local CLI fallback with a local ONNX model and optional voice registry.
+- XTTS-v2 is opt-in and requires a local Python runtime, reference WAV, language, and explicit reference-voice consent.
 - Segment renders are immutable and stored under the project artifact store.
-- Render cache keys are derived from segment text, revision, resolved voice, resolved direction, output format, and adapter marker.
+- Render cache keys are derived from segment text, synthesis text after pronunciation replacements, revision, resolved voice, resolved direction, output format, provider identity, and applied pronunciation entries.
 - Direction Studio persists segment-level emotion, pace, intensity, pause, emphasis, and whisper controls; current Kokoro adapters apply supported pace data and retain unsupported controls in metadata.
+- Chapter production records per-segment render queue rows and exposes latest-vs-parent render comparison for review.
 - A cache hit returns the existing render; forced regeneration creates a new render linked to the prior render through `parent_render_id`.
 
 ## Local LLM

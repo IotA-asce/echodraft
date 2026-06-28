@@ -316,6 +316,24 @@ class SegmentRenderRecord(Base):
     request_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class RenderQueueItemRecord(Base):
+    __tablename__ = "render_queue_items"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    chapter_id: Mapped[str] = mapped_column(ForeignKey("chapters.id"), nullable=False, index=True)
+    segment_id: Mapped[str] = mapped_column(ForeignKey("segments.id"), nullable=False, index=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    voice_profile_id: Mapped[str | None] = mapped_column(ForeignKey("voice_profiles.id"))
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    render_key: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ChapterRenderRecord(Base):
     __tablename__ = "chapter_renders"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

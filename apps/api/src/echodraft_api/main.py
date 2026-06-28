@@ -31,6 +31,7 @@ from echodraft_domain import (
     ProjectCreate,
     PronunciationCreate,
     PronunciationEntry,
+    RenderQueueItem,
     ReparseRequest,
     Scene,
     SceneUpdate,
@@ -41,6 +42,7 @@ from echodraft_domain import (
     SegmentPatchRequest,
     SegmentPatchResult,
     SegmentRender,
+    SegmentRenderComparison,
     SegmentRenderRequest,
     SegmentRevision,
     SegmentSplitRequest,
@@ -71,6 +73,7 @@ from echodraft_domain import (
     LlmRun,
     TtsSettings,
     TtsSettingsUpdate,
+    TtsProviderInfo,
     TtsTestRequest,
     ProjectProductionSettings,
     ProjectProductionSettingsUpdate,
@@ -201,6 +204,14 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     def get_tts_settings(request: Request) -> TtsSettings:
         container: AppContainer = request.app.state.container
         return container.tts_settings.status()
+
+    @app.get("/api/v1/settings/tts/providers", response_model=list[TtsProviderInfo])
+    def get_tts_providers(request: Request) -> list[TtsProviderInfo]:
+        container: AppContainer = request.app.state.container
+        return [
+            TtsProviderInfo.model_validate(provider)
+            for provider in container.tts_settings.providers()
+        ]
 
     @app.put("/api/v1/settings/tts", response_model=TtsSettings)
     def save_tts_settings(payload: TtsSettingsUpdate, request: Request) -> TtsSettings:
@@ -1113,6 +1124,28 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
+    @app.get(
+        "/api/v1/projects/{project_id}/segments/{segment_id}/renders/compare",
+        response_model=SegmentRenderComparison,
+    )
+    def compare_segment_renders(
+        project_id: str, segment_id: str, request: Request
+    ) -> SegmentRenderComparison:
+        try:
+            comparison = SegmentRenderer(request.app.state.container).compare(project_id, segment_id)
+            return comparison.model_copy(
+                update={
+                    "current_render": segment_render_with_url(project_id, comparison.current_render)
+                    if comparison.current_render
+                    else None,
+                    "previous_render": segment_render_with_url(project_id, comparison.previous_render)
+                    if comparison.previous_render
+                    else None,
+                }
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
     @app.post(
         "/api/v1/projects/{project_id}/chapters/{chapter_id}/assemble",
         response_model=ChapterRender,
@@ -1174,6 +1207,18 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             project_id,
             chapter_id,
         )
+
+    @app.get(
+        "/api/v1/projects/{project_id}/render-queue",
+        response_model=list[RenderQueueItem],
+    )
+    def list_render_queue(
+        project_id: str, request: Request, chapter_id: str | None = None
+    ) -> list[RenderQueueItem]:
+        container: AppContainer = request.app.state.container
+        if not container.projects.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        return container.render_queue.list_for_project(project_id, chapter_id)
 
     @app.get(
         "/api/v1/projects/{project_id}/chapters/{chapter_id}/renders",
