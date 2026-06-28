@@ -13,6 +13,11 @@ class AppSettings:
     kokoro_voices_data_path: Path | None = None
     kokoro_voice_path: Path | None = None
     kokoro_runtime_root: Path = Path(".echodraft/kokoro/managed-onnx-v1")
+    piper_model_path: Path | None = None
+    piper_config_path: Path | None = None
+    xtts_reference_voice_path: Path | None = None
+    xtts_reference_voice_consent: bool = False
+    xtts_language: str = "en"
     local_ai_root: Path = Path(".echodraft/local-ai")
     ollama_base_url: str = "http://127.0.0.1:11434"
     tts_settings_path: Path = Path(".echodraft/tts-settings.json")
@@ -44,6 +49,26 @@ class AppSettings:
             kokoro_runtime_root=Path(
                 os.getenv("ECHODRAFT_KOKORO_RUNTIME_ROOT", ".echodraft/kokoro/managed-onnx-v1")
             ).expanduser().resolve(),
+            piper_model_path=(
+                Path(value).expanduser().resolve()
+                if (value := os.getenv("ECHODRAFT_PIPER_MODEL_PATH"))
+                else None
+            ),
+            piper_config_path=(
+                Path(value).expanduser().resolve()
+                if (value := os.getenv("ECHODRAFT_PIPER_CONFIG_PATH"))
+                else None
+            ),
+            xtts_reference_voice_path=(
+                Path(value).expanduser().resolve()
+                if (value := os.getenv("ECHODRAFT_XTTS_REFERENCE_VOICE_PATH"))
+                else None
+            ),
+            xtts_reference_voice_consent=os.getenv(
+                "ECHODRAFT_XTTS_REFERENCE_VOICE_CONSENT", ""
+            ).lower()
+            in {"1", "true", "yes"},
+            xtts_language=os.getenv("ECHODRAFT_XTTS_LANGUAGE", "en"),
             local_ai_root=Path(
                 os.getenv("ECHODRAFT_LOCAL_AI_ROOT", ".echodraft/local-ai")
             ).expanduser().resolve(),

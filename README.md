@@ -38,6 +38,7 @@ Echodraft can currently:
 * run deterministic mock TTS for pipeline validation;
 * inspect and verify local tools/models in Model Center;
 * set up a local Kokoro ONNX voice system from the dashboard;
+* configure Piper fallback and consent-gated XTTS-v2 local provider settings;
 * render missing or stale segment audio;
 * assemble immutable chapter renders;
 * review issues, leave comments, patch weak lines, and reassemble chapters;
@@ -73,9 +74,11 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | Model Center                        | Alpha           | Catalog, health checks, install jobs, and OS package-manager install commands              |
 | Local LLM service                   | Alpha           | Ollama model listing, schema-first extraction jobs, run records, and embeddings             |
 | Managed Kokoro setup                | Alpha           | Local CPU-oriented ONNX flow from the dashboard                                            |
+| TTS provider registry               | Alpha           | Mock, Kokoro, Piper fallback, and consent-gated XTTS-v2 provider contracts                  |
 | Character Bible                     | Alpha           | Canonical names, aliases, traits, locks, voice links, merge/split history, and dashboard UI |
 | Speaker attribution                 | Alpha           | Deterministic Cast Review rows, review locks, Ollama fallback hooks, and cast voice use     |
 | Direction Studio                    | Alpha           | Segment emotions, pace/intensity, pause controls, inference, and render-stale fingerprinting |
+| Render queue and compare            | Alpha           | Per-segment queue rows and latest-vs-parent render request comparison                      |
 | Review and patching                 | Working         | Segment-level patch loop with chapter reassembly                                           |
 | WAV export                          | Working         | ZIP package with manifest/checksum data                                                    |
 | MP3 export                          | Working         | Requires FFmpeg with MP3 support                                                           |
@@ -465,6 +468,8 @@ Use one of two modes:
 | -------------------- | ------------------------------------------------------------- |
 | `mock`               | You want to validate the workflow without downloading a model |
 | Kokoro managed setup | You want local spoken audio from Kokoro ONNX                  |
+| Piper fallback       | You have a local Piper CLI and ONNX voice model               |
+| XTTS-v2 opt-in       | You have a local Coqui runtime and consented reference WAV    |
 
 For the first run, start with mock TTS. It creates deterministic silent WAV files so you can test ingestion, rendering, assembly, patching, and export before introducing a real model.
 
@@ -581,6 +586,14 @@ The executable must:
 5. reject voices not present in the registry.
 
 Echodraft never silently falls back from Kokoro to mock. If Kokoro is configured incorrectly, startup or synthesis fails with recovery guidance.
+
+### Piper fallback and XTTS-v2 opt-in
+
+Stage 9 adds a formal local provider registry. Piper can be configured with a local executable, ONNX model, optional config, and optional voice registry. XTTS-v2 can be configured with a local Python runtime, reference WAV, language, and explicit reference-voice consent.
+
+Both providers fail closed when required local files or consent are missing. Echodraft does not upload text, voices, or generated audio and does not silently switch providers.
+
+Production render fingerprints now include provider identity, synthesis text after pronunciation replacements, and applied pronunciation entries. Provider, pronunciation, voice, direction, or text changes stale only affected segment renders.
 
 ---
 

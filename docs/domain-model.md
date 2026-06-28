@@ -357,21 +357,61 @@ Immutable generation output for one segment.
 Fields:
 - `id`
 - `segment_id`
-- `voice_profile_id`
-- `backend`
-- `backend_model_version`
-- `render_params`
-- `speech_audio_path`
-- `alignment_json_path`
-- `waveform_json_path`
+- `render_key`
+- `status`
+- `audio_path`
+- `metadata_path`
 - `duration_ms`
-- `qa_summary`
-- `created_at`
+- `parent_render_id`
+- `audio_url`
 
 Rules:
 - append-only history
 - never overwritten in place
-- active render is referenced by `segments.current_render_id`
+- request metadata stores canonical text, synthesis text, provider identity, voice, direction, and applied pronunciations
+- forced regeneration links the new row to its previous render through `parent_render_id`
+
+### SegmentRenderComparison
+Latest-vs-parent render comparison for one segment.
+
+Fields:
+- `segment_id`
+- `current_render`
+- `previous_render`
+- `changed_fields`
+
+### RenderQueueItem
+Per-segment queue row for chapter production.
+
+Fields:
+- `id`
+- `project_id`
+- `chapter_id`
+- `segment_id`
+- `job_id`
+- `status`
+- `voice_profile_id`
+- `provider`
+- `render_key`
+- `error_message`
+- `created_at`
+- `started_at`
+- `finished_at`
+
+### TtsProviderInfo
+Read-only status for a local TTS provider.
+
+Fields:
+- `provider`
+- `display_name`
+- `setup_mode`
+- `ready`
+- `message`
+- `available_voices`
+- `capabilities`
+- `requires_reference_consent`
+- `reference_voice_consent`
+- `reference_voice_path`
 
 ### ChapterRender
 Assembled chapter output.
