@@ -370,6 +370,43 @@ Notes:
 - queue rows store metadata and render references only
 - audio remains in artifact storage under the project directory
 
+### `ambience_assets`
+Purpose: local sound asset metadata for ambience, music, and SFX.
+
+Key columns:
+- `id` TEXT PK
+- `project_id` FK
+- `name` TEXT NOT NULL
+- `asset_type` TEXT NOT NULL
+- `asset_path` TEXT NOT NULL
+- `duration_ms` INTEGER nullable
+- `license_note` TEXT NOT NULL
+- `provenance` TEXT NOT NULL
+
+Notes:
+- audio files live under project artifacts or a registered local path
+- no audio blobs are stored in the relational DB
+
+### `ambience_cues`
+Purpose: scene-level sound design cue assignment.
+
+Key columns:
+- `id` TEXT PK
+- `scene_id` FK
+- `asset_id` FK nullable
+- `cue_type` TEXT NOT NULL
+- `start_ms` INTEGER NOT NULL
+- `gain_db` REAL NOT NULL
+- `fade_in_ms` INTEGER NOT NULL
+- `fade_out_ms` INTEGER NOT NULL
+- `ducking` BOOLEAN NOT NULL
+- `render_mode` TEXT NOT NULL
+- `no_sfx` BOOLEAN NOT NULL
+
+Rules:
+- light and dramatized assembly read these cues into chapter manifests
+- clean chapter assembly ignores cues and writes speech only
+
 ### `chapter_renders`
 Purpose: chapter-level assembled outputs.
 

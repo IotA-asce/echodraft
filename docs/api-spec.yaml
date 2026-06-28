@@ -15,6 +15,7 @@ tags:
   - name: Casting
   - name: Pronunciation
   - name: Rendering
+  - name: Sound Design
   - name: Local AI
   - name: Settings
   - name: Jobs
@@ -1240,13 +1241,127 @@ paths:
                 items:
                   $ref: "#/components/schemas/RenderQueueItem"
 
-  /api/v1/projects/{projectId}/chapters/{chapterId}/assemble:
+  /api/v1/projects/{projectId}/sound-assets:
+    get:
+      tags: [Sound Design]
+      summary: List local sound assets for a project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Local sound assets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SoundAsset"
     post:
-      tags: [Rendering]
-      summary: Assemble the current successful segment renders into an immutable chapter stem
+      tags: [Sound Design]
+      summary: Upload a local WAV sound asset
+      description: Stores the WAV file under project artifacts and stores only metadata/path rows in the database.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/SoundAssetUpload"
+      responses:
+        "201":
+          description: Sound asset imported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SoundAsset"
+
+  /api/v1/projects/{projectId}/sound-assets/from-path:
+    post:
+      tags: [Sound Design]
+      summary: Register an existing local WAV path as a sound asset
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SoundAssetCreate"
+      responses:
+        "201":
+          description: Sound asset registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SoundAsset"
+
+  /api/v1/projects/{projectId}/chapters/{chapterId}/sound-cues:
+    get:
+      tags: [Sound Design]
+      summary: List sound design cues assigned to scenes in a chapter
       parameters:
         - $ref: "#/components/parameters/ProjectId"
         - $ref: "#/components/parameters/ChapterId"
+      responses:
+        "200":
+          description: Chapter sound cues
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SoundCue"
+
+  /api/v1/scenes/{sceneId}/sound-cues:
+    get:
+      tags: [Sound Design]
+      summary: List sound design cues assigned to one scene
+      parameters:
+        - $ref: "#/components/parameters/SceneId"
+      responses:
+        "200":
+          description: Scene sound cues
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SoundCue"
+
+  /api/v1/projects/{projectId}/sound-cues:
+    post:
+      tags: [Sound Design]
+      summary: Assign a sound asset cue to a scene
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SoundCueCreate"
+      responses:
+        "201":
+          description: Sound cue assigned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SoundCue"
+
+  /api/v1/projects/{projectId}/chapters/{chapterId}/assemble:
+    post:
+      tags: [Rendering]
+      summary: Assemble the current successful segment renders into an immutable chapter render
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/ChapterId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChapterAssemblyRequest"
       responses:
         "202":
           description: Chapter stem assembled
@@ -2101,6 +2216,135 @@ components:
           type:
             - string
             - "null"
+    ChapterAssemblyRequest:
+      type: object
+      properties:
+        renderMode:
+          type: string
+          enum: [clean, light, dramatized, speech_only, light_cinematic]
+          default: speech_only
+    SoundAsset:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        name:
+          type: string
+        assetType:
+          type: string
+          enum: [ambience, music, sfx]
+        assetPath:
+          type: string
+        audioUrl:
+          type: string
+          nullable: true
+        durationMs:
+          type: integer
+          nullable: true
+        licenseNote:
+          type: string
+        provenance:
+          type: string
+    SoundAssetCreate:
+      type: object
+      required: [name, assetPath]
+      properties:
+        name:
+          type: string
+        assetType:
+          type: string
+          enum: [ambience, music, sfx]
+          default: ambience
+        assetPath:
+          type: string
+        durationMs:
+          type: integer
+          nullable: true
+        licenseNote:
+          type: string
+        provenance:
+          type: string
+    SoundAssetUpload:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+        asset_type:
+          type: string
+          enum: [ambience, music, sfx]
+          default: ambience
+        name:
+          type: string
+        license_note:
+          type: string
+        provenance:
+          type: string
+    SoundCue:
+      type: object
+      properties:
+        id:
+          type: string
+        sceneId:
+          type: string
+        assetId:
+          type: string
+          nullable: true
+        cueType:
+          type: string
+          enum: [ambience, music, sfx]
+        startMs:
+          type: integer
+        gainDb:
+          type: number
+        fadeInMs:
+          type: integer
+        fadeOutMs:
+          type: integer
+        ducking:
+          type: boolean
+        renderMode:
+          type: string
+          enum: [light, dramatized, all, light_cinematic]
+        noSfx:
+          type: boolean
+    SoundCueCreate:
+      type: object
+      required: [sceneId, assetId]
+      properties:
+        sceneId:
+          type: string
+        assetId:
+          type: string
+        cueType:
+          type: string
+          enum: [ambience, music, sfx]
+          default: ambience
+        startMs:
+          type: integer
+          default: 0
+        gainDb:
+          type: number
+          default: -24
+        fadeInMs:
+          type: integer
+          default: 500
+        fadeOutMs:
+          type: integer
+          default: 500
+        ducking:
+          type: boolean
+          default: true
+        renderMode:
+          type: string
+          enum: [light, dramatized, all]
+          default: light
+        noSfx:
+          type: boolean
+          default: false
     ChapterRender:
       type: object
       required: [id, chapterId, status, speechPath, manifestPath, durationMs]
@@ -2117,6 +2361,17 @@ components:
           type: string
         durationMs:
           type: integer
+        renderMode:
+          type: string
+        ambienceStemPath:
+          type: string
+          nullable: true
+        mixedAudioPath:
+          type: string
+          nullable: true
+        audioUrl:
+          type: string
+          nullable: true
     Character:
       type: object
       properties:

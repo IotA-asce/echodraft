@@ -720,14 +720,19 @@ class AmbienceAsset(ApiModel):
     id: str
     project_id: str = Field(alias="projectId")
     name: str
+    asset_type: str = Field(default="ambience", alias="assetType")
     asset_path: str = Field(alias="assetPath")
+    audio_url: str | None = Field(default=None, alias="audioUrl")
+    duration_ms: int | None = Field(default=None, alias="durationMs")
     license_note: str = Field(alias="licenseNote")
     provenance: str
 
 
 class AmbienceAssetCreate(ApiModel):
     name: str
+    asset_type: str = Field(default="ambience", alias="assetType")
     asset_path: str = Field(alias="assetPath")
+    duration_ms: int | None = Field(default=None, alias="durationMs")
     license_note: str = Field(alias="licenseNote")
     provenance: str
 
@@ -748,18 +753,26 @@ class AmbienceCue(ApiModel):
     id: str
     scene_id: str = Field(alias="sceneId")
     asset_id: str | None = Field(default=None, alias="assetId")
+    cue_type: str = Field(default="ambience", alias="cueType")
+    start_ms: int = Field(default=0, alias="startMs")
     gain_db: float = Field(alias="gainDb")
     fade_in_ms: int = Field(alias="fadeInMs")
     fade_out_ms: int = Field(alias="fadeOutMs")
+    ducking: bool = True
+    render_mode: str = Field(default="light", alias="renderMode")
     no_sfx: bool = Field(alias="noSfx")
 
 
 class AmbienceCueCreate(ApiModel):
     scene_id: str = Field(alias="sceneId")
     asset_id: str | None = Field(default=None, alias="assetId")
+    cue_type: str = Field(default="ambience", alias="cueType")
+    start_ms: int = Field(default=0, alias="startMs")
     gain_db: float = Field(default=-24.0, alias="gainDb")
     fade_in_ms: int = Field(default=500, alias="fadeInMs")
     fade_out_ms: int = Field(default=500, alias="fadeOutMs")
+    ducking: bool = True
+    render_mode: str = Field(default="light", alias="renderMode")
     no_sfx: bool = Field(default=False, alias="noSfx")
 
 

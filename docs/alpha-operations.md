@@ -16,7 +16,7 @@ Use `blocking` for an inability to import, render, assemble, patch, or export. I
 
 - In-process jobs cannot resume mid-operation.
 - MP3 export requires local FFmpeg with an MP3 encoder. M4B remains unsupported.
-- Ambience asset mixing remains intentionally deferred; speech-only output is the stable alpha path.
+- Sound Design accepts local WAV assets for ambience, music, and SFX. Clean narration remains the stable default; light and dramatized mixes are explicit assembly actions.
 - Mock TTS is intentionally silent. Managed Kokoro ONNX setup downloads local runtime assets only after explicit user action and applies the selected voice ID; Direction Studio controls are retained in render metadata, with current Kokoro adapters applying supported pace data and reporting unsupported expressive controls.
 - Piper and XTTS-v2 are local-only provider paths. Piper requires a local executable and model file. XTTS-v2 requires a local Python runtime, reference WAV, and explicit reference-voice consent before synthesis starts.
 - Render queue rows are metadata-only status records. Diagnose failures from the queue row error, the owning job, and the segment render metadata path; do not delete successful prior renders when retrying.
