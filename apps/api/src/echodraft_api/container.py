@@ -10,6 +10,7 @@ from echodraft_db import (
     LocalAiRepository,
     ProjectRepository,
     ProductionSettingsRepository,
+    RenderQueueRepository,
     ReviewRepository,
     SegmentDirectionRepository,
     SpeakerAttributionRepository,
@@ -24,7 +25,7 @@ from .jobs import InProcessJobRunner
 from .tts_settings import TtsSettingsStore
 
 if TYPE_CHECKING:
-    from .direction import TtsAdapter
+    from .tts_providers import TtsProvider
 
 
 @dataclass
@@ -41,11 +42,12 @@ class AppContainer:
     speaker_attributions: SpeakerAttributionRepository
     ambience: AmbienceRepository
     production: ProductionSettingsRepository
+    render_queue: RenderQueueRepository
     segment_directions: SegmentDirectionRepository
     local_ai: LocalAiRepository
     llm_runs: LlmRunRepository
     tts_settings: TtsSettingsStore
-    tts_adapter: "TtsAdapter"
+    tts_adapter: "TtsProvider"
     jobs: InProcessJobRunner
 
 
@@ -70,6 +72,7 @@ def build_container(settings: AppSettings) -> AppContainer:
         speaker_attributions=SpeakerAttributionRepository(database),
         ambience=AmbienceRepository(database),
         production=ProductionSettingsRepository(database),
+        render_queue=RenderQueueRepository(database),
         segment_directions=SegmentDirectionRepository(database),
         local_ai=LocalAiRepository(database),
         llm_runs=LlmRunRepository(database),

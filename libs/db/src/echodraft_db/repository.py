@@ -12,6 +12,7 @@ from echodraft_domain import (
     ParserWarning,
     Project,
     ProjectCreate,
+    RenderQueueItem,
     RightsStatus,
     SourceDocument,
     SegmentDirection,
@@ -29,6 +30,7 @@ from .models import (
     ProjectProductionSettingsRecord,
     PronunciationEntryRecord,
     ProjectRecord,
+    RenderQueueItemRecord,
     RightsDeclarationRecord,
     SceneRecord,
     SegmentDirectionRecord,
@@ -127,6 +129,26 @@ def _segment_direction(record: SegmentDirectionRecord) -> SegmentDirection:
             "directionFingerprint": record.direction_fingerprint,
             "createdAt": record.created_at,
             "updatedAt": record.updated_at,
+        }
+    )
+
+
+def _render_queue_item(record: RenderQueueItemRecord) -> RenderQueueItem:
+    return RenderQueueItem.model_validate(
+        {
+            "id": record.id,
+            "projectId": record.project_id,
+            "chapterId": record.chapter_id,
+            "segmentId": record.segment_id,
+            "jobId": record.job_id,
+            "status": record.status,
+            "voiceProfileId": record.voice_profile_id,
+            "provider": record.provider,
+            "renderKey": record.render_key,
+            "errorMessage": record.error_message,
+            "createdAt": record.created_at,
+            "startedAt": record.started_at,
+            "finishedAt": record.finished_at,
         }
     )
 
@@ -1323,3 +1345,75 @@ class SegmentDirectionRepository:
                 record.updated_at = now
             session.commit()
             return _segment_direction(record)
+
+
+class RenderQueueRepository:
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def list_for_project(self, project_id: str, chapter_id: str | None = None) -> list[RenderQueueItem]:
+        with self.database.session() as session:
+            query = select(RenderQueueItemRecord).where(RenderQueueItemRecord.project_id == project_id)
+            if chapter_id:
+                query = query.where(RenderQueueItemRecord.chapter_id == chapter_id)
+            rows = session.scalars(query.order_by(RenderQueueItemRecord.created_at.desc()))
+            return [_render_queue_item(row) for row in rows]
+
+    def enqueue(
+        self,
+        project_id: str,
+        chapter_id: str,
+        segment_id: str,
+        job_id: str,
+        voice_profile_id: str | None,
+        provider: str,
+    ) -> RenderQueueItem:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            record = RenderQueueItemRecord(
+                id=f"rq_{uuid4().hex[:16]}",
+                project_id=project_id,
+                chapter_id=chapter_id,
+                segment_id=segment_id,
+                job_id=job_id,
+                status="queued",
+                voice_profile_id=voice_profile_id,
+                provider=provider,
+                render_key=None,
+                error_message=None,
+                created_at=now,
+                started_at=None,
+                finished_at=None,
+            )
+            session.add(record)
+            session.commit()
+            return _render_queue_item(record)
+
+    def mark_running(self, item_id: str) -> None:
+        with self.database.session() as session:
+            record = session.get(RenderQueueItemRecord, item_id)
+            if not record:
+                return
+            record.status = "running"
+            record.started_at = datetime.now(UTC)
+            session.commit()
+
+    def mark_succeeded(self, item_id: str, render_key: str) -> None:
+        with self.database.session() as session:
+            record = session.get(RenderQueueItemRecord, item_id)
+            if not record:
+                return
+            record.status = "succeeded"
+            record.render_key = render_key
+            record.finished_at = datetime.now(UTC)
+            session.commit()
+
+    def mark_failed(self, item_id: str, error_message: str) -> None:
+        with self.database.session() as session:
+            record = session.get(RenderQueueItemRecord, item_id)
+            if not record:
+                return
+            record.status = "failed"
+            record.error_message = error_message
+            record.finished_at = datetime.now(UTC)
+            session.commit()

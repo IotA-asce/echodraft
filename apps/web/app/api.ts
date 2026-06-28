@@ -12,7 +12,9 @@ export type Segment = { id: string; sceneId: string; textContent: string; revisi
 export type SpeakerAttribution = { id: string; projectId: string; segmentId: string; characterId?: string | null; speakerName?: string | null; method: string; evidence: Record<string, unknown>; confidence: number; status: string; userLocked: boolean; voiceProfileId?: string | null; createdAt: string; updatedAt: string };
 export type Direction = { scopeType: string; scopeId: string; pace: number; intensity: number; tone: string; emotion: string; pauseBeforeMs: number; pauseAfterMs: number; stylePrompt?: string | null; emphasis: boolean; whisper: boolean; noSfx: boolean };
 export type SegmentDirection = { segmentId: string; projectId: string; direction: Direction; source: string; userLocked: boolean; directionFingerprint: string; createdAt: string; updatedAt: string };
-export type TtsSettings = { provider: "mock" | "kokoro"; setupMode?: "managed_onnx" | "custom_adapter" | null; executable?: string | null; runtimeRoot?: string | null; pythonPath?: string | null; modelPath?: string | null; voicesDataPath?: string | null; voiceRegistryPath?: string | null; ready: boolean; message?: string | null; availableVoices: string[] };
+export type TtsProvider = "mock" | "kokoro" | "piper" | "xtts_v2";
+export type TtsSettings = { provider: TtsProvider; setupMode?: "managed_onnx" | "custom_adapter" | "local_cli" | "coqui_local" | null; executable?: string | null; runtimeRoot?: string | null; pythonPath?: string | null; modelPath?: string | null; voicesDataPath?: string | null; voiceRegistryPath?: string | null; piperModelPath?: string | null; piperConfigPath?: string | null; referenceVoicePath?: string | null; referenceVoiceConsent: boolean; language: string; ready: boolean; message?: string | null; availableVoices: string[] };
+export type TtsProviderInfo = { provider: TtsProvider; displayName: string; setupMode?: string | null; ready: boolean; message?: string | null; availableVoices: string[]; capabilities: Record<string, unknown>; requiresReferenceConsent: boolean; referenceVoiceConsent?: boolean | null; referenceVoicePath?: string | null };
 export type KokoroSetupStep = { phase: string; label: string; status: string; message?: string | null };
 export type KokoroSetupStatus = { platform: string; state: "not_started" | "incomplete" | "failed" | "ready" | "active"; setupMode: "managed_onnx"; runtimeRoot: string; pythonPath: string; executable: string; modelPath: string; voicesDataPath: string; voiceRegistryPath: string; ready: boolean; message?: string | null; nextAction: string; availableVoices: string[]; steps: KokoroSetupStep[] };
 export type LocalAiCatalogItem = { modelKey: string; displayName: string; capability: string; provider: string; installType: string; required: boolean; sizeMb?: number | null; licenseSummary?: string | null; licenseNote?: string | null; description?: string | null; status: string; health: string; installPath?: string | null; lastVerifiedAt?: string | null };
@@ -21,7 +23,9 @@ export type LocalAiInstallJob = { id: string; jobId: string; modelKey: string; s
 export type VoiceProfile = { id: string; projectId: string; name: string; backend: string; providerVoiceId: string; stylePrompt?: string | null };
 export type ProductionSettings = { projectId: string; narratorVoiceProfileId?: string | null; defaultDirection?: Direction | null };
 export type SegmentOverride = { segmentId: string; voiceProfileId?: string | null; direction?: Direction | null };
-export type SegmentRender = { id: string; segmentId: string; status: string; audioPath: string; audioUrl?: string | null; durationMs: number; parentRenderId?: string | null };
+export type SegmentRender = { id: string; segmentId: string; renderKey?: string; status: string; audioPath: string; audioUrl?: string | null; durationMs: number; parentRenderId?: string | null };
+export type SegmentRenderComparison = { segmentId: string; currentRender?: SegmentRender | null; previousRender?: SegmentRender | null; changedFields: string[] };
+export type RenderQueueItem = { id: string; projectId: string; chapterId: string; segmentId: string; jobId: string; status: string; voiceProfileId?: string | null; provider: TtsProvider | string; renderKey?: string | null; errorMessage?: string | null; createdAt: string; startedAt?: string | null; finishedAt?: string | null };
 export type ChapterRender = { id: string; chapterId: string; status: string; speechPath: string; audioUrl?: string | null; durationMs: number; renderMode: string };
 export type ProductionStatus = { chapterId: string; ready: boolean; reason?: string | null; totalSegments: number; currentSegments: number; activeRender?: ChapterRender | null };
 export type Issue = { id: string; projectId: string; chapterId?: string | null; segmentId?: string | null; severity: string; category: string; title: string; description: string; status: string };
@@ -96,6 +100,7 @@ export const updateSpeakerAttribution = (attributionId: string, payload: { chara
 
 export const getTtsSettings = () => request<TtsSettings>("/api/v1/settings/tts");
 export const saveTtsSettings = (payload: Omit<TtsSettings, "ready" | "message" | "availableVoices">) => request<TtsSettings>("/api/v1/settings/tts", json("PUT", payload));
+export const getTtsProviders = () => request<TtsProviderInfo[]>("/api/v1/settings/tts/providers");
 export const testTtsSettings = () => request<TtsSettings>("/api/v1/settings/tts/test", json("POST", {}));
 export const getKokoroSetup = () => request<KokoroSetupStatus>("/api/v1/settings/tts/kokoro/setup");
 export const installKokoroSetup = (payload: { confirmNetworkDownload: boolean; confirmThirdPartyLicense: boolean; repair?: boolean }) => request<Job>("/api/v1/settings/tts/kokoro/setup/install", json("POST", payload));
@@ -122,6 +127,8 @@ export const saveSegmentOverride = (projectId: string, segmentId: string, payloa
 export const getProductionStatus = (projectId: string, chapterId: string) => request<ProductionStatus>(`/api/v1/projects/${projectId}/chapters/${chapterId}/production-status`);
 export const produceChapter = (projectId: string, chapterId: string, force = false) => request<Job>(`/api/v1/projects/${projectId}/chapters/${chapterId}/produce?force=${force}`, json("POST"));
 export const listChapterRenders = (projectId: string, chapterId: string) => request<ChapterRender[]>(`/api/v1/projects/${projectId}/chapters/${chapterId}/renders`);
+export const listRenderQueue = (projectId: string, chapterId?: string) => request<RenderQueueItem[]>(`/api/v1/projects/${projectId}/render-queue${chapterId ? `?chapter_id=${encodeURIComponent(chapterId)}` : ""}`);
+export const compareSegmentRenders = (projectId: string, segmentId: string) => request<SegmentRenderComparison>(`/api/v1/projects/${projectId}/segments/${segmentId}/renders/compare`);
 export const listIssues = (projectId: string) => request<Issue[]>(`/api/v1/projects/${projectId}/issues`);
 export const updateIssue = (issueId: string, payload: { status?: string; severity?: string }) => request<Issue>(`/api/v1/issues/${issueId}`, json("PATCH", payload));
 export const listComments = (issueId: string) => request<Comment[]>(`/api/v1/issues/${issueId}/comments`);

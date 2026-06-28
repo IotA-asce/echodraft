@@ -337,19 +337,38 @@ Purpose: immutable segment render history.
 Key columns:
 - `id` TEXT PK
 - `segment_id` FK
-- `voice_profile_id` FK
-- `backend` TEXT NOT NULL
-- `backend_model_version` TEXT
-- `render_params_json` TEXT
-- `speech_audio_path` TEXT NOT NULL
-- `alignment_json_path` TEXT
-- `waveform_json_path` TEXT
-- `duration_ms` INTEGER
-- `qa_summary_json` TEXT
-- `created_at` DATETIME
+- `render_key` TEXT NOT NULL
+- `status` TEXT NOT NULL
+- `audio_path` TEXT NOT NULL
+- `metadata_path` TEXT NOT NULL
+- `duration_ms` INTEGER NOT NULL
+- `parent_render_id` TEXT nullable
+- `request_json` TEXT NOT NULL
 
 Indexes:
-- `(segment_id, created_at)`
+- `segment_id`
+
+### `render_queue_items`
+Purpose: per-segment production queue status for chapter render jobs.
+
+Key columns:
+- `id` TEXT PK
+- `project_id` FK
+- `chapter_id` FK
+- `segment_id` FK
+- `job_id` FK
+- `status` TEXT NOT NULL
+- `voice_profile_id` FK nullable
+- `provider` TEXT NOT NULL
+- `render_key` TEXT nullable
+- `error_message` TEXT nullable
+- `created_at` DATETIME NOT NULL
+- `started_at` DATETIME nullable
+- `finished_at` DATETIME nullable
+
+Notes:
+- queue rows store metadata and render references only
+- audio remains in artifact storage under the project directory
 
 ### `chapter_renders`
 Purpose: chapter-level assembled outputs.
@@ -523,13 +542,15 @@ Key columns:
 21. `comments`
 22. `exports`
 23. `jobs`
-24. `model_installations`
-25. `model_install_jobs`
-26. `llm_runs`
-27. `rights_declarations`
+24. `render_queue_items`
+25. `model_installations`
+26. `model_install_jobs`
+27. `llm_runs`
+28. `rights_declarations`
 
 ## Lifecycle semantics
 - Regeneration inserts a new `segment_renders` row instead of mutating existing rows.
+- Render queue rows move through queued/running/succeeded/failed and reference render keys when complete.
 - Segment changes stale downstream chapter renders.
 - Structure locks preserve user-approved segment text across parser reruns.
 - Export records always point to a specific output package and status.

@@ -497,6 +497,11 @@ class TtsSettings(ApiModel):
     model_path: str | None = Field(default=None, alias="modelPath")
     voices_data_path: str | None = Field(default=None, alias="voicesDataPath")
     voice_registry_path: str | None = Field(default=None, alias="voiceRegistryPath")
+    piper_model_path: str | None = Field(default=None, alias="piperModelPath")
+    piper_config_path: str | None = Field(default=None, alias="piperConfigPath")
+    reference_voice_path: str | None = Field(default=None, alias="referenceVoicePath")
+    reference_voice_consent: bool = Field(default=False, alias="referenceVoiceConsent")
+    language: str = "en"
     ready: bool = False
     message: str | None = None
     available_voices: list[str] = Field(default_factory=list, alias="availableVoices")
@@ -511,6 +516,24 @@ class TtsSettingsUpdate(ApiModel):
     model_path: str | None = Field(default=None, alias="modelPath")
     voices_data_path: str | None = Field(default=None, alias="voicesDataPath")
     voice_registry_path: str | None = Field(default=None, alias="voiceRegistryPath")
+    piper_model_path: str | None = Field(default=None, alias="piperModelPath")
+    piper_config_path: str | None = Field(default=None, alias="piperConfigPath")
+    reference_voice_path: str | None = Field(default=None, alias="referenceVoicePath")
+    reference_voice_consent: bool = Field(default=False, alias="referenceVoiceConsent")
+    language: str = "en"
+
+
+class TtsProviderInfo(ApiModel):
+    provider: str
+    display_name: str = Field(alias="displayName")
+    setup_mode: str | None = Field(default=None, alias="setupMode")
+    ready: bool
+    message: str | None = None
+    available_voices: list[str] = Field(default_factory=list, alias="availableVoices")
+    capabilities: dict[str, object] = Field(default_factory=dict)
+    requires_reference_consent: bool = Field(default=False, alias="requiresReferenceConsent")
+    reference_voice_consent: bool | None = Field(default=None, alias="referenceVoiceConsent")
+    reference_voice_path: str | None = Field(default=None, alias="referenceVoicePath")
 
 
 class TtsTestRequest(ApiModel):
@@ -651,6 +674,29 @@ class SegmentRender(ApiModel):
     duration_ms: int = Field(alias="durationMs")
     parent_render_id: str | None = Field(default=None, alias="parentRenderId")
     audio_url: str | None = Field(default=None, alias="audioUrl")
+
+
+class SegmentRenderComparison(ApiModel):
+    segment_id: str = Field(alias="segmentId")
+    current_render: SegmentRender | None = Field(default=None, alias="currentRender")
+    previous_render: SegmentRender | None = Field(default=None, alias="previousRender")
+    changed_fields: list[str] = Field(default_factory=list, alias="changedFields")
+
+
+class RenderQueueItem(ApiModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    chapter_id: str = Field(alias="chapterId")
+    segment_id: str = Field(alias="segmentId")
+    job_id: str = Field(alias="jobId")
+    status: str
+    voice_profile_id: str | None = Field(default=None, alias="voiceProfileId")
+    provider: str
+    render_key: str | None = Field(default=None, alias="renderKey")
+    error_message: str | None = Field(default=None, alias="errorMessage")
+    created_at: datetime = Field(alias="createdAt")
+    started_at: datetime | None = Field(default=None, alias="startedAt")
+    finished_at: datetime | None = Field(default=None, alias="finishedAt")
 
 
 class ChapterRender(ApiModel):

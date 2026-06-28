@@ -9,7 +9,7 @@ from echodraft_domain import TtsSettings, TtsSettingsUpdate
 from .config import AppSettings
 
 if TYPE_CHECKING:
-    from .direction import TtsAdapter
+    from .tts_providers import TtsProvider
 
 
 class TtsSettingsStore:
@@ -26,6 +26,15 @@ class TtsSettingsStore:
                 str(settings.kokoro_voices_data_path) if settings.kokoro_voices_data_path else None
             ),
             voiceRegistryPath=str(settings.kokoro_voice_path) if settings.kokoro_voice_path else None,
+            piperModelPath=str(settings.piper_model_path) if settings.piper_model_path else None,
+            piperConfigPath=str(settings.piper_config_path) if settings.piper_config_path else None,
+            referenceVoicePath=(
+                str(settings.xtts_reference_voice_path)
+                if settings.xtts_reference_voice_path
+                else None
+            ),
+            referenceVoiceConsent=settings.xtts_reference_voice_consent,
+            language=settings.xtts_language,
         )
 
     def load(self) -> TtsSettingsUpdate:
@@ -35,12 +44,36 @@ class TtsSettingsStore:
             TtsSettingsUpdate.model_validate(json.loads(self.path.read_text(encoding="utf-8")))
         )
 
-    def adapter(self, payload: TtsSettingsUpdate | None = None) -> "TtsAdapter":
+    def adapter(self, payload: TtsSettingsUpdate | None = None) -> "TtsProvider":
         config = self._normalized(payload or self.load())
-        from .direction import KokoroTtsAdapter, ManagedKokoroOnnxAdapter, MockTtsAdapter
+        from .tts_providers import (
+            KokoroTtsAdapter,
+            ManagedKokoroOnnxAdapter,
+            MockTtsAdapter,
+            PiperTtsAdapter,
+            XttsV2Adapter,
+        )
 
         if config.provider == "mock":
             return MockTtsAdapter()
+        if config.provider == "piper":
+            return PiperTtsAdapter(
+                config.executable,
+                Path(config.piper_model_path).expanduser() if config.piper_model_path else None,
+                Path(config.piper_config_path).expanduser() if config.piper_config_path else None,
+                Path(config.voice_registry_path).expanduser()
+                if config.voice_registry_path
+                else None,
+            )
+        if config.provider == "xtts_v2":
+            return XttsV2Adapter(
+                Path(config.python_path).expanduser() if config.python_path else None,
+                Path(config.reference_voice_path).expanduser()
+                if config.reference_voice_path
+                else None,
+                config.reference_voice_consent,
+                config.language,
+            )
         if config.setup_mode == "managed_onnx":
             return ManagedKokoroOnnxAdapter(
                 Path(config.python_path).expanduser() if config.python_path else None,
@@ -58,12 +91,7 @@ class TtsSettingsStore:
     def status(self, payload: TtsSettingsUpdate | None = None) -> TtsSettings:
         config = payload or self.load()
         adapter = self.adapter(config)
-        from .direction import KokoroTtsAdapter, ManagedKokoroOnnxAdapter
-        message = (
-            adapter.readiness()
-            if isinstance(adapter, (KokoroTtsAdapter, ManagedKokoroOnnxAdapter))
-            else None
-        )
+        message = adapter.readiness()
         return TtsSettings(
             **config.model_dump(by_alias=True),
             ready=message is None,
@@ -71,11 +99,23 @@ class TtsSettingsStore:
             availableVoices=adapter.list_voices() if message is None else [],
         )
 
+    def providers(self) -> list[dict[str, object]]:
+        saved = self.load()
+        candidates = [
+            saved.model_copy(update={"provider": "mock"}),
+            saved.model_copy(update={"provider": "kokoro"}),
+            saved.model_copy(update={"provider": "piper"}),
+            saved.model_copy(update={"provider": "xtts_v2"}),
+        ]
+        return [self.adapter(candidate).capability() for candidate in candidates]
+
     def save(self, payload: TtsSettingsUpdate) -> TtsSettings:
         payload = self._normalized(payload)
-        if payload.provider not in {"mock", "kokoro"}:
-            raise ValueError("Supported TTS providers are mock and kokoro.")
-        if payload.setup_mode and payload.setup_mode not in {"managed_onnx", "custom_adapter"}:
+        if payload.provider not in {"mock", "kokoro", "piper", "xtts_v2"}:
+            raise ValueError("Supported TTS providers are mock, kokoro, piper, and xtts_v2.")
+        if payload.provider == "xtts_v2" and not payload.reference_voice_consent:
+            raise ValueError("XTTS-v2 requires explicit consent for the local reference voice.")
+        if payload.provider == "kokoro" and payload.setup_mode and payload.setup_mode not in {"managed_onnx", "custom_adapter"}:
             raise ValueError("Supported Kokoro setup modes are managed_onnx and custom_adapter.")
         status = self.status(payload)
         if not status.ready:
@@ -87,7 +127,7 @@ class TtsSettingsStore:
         return status
 
     def _normalized(self, config: TtsSettingsUpdate) -> TtsSettingsUpdate:
-        if config.provider != "kokoro":
+        if config.provider == "mock":
             return config.model_copy(
                 update={
                     "setup_mode": None,
@@ -97,9 +137,41 @@ class TtsSettingsStore:
                     "model_path": None,
                     "voices_data_path": None,
                     "voice_registry_path": None,
+                    "piper_model_path": None,
+                    "piper_config_path": None,
+                    "reference_voice_path": None,
+                    "reference_voice_consent": False,
+                }
+            )
+        if config.provider == "piper":
+            return config.model_copy(
+                update={
+                    "setup_mode": "local_cli",
+                    "runtime_root": None,
+                    "python_path": None,
+                    "model_path": None,
+                    "voices_data_path": None,
+                    "reference_voice_path": None,
+                    "reference_voice_consent": False,
+                }
+            )
+        if config.provider == "xtts_v2":
+            return config.model_copy(
+                update={
+                    "setup_mode": "coqui_local",
+                    "executable": None,
+                    "runtime_root": None,
+                    "model_path": None,
+                    "voices_data_path": None,
+                    "voice_registry_path": None,
+                    "piper_model_path": None,
+                    "piper_config_path": None,
+                    "language": config.language or "en",
                 }
             )
         setup_mode = config.setup_mode
+        if setup_mode not in {"managed_onnx", "custom_adapter"}:
+            setup_mode = None
         if not setup_mode:
             setup_mode = "managed_onnx" if config.python_path or config.voices_data_path else "custom_adapter"
         return config.model_copy(
