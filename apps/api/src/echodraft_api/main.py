@@ -674,9 +674,9 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         service = StructureService(container)
         if not container.projects.get(project_id):
             raise HTTPException(status_code=404, detail="Project not found")
-        return container.jobs.submit(
+        return container.jobs.submit_with_job(
             "structure.extract",
-            lambda: service.extract(project_id, payload.max_segment_chars),
+            lambda job_id: service.extract(project_id, payload.max_segment_chars, job_id=job_id),
             project_id,
         )
 

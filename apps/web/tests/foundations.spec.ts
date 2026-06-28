@@ -148,6 +148,42 @@ test("produces and exports a chapter entirely from the dashboard", async ({ page
   expect((await download).suggestedFilename()).toBe("audiobook.zip");
 });
 
+test("drafts cast from upload and produces with an assigned character voice", async ({ page }) => {
+  const title = `Cast Draft ${Date.now()}`;
+  await page.goto("/");
+  await page.getByLabel("Title").fill(title);
+  await page.getByLabel(/I confirm I have the rights/).check();
+  await page.getByRole("button", { name: "Create project" }).click();
+  await page.getByLabel("Provider").selectOption("mock");
+  await page.getByRole("button", { name: "Use mock TTS" }).click();
+  await page.getByLabel("Manuscript file").setInputFiles({
+    name: "cast-draft.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Chapter 1\n\nMara: We leave now.")
+  });
+
+  await page.getByRole("button", { name: "Extract structure" }).click();
+  await expect(page.getByText("Structure and cast draft extracted. Review cast and voices before producing chapters.")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("03 / Structure & Cast Draft")).toBeVisible();
+  const maraCard = page.locator(".character-card").filter({ hasText: "Mara" });
+  await expect(maraCard).toBeVisible();
+  await expect(page.locator(".cast-card").filter({ hasText: "Mara" })).toContainText("approved");
+
+  const structure = page.locator(".structure-columns");
+  await structure.locator(":scope > div").first().getByRole("button").first().click();
+  await page.getByPlaceholder("Profile name").fill("Mock narrator");
+  await page.getByPlaceholder("Local provider voice ID or preset ID").fill("mock-narrator");
+  await page.getByRole("button", { name: "Add voice" }).click();
+  await page.locator(".voice-list .voice-card").filter({ hasText: "Mock narrator" }).getByRole("button", { name: "Set narrator" }).click();
+  await page.getByPlaceholder("Profile name").fill("Mock Mara");
+  await page.getByPlaceholder("Local provider voice ID or preset ID").fill("mock-mara");
+  await page.getByRole("button", { name: "Add voice" }).click();
+  await maraCard.getByLabel("Voice").selectOption({ label: "Mock Mara" });
+
+  await page.getByRole("button", { name: "Produce chapter" }).click();
+  await expect(page.getByText("Chapter production completed. Review the active render below.")).toBeVisible({ timeout: 10_000 });
+});
+
 test("keeps the chapter map bounded and shows production progress", async ({ page }) => {
   await page.route(/\/api\/v1\/projects$/, async (route) => {
     await route.fulfill({
@@ -328,7 +364,7 @@ test("guides managed Kokoro setup and narrator selection", async ({ page }) => {
   await page.getByRole("listitem").filter({ hasText: title }).getByRole("button", { name: "Open" }).click();
 
   await page.getByLabel("Provider").selectOption("kokoro");
-  await expect(page.getByText("Set up Kokoro voice system", { exact: true })).toBeVisible();
+  await expect(page.getByText("Set up Kokoro preset voices", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Download and install Kokoro locally" }).click();
   await expect(page.getByText(/Installing Kokoro ONNX/)).toBeVisible();
   await expect(page.getByText("Kokoro voice system is ready. Choose a voice and set your narrator.")).toBeVisible({ timeout: 10_000 });
@@ -403,7 +439,7 @@ test("keeps Kokoro selected when managed repair fails", async ({ page }) => {
   await page.getByRole("button", { name: "Repair setup" }).click();
   await expect(page.locator(".notice.error").getByText("Kokoro setup failed while validating the preview.")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByLabel("Provider")).toHaveValue("kokoro");
-  await expect(page.getByText("Set up Kokoro voice system", { exact: true })).toBeVisible();
+  await expect(page.getByText("Set up Kokoro preset voices", { exact: true })).toBeVisible();
   await expect(page.getByText("Use mock TTS")).toBeHidden();
 });
 

@@ -11,6 +11,8 @@ from uuid import uuid4
 from echodraft_db.models import (
     ChapterRecord,
     ChapterRenderRecord,
+    CharacterRecord,
+    CharacterVoiceAssignmentRecord,
     IssueRecord,
     ProjectProductionSettingsRecord,
     ReadinessReportRecord,
@@ -244,7 +246,7 @@ class ReadinessService:
             checks.append(self._passed("structure_warnings", "structure", "No unresolved parser warnings."))
 
         checks.extend(self._speaker_checks(session, project_id, segment_ids, chapter_id))
-        checks.extend(self._voice_checks(session, project_id))
+        checks.extend(self._voice_checks(session, project_id, segment_ids, chapter_id))
         checks.extend(self._direction_checks(session, project_id, segment_ids, chapter_id))
         checks.extend(self._audio_checks(session, project_id, chapters, segments))
         checks.extend(self._export_checks(session, project_id, bool(chapters)))
@@ -274,7 +276,7 @@ class ReadinessService:
                     "Speaker review queue is open",
                     f"{review_count} speaker attribution rows still need review.",
                     chapter_id=chapter_id,
-                    metadata={"openSpeakerAttributions": review_count},
+                    metadata={"openSpeakerAttributions": review_count, "unresolvedSpeakerRows": review_count},
                 )
             ]
         if rows:
@@ -291,10 +293,13 @@ class ReadinessService:
             )
         ]
 
-    def _voice_checks(self, session: Session, project_id: str) -> list[CheckDraft]:
+    def _voice_checks(
+        self, session: Session, project_id: str, segment_ids: list[str], chapter_id: str | None
+    ) -> list[CheckDraft]:
+        checks: list[CheckDraft] = []
         settings = session.get(ProjectProductionSettingsRecord, project_id)
         if not settings or not settings.narrator_voice_profile_id:
-            return [
+            checks.append(
                 self._issue(
                     "voice_narrator_missing",
                     "voice",
@@ -303,20 +308,124 @@ class ReadinessService:
                     "Narrator voice missing",
                     "Choose a narrator voice before readiness can pass.",
                 )
-            ]
-        voice = session.get(VoiceProfileRecord, settings.narrator_voice_profile_id)
-        if not voice or voice.project_id != project_id:
-            return [
-                self._issue(
-                    "voice_narrator_invalid",
-                    "voice",
-                    "blocking",
-                    "readiness_voice",
-                    "Narrator voice is invalid",
-                    "The selected narrator voice no longer exists in this project.",
+            )
+        else:
+            voice = session.get(VoiceProfileRecord, settings.narrator_voice_profile_id)
+            if not voice or voice.project_id != project_id:
+                checks.append(
+                    self._issue(
+                        "voice_narrator_invalid",
+                        "voice",
+                        "blocking",
+                        "readiness_voice",
+                        "Narrator voice is invalid",
+                        "The selected narrator voice no longer exists in this project.",
+                    )
                 )
-            ]
-        return [self._passed("voice_narrator", "voice", "Narrator voice is configured.")]
+            else:
+                checks.append(
+                    self._passed(
+                        "voice_narrator",
+                        "voice",
+                        "Narrator voice is configured.",
+                    )
+                )
+
+        characters = list(
+            session.scalars(
+                select(CharacterRecord).where(
+                    CharacterRecord.project_id == project_id,
+                    CharacterRecord.merged_into_character_id.is_(None),
+                )
+            )
+        )
+        character_ids = [character.id for character in characters]
+        voiced_character_ids = set(
+            session.scalars(
+                select(CharacterVoiceAssignmentRecord.character_id).where(
+                    CharacterVoiceAssignmentRecord.character_id.in_(character_ids)
+                )
+            )
+        ) if character_ids else set()
+        unvoiced = [character.id for character in characters if character.id not in voiced_character_ids]
+        if characters and unvoiced:
+            checks.append(
+                self._issue(
+                    "voice_character_coverage",
+                    "voice",
+                    "warning",
+                    "readiness_voice",
+                    "Character voice coverage is partial",
+                    f"{len(unvoiced)} detected characters have no linked voice.",
+                    chapter_id=chapter_id,
+                    metadata={
+                        "charactersDetected": len(characters),
+                        "charactersVoiced": len(characters) - len(unvoiced),
+                        "unvoicedCharacterIds": unvoiced[:20],
+                    },
+                )
+            )
+        elif characters:
+            checks.append(
+                self._passed(
+                    "voice_character_coverage",
+                    "voice",
+                    f"{len(characters)} detected characters have linked voices.",
+                )
+            )
+        else:
+            checks.append(
+                self._issue(
+                    "voice_no_characters_detected",
+                    "voice",
+                    "warning",
+                    "readiness_voice",
+                    "No cast has been detected",
+                    "Run Structure & Cast Draft before chapter production review.",
+                    chapter_id=chapter_id,
+                    metadata={"charactersDetected": 0, "charactersVoiced": 0},
+                )
+            )
+
+        if segment_ids:
+            speaker_rows = list(
+                session.scalars(
+                    select(SpeakerAttributionRecord).where(
+                        SpeakerAttributionRecord.project_id == project_id,
+                        SpeakerAttributionRecord.segment_id.in_(segment_ids),
+                        SpeakerAttributionRecord.status == "approved",
+                    )
+                )
+            )
+            narrator_fallback = len(
+                [
+                    row
+                    for row in speaker_rows
+                    if row.character_id is None or row.character_id not in voiced_character_ids
+                ]
+            )
+            if narrator_fallback:
+                checks.append(
+                    self._issue(
+                        "voice_narrator_fallback_rows",
+                        "voice",
+                        "warning",
+                        "readiness_voice",
+                        "Narrator fallback will be used",
+                        f"{narrator_fallback} approved rows will use the narrator voice.",
+                        chapter_id=chapter_id,
+                        metadata={"narratorFallbackRows": narrator_fallback},
+                    )
+                )
+            else:
+                checks.append(
+                    self._passed(
+                        "voice_narrator_fallback_rows",
+                        "voice",
+                        "No approved cast rows need narrator fallback.",
+                    )
+                )
+        return checks
 
     def _direction_checks(
         self, session: Session, project_id: str, segment_ids: list[str], chapter_id: str | None

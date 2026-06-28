@@ -32,6 +32,8 @@ SPEAKER_ATTRIBUTION_SCHEMA: dict[str, object] = {
     },
     "required": ["attributions", "warnings"],
 }
+SPEAKER_ATTRIBUTION_BATCH_CHARS = 5000
+SPEAKER_ATTRIBUTION_BATCH_SEGMENTS = 20
 
 
 @dataclass(frozen=True)
@@ -158,60 +160,75 @@ class SpeakerAttributionService:
         if not unresolved:
             return
         segment_map = {segment.id: segment for segment in segments}
-        prompt = self._llm_prompt(
-            [
-                segment_map[item.segment_id]
-                for item in unresolved
-                if item.segment_id in segment_map
-            ],
-            character_index,
-        )
         from .local_llm import LocalLlmService
 
-        result = LocalLlmService(self.container).extract(
-            project_id,
-            LlmExtractionRequest(
-                model=model,
-                task="speaker_attribution",
-                schema=SPEAKER_ATTRIBUTION_SCHEMA,
-                prompt=prompt,
-            ),
-            job_id,
-        )
-        attributions = result.result.get("attributions")
-        if not isinstance(attributions, list):
-            raise ValueError("Local LLM did not return speaker attributions.")
-        for item in attributions:
-            if not isinstance(item, dict):
+        unresolved_segments = [
+            segment_map[item.segment_id]
+            for item in unresolved
+            if item.segment_id in segment_map
+        ]
+        batches = list(_segment_batches(unresolved_segments))
+        for batch_index, batch in enumerate(batches, 1):
+            if job_id:
+                self.container.jobs_repository.set_progress(
+                    job_id,
+                    {
+                        "phase": "llm_speaker_attribution",
+                        "current": batch_index,
+                        "total": len(batches),
+                    },
+                )
+            try:
+                result = LocalLlmService(self.container).extract(
+                    project_id,
+                    LlmExtractionRequest(
+                        model=model,
+                        task="speaker_attribution",
+                        schema=SPEAKER_ATTRIBUTION_SCHEMA,
+                        prompt=self._llm_prompt(batch, character_index),
+                    ),
+                    job_id,
+                )
+            except ValueError as error:
+                self.container.review.create_issue(
+                    project_id=project_id,
+                    category="cast_discovery",
+                    severity="warning",
+                    title="LLM speaker attribution skipped a segment window",
+                    description="Local Ollama failed while assigning speakers; deterministic review rows remain.",
+                    metadata={"error": str(error)[:500], "segmentIds": [segment.id for segment in batch]},
+                    dedupe_key=f"speaker-llm:{project_id}:{batch[0].id}",
+                )
                 continue
-            payload = cast(dict[str, object], item)
-            segment_id = payload.get("segmentId")
-            if not isinstance(segment_id, str) or segment_id not in segment_map:
+            attributions = result.result.get("attributions")
+            if not isinstance(attributions, list):
                 continue
-            speaker_name = str(payload.get("speakerName") or "")
-            character_name = str(payload.get("characterName") or speaker_name)
-            raw_confidence = payload.get("confidence")
-            confidence = (
-                float(raw_confidence)
-                if isinstance(raw_confidence, (int, float, str))
-                else 0.0
-            )
-            character = character_index.by_name.get(_name_key(character_name))
-            self.container.speaker_attributions.upsert(
-                project_id,
-                segment_id,
-                character_id=character.id if character else None,
-                speaker_name=speaker_name or None,
-                method="ollama",
-                evidence={
-                    "reason": "ollama_fallback",
-                    "llmRunId": result.run.id,
-                    "textPreview": segment_map[segment_id].text_content[:160],
-                    "evidence": payload.get("evidence"),
-                },
-                confidence=confidence,
-                status="approved" if character and confidence >= 0.7 else "needs_review",
-            )
+            for item in attributions:
+                if not isinstance(item, dict):
+                    continue
+                payload = cast(dict[str, object], item)
+                segment_id = payload.get("segmentId")
+                if not isinstance(segment_id, str) or segment_id not in segment_map:
+                    continue
+                speaker_name = str(payload.get("speakerName") or "")
+                character_name = str(payload.get("characterName") or speaker_name)
+                confidence = _confidence(payload.get("confidence"))
+                character = character_index.by_name.get(_name_key(character_name))
+                self.container.speaker_attributions.upsert(
+                    project_id,
+                    segment_id,
+                    character_id=character.id if character else None,
+                    speaker_name=speaker_name or None,
+                    method="ollama",
+                    evidence={
+                        "reason": "ollama_fallback",
+                        "llmRunId": result.run.id,
+                        "textPreview": segment_map[segment_id].text_content[:160],
+                        "evidence": payload.get("evidence"),
+                    },
+                    confidence=confidence,
+                    status="approved" if character and confidence >= 0.7 else "needs_review",
+                )
 
     def _segments(self, project_id: str) -> list[SegmentRecord]:
         with self.container.structure.database.session() as session:
@@ -244,15 +261,24 @@ class SpeakerAttributionService:
 
     @staticmethod
     def _llm_prompt(segments: list[SegmentRecord], character_index: CharacterIndex) -> str:
-        characters = sorted({character.display_name for character in character_index.by_name.values()})
+        characters = sorted(
+            {character.id: character for character in character_index.by_name.values()}.values(),
+            key=lambda item: item.display_name,
+        )
+        character_lines: list[str] = []
+        for character in characters:
+            aliases = _aliases(character)
+            alias_suffix = f" (aliases: {', '.join(aliases)})" if aliases else ""
+            character_lines.append(f"{character.display_name}{alias_suffix}")
         segment_lines = "\n".join(
             f"- {segment.id}: {segment.text_content[:500].replace(chr(10), ' ')}"
             for segment in segments
         )
         return (
-            "Assign likely speakers for audiobook dialogue segments. Use only the supplied cast "
-            "when possible. Return JSON that matches the supplied schema.\n\n"
-            f"Cast: {', '.join(characters) if characters else 'No cast records yet'}\n\n"
+            "Assign likely speakers for this bounded audiobook segment window. Use only the supplied "
+            "Character Bible cast when linking a character. Leave uncertain speakers in review by "
+            "returning low confidence. Return JSON that matches the supplied schema.\n\n"
+            f"Cast: {'; '.join(character_lines) if character_lines else 'No cast records yet'}\n\n"
             f"Segments:\n{segment_lines}"
         )
 
@@ -261,3 +287,43 @@ def _name_key(value: str | None) -> str:
     if not value:
         return ""
     return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+
+
+def _aliases(character: CharacterRecord) -> list[str]:
+    try:
+        aliases = json.loads(character.aliases_json)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(aliases, list):
+        return []
+    return [str(item) for item in aliases if str(item).strip()]
+
+
+def _confidence(value: object) -> float:
+    if isinstance(value, (int, float, str)):
+        try:
+            return min(max(float(value), 0.0), 1.0)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def _segment_batches(segments: list[SegmentRecord]) -> list[list[SegmentRecord]]:
+    batches: list[list[SegmentRecord]] = []
+    current: list[SegmentRecord] = []
+    current_chars = 0
+    for segment in segments:
+        length = len(segment.text_content)
+        if (
+            current
+            and current_chars + length > SPEAKER_ATTRIBUTION_BATCH_CHARS
+            or len(current) >= SPEAKER_ATTRIBUTION_BATCH_SEGMENTS
+        ):
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append(segment)
+        current_chars += length
+    if current:
+        batches.append(current)
+    return batches
