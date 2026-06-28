@@ -70,7 +70,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | TXT / Markdown / DOCX / EPUB import | Working         | Local ingestion and canonical text generation                                              |
 | PDF import                          | Alpha           | Page-aware text/OCR selection; scanned pages require Poppler + Tesseract English OCR        |
 | Clean Text Review                   | Alpha           | Page-marker cleanup and suspicious OCR-token review before structure extraction             |
-| Structure extraction                | Alpha           | Parser v2 with front matter, warnings, locks, split/merge, and segment evidence             |
+| Structure extraction                | Alpha           | Parser v3 deterministic draft plus bounded local LLM refinement when available              |
 | Segment editing                     | Working         | Saves new revisions instead of overwriting history                                         |
 | Mock TTS                            | Working         | Silent WAVs for validating the full workflow                                               |
 | Model Center                        | Alpha           | Catalog, health checks, install jobs, and OS package-manager install commands              |
@@ -78,7 +78,7 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | Managed Kokoro setup                | Alpha           | Local CPU-oriented ONNX flow from the dashboard                                            |
 | TTS provider registry               | Alpha           | Mock, Kokoro, Piper fallback, and consent-gated XTTS-v2 provider contracts                  |
 | Character Bible                     | Alpha           | Canonical names, aliases, traits, locks, voice links, merge/split history, and dashboard UI |
-| Speaker attribution                 | Alpha           | Deterministic Cast Review rows, review locks, Ollama fallback hooks, and cast voice use     |
+| Speaker attribution                 | Alpha           | Auto cast discovery, review locks, bounded Ollama speaker assist, and cast voice use        |
 | Direction Studio                    | Alpha           | Segment emotions, pace/intensity, pause controls, inference, and render-stale fingerprinting |
 | Render queue and compare            | Alpha           | Per-segment queue rows and latest-vs-parent render request comparison                      |
 | Review and patching                 | Alpha           | Segment inspector, QA/comments, patch queue, render lineage, and chapter reassembly         |
@@ -420,17 +420,17 @@ Project
       → Segments
 ```
 
-The default maximum segment size is 600 characters. Structure Parser v2 records evidence and warnings, supports segment locks, and lets you split or merge segments before production.
+The default maximum segment size is 600 characters. Structure Parser v3 records deterministic evidence and warnings, supports segment locks, and lets you split or merge segments before production. When the default Ollama model is installed through Model Center, Extract Structure also refines bounded segment windows locally; it never sends full books or large chapters to the model. If Ollama is not ready or returns invalid segmentation, deterministic structure is kept with a warning.
 
 ---
 
 ### Character Bible
 
-Use **Voice bible** to maintain project cast records before production. Character records now store canonical names, aliases, traits, first-seen references, lock state, merge/split history, and optional voice links. Merge and split operations preserve traceability instead of deleting source records.
+Use **Cast Review & Voice Bible** to maintain project cast records before production. Character records now store canonical names, aliases, traits, first-seen references, lock state, merge/split history, and optional voice links. Merge and split operations preserve traceability instead of deleting source records.
 
 Character voice links become production inputs after Cast Review approves a segment speaker attribution.
 
-Run **Cast Review** after structure extraction to create speaker attribution rows for every segment. Approved character attributions with voice links are used during chapter production unless a segment-level voice override is set.
+Extract Structure now creates the first cast and speaker draft automatically: local LLM cast extraction runs when available, merge verification prevents obvious duplicates, high-confidence unique characters are created, and ambiguous candidates stay in review issues. Approved character attributions with voice links are used during chapter production unless a segment-level voice override is set.
 
 ---
 
@@ -542,7 +542,7 @@ Mock TTS creates deterministic silent 16 kHz WAV files. It validates the product
 
 Real Kokoro synthesis can be set up from the dashboard.
 
-Open **Voice setup**, choose **Kokoro managed voice system**, then select **Download and install Kokoro locally**.
+Open **Voice setup**, choose **Kokoro managed preset voice system**, then select **Download and install Kokoro locally**.
 
 The setup job handles:
 
@@ -550,7 +550,7 @@ The setup job handles:
 * package installation;
 * model download;
 * voice data download;
-* voice list generation;
+* fixed preset voice list generation;
 * preview validation;
 * settings save.
 
@@ -560,7 +560,7 @@ Managed setup stores files under:
 .echodraft/kokoro/managed-onnx-v1
 ```
 
-The current managed path is CPU-oriented. GPU/provider tuning remains out of scope for this release.
+The current managed path is CPU-oriented and exposes selectable Kokoro preset voice IDs. It does not create new custom voices; custom voice support belongs to other local providers such as imported Piper models or consent-gated XTTS-v2 reference voices. GPU/provider tuning remains out of scope for this release.
 
 The setup job uses network access only after you select the install button. Manuscripts, generated audio, and project metadata are not uploaded.
 

@@ -55,3 +55,40 @@ def test_readiness_report_persists_checks_and_issue_resolution(client) -> None:
     assert latest["id"] == rerun["id"]
     history = client.get(f"/api/v1/projects/{project}/readiness/reports").json()
     assert [item["id"] for item in history][:2] == [rerun["id"], report["id"]]
+
+
+def test_readiness_reports_cast_voice_coverage_and_narrator_fallback(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Voice Coverage", "rightsStatus": "declared"}
+    ).json()["id"]
+    narrator_voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Narrator", "backend": "mock", "providerVoiceId": "mock-narrator"},
+    ).json()
+    client.put(
+        f"/api/v1/projects/{project}/production-settings",
+        json={"narratorVoiceProfileId": narrator_voice["id"]},
+    )
+    imported = client.post(
+        f"/api/v1/projects/{project}/source/import",
+        files={"file": ("cast.txt", b"Chapter 1\n\nMara: Go now.", "text/plain")},
+        data={"rightsAcknowledged": "true"},
+    ).json()
+    assert wait_for_job(client, imported["id"])["status"] == "succeeded"
+    structured = client.post(f"/api/v1/projects/{project}/structure/extract", json={}).json()
+    assert wait_for_job(client, structured["id"])["status"] == "succeeded"
+    chapter = client.get(f"/api/v1/projects/{project}/chapters").json()[0]["id"]
+
+    report = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+
+    character_check = next(
+        check for check in report["checks"] if check["id"] == "voice_character_coverage"
+    )
+    fallback_check = next(
+        check for check in report["checks"] if check["id"] == "voice_narrator_fallback_rows"
+    )
+    assert character_check["metadata"]["charactersDetected"] == 1
+    assert character_check["metadata"]["charactersVoiced"] == 0
+    assert fallback_check["metadata"]["narratorFallbackRows"] == 1

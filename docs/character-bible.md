@@ -17,6 +17,8 @@ Each character stores:
 
 ## Editing Rules
 
+- Structure & Cast Draft can create high-confidence unique characters automatically from observed dialogue/cast evidence.
+- Ambiguous candidates are kept as review issues instead of creating duplicate Character Bible records.
 - User locks survive reruns and local extraction passes.
 - Merge preserves the source record with `mergedIntoCharacterId`; it does not delete data.
 - Split creates a new character and appends history on both records.
@@ -37,4 +39,4 @@ Each character stores:
 
 ## UI Surface
 
-The dashboard Voice Bible panel supports creating character records, editing canonical names, aliases, traits, and roles, linking a voice, locking records, issuing merge or split operations, and reviewing speaker attribution rows in Cast Review.
+The dashboard Cast Review & Voice Bible panel supports creating character records, editing canonical names, aliases, traits, and roles, linking a voice, locking records, issuing merge or split operations, and reviewing speaker attribution rows in Cast Review.
