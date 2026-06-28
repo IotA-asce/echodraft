@@ -25,6 +25,7 @@ from echodraft_domain import (
 from ..container import AppContainer
 from ..kokoro_setup import ManagedKokoroSetupService
 from ..ollama_models import find_ollama_model
+from ..system_tools import resolve_system_tool
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,15 @@ class CatalogEntry:
     license_summary: str | None
     license_note: str | None
     description: str | None
+
+
+def _is_winget_already_installed_message(message: str) -> bool:
+    normalized = " ".join(message.lower().split())
+    return (
+        "existing package already installed" in normalized
+        or "no available upgrade found" in normalized
+        or "no newer package versions are available" in normalized
+    )
 
 
 class LocalAiService:
@@ -205,9 +215,19 @@ class LocalAiService:
     def _system_tool_health(self, entry: CatalogEntry) -> LocalAiHealth:
         if not entry.command:
             return self._health(entry, "missing", False, "No command is configured for this tool.")
-        executable = shutil.which(entry.command)
+        executable = resolve_system_tool(entry.command)
         if not executable:
-            return self._health(entry, "missing", False, f"{entry.display_name} is not on PATH.")
+            location_hint = (
+                "PATH or known Windows install locations"
+                if platform.system() == "Windows"
+                else "PATH"
+            )
+            return self._health(
+                entry,
+                "missing",
+                False,
+                f"{entry.display_name} is not on {location_hint}.",
+            )
         version = self._version([executable, *entry.version_args])
         return self._health(
             entry,
@@ -266,7 +286,21 @@ class LocalAiService:
             self._progress(job_id, "running", 80, "System tool is already installed.")
             return
         command = self._system_install_command(entry)
-        self._run_logged(command, logs_path, timeout=1800)
+        try:
+            self._run_logged(command, logs_path, timeout=1800)
+        except ValueError as error:
+            post_install = self._system_tool_health(entry)
+            if post_install.ready:
+                self._progress(job_id, "running", 90, "System tool is already installed.")
+                return
+            if platform.system() == "Windows" and _is_winget_already_installed_message(str(error)):
+                raise ValueError(
+                    f"{entry.display_name} is already installed according to winget, but "
+                    f"Echodraft cannot find {entry.command} in PATH or known Windows install "
+                    "locations. Restart the API after Windows refreshes PATH, or add the "
+                    "tool's bin directory to PATH and retry Verify."
+                ) from error
+            raise
 
     def _install_ollama_model(self, entry: CatalogEntry, logs_path: Path) -> None:
         if not entry.ollama_model:

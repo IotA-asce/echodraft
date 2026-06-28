@@ -28,6 +28,7 @@ from echodraft_domain import ParserWarning, RightsStatus, WarningSeverity
 
 from .cleaning import CleaningPipeline, CleaningResult
 from .container import AppContainer
+from .system_tools import resolve_system_tool
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 PARSER_VERSION = "ingestion-0.1.0"
@@ -578,7 +579,7 @@ class IngestionService:
     def _try_render_pdf_page(
         self, pdf_path: Path, output_root: Path, page_number: int
     ) -> tuple[Path | None, ParserWarning | None]:
-        if not shutil.which("pdftoppm"):
+        if not resolve_system_tool("pdftoppm"):
             return None, ParserWarning(
                 severity=WarningSeverity.INFO,
                 sourceRange=f"page {page_number}",
@@ -597,11 +598,17 @@ class IngestionService:
 
     @staticmethod
     def _render_pdf_page(pdf_path: Path, output_root: Path, page_number: int) -> Path:
+        pdftoppm = resolve_system_tool("pdftoppm")
+        if not pdftoppm:
+            raise IngestionError(
+                "PDF page render requires Poppler's pdftoppm command. Install Poppler from "
+                "Model Center, restart the API, or add Poppler's bin directory to PATH."
+            )
         image_stem = output_root / f"page_{page_number:04d}"
         output_root.mkdir(parents=True, exist_ok=True)
         rendered = subprocess.run(
             [
-                "pdftoppm",
+                pdftoppm,
                 "-f",
                 str(page_number),
                 "-l",
@@ -628,13 +635,15 @@ class IngestionService:
     def _ocr_page_image(
         image_path: Path, output_root: Path, page_number: int
     ) -> tuple[str, Path, Path, float]:
-        if not shutil.which("tesseract"):
+        tesseract = resolve_system_tool("tesseract")
+        if not tesseract:
             raise IngestionError(
-                "PDF OCR requires Tesseract with English language data. Install Tesseract from Model Center."
+                "PDF OCR requires Tesseract with English language data. Install Tesseract "
+                "from Model Center, restart the API, or add Tesseract-OCR to PATH."
             )
         output_root.mkdir(parents=True, exist_ok=True)
         recognized = subprocess.run(
-            ["tesseract", str(image_path), "stdout", "-l", "eng"],
+            [tesseract, str(image_path), "stdout", "-l", "eng"],
             capture_output=True,
             text=True,
             check=False,
@@ -678,21 +687,28 @@ class IngestionService:
 
     @staticmethod
     def _require_ocr_tools() -> None:
-        if not shutil.which("pdftoppm"):
+        if not resolve_system_tool("pdftoppm"):
             raise IngestionError(
-                "PDF OCR requires Poppler's pdftoppm command. Install Poppler and add it to PATH."
+                "PDF OCR requires Poppler's pdftoppm command. Install Poppler from Model "
+                "Center, restart the API, or add Poppler's bin directory to PATH."
             )
-        if not shutil.which("tesseract"):
+        if not resolve_system_tool("tesseract"):
             raise IngestionError(
-                "PDF OCR requires Tesseract with English language data. Install tesseract-ocr and add it to PATH."
+                "PDF OCR requires Tesseract with English language data. Install Tesseract "
+                "from Model Center, restart the API, or add Tesseract-OCR to PATH."
             )
 
     @staticmethod
     def _ocr_page(pdf_path: Path, temporary_root: Path, page_number: int) -> str:
+        pdftoppm = resolve_system_tool("pdftoppm")
+        tesseract = resolve_system_tool("tesseract")
+        if not pdftoppm or not tesseract:
+            IngestionService._require_ocr_tools()
+            raise IngestionError("PDF OCR tools are unavailable.")
         image_stem = temporary_root / f"page-{page_number}"
         rendered = subprocess.run(
             [
-                "pdftoppm",
+                pdftoppm,
                 "-f",
                 str(page_number),
                 "-l",
@@ -713,7 +729,7 @@ class IngestionService:
             detail = rendered.stderr.strip() or "Poppler did not create a page image."
             raise IngestionError(f"PDF OCR failed while rendering page {page_number}: {detail}")
         recognized = subprocess.run(
-            ["tesseract", str(image_path), "stdout", "-l", "eng"],
+            [tesseract, str(image_path), "stdout", "-l", "eng"],
             capture_output=True,
             text=True,
             check=False,
