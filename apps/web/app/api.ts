@@ -34,6 +34,8 @@ export type Issue = { id: string; projectId: string; chapterId?: string | null; 
 export type ReadinessCheck = { id: string; scope: string; status: string; severity: string; category: string; title: string; description: string; issueId?: string | null; resolutionStatus?: string | null; metadata: Record<string, unknown> };
 export type ReadinessReport = { id: string; projectId: string; chapterId?: string | null; status: string; score: number; summary: Record<string, number>; checks: ReadinessCheck[]; createdAt: string };
 export type Comment = { id: string; issueId: string; body: string; author: string; createdAt: string };
+export type PatchAttempt = { id: string; issueId?: string | null; segmentId: string; oldRenderId?: string | null; newRenderId: string; chapterRenderId: string; createdAt: string };
+export type SegmentReviewInspector = { projectId: string; chapterId: string; chapterTitle?: string | null; sceneId: string; segment: Segment; sourceText: string; canonicalText: string; structure: Record<string, unknown>; cast?: SpeakerAttribution | null; direction?: SegmentDirection | null; renderHistory: SegmentRender[]; waveform: Record<string, unknown>; qaIssues: Issue[]; comments: Comment[]; patchQueue: PatchAttempt[] };
 export type ExportPackage = { id: string; projectId: string; format: string; status: string; outputPath: string; manifestPath: string; archivePath?: string | null; downloadUrl?: string | null };
 export type Character = {
   id: string;
@@ -134,6 +136,7 @@ export const assembleChapter = (projectId: string, chapterId: string, renderMode
 export const listChapterRenders = (projectId: string, chapterId: string) => request<ChapterRender[]>(`/api/v1/projects/${projectId}/chapters/${chapterId}/renders`);
 export const listRenderQueue = (projectId: string, chapterId?: string) => request<RenderQueueItem[]>(`/api/v1/projects/${projectId}/render-queue${chapterId ? `?chapter_id=${encodeURIComponent(chapterId)}` : ""}`);
 export const compareSegmentRenders = (projectId: string, segmentId: string) => request<SegmentRenderComparison>(`/api/v1/projects/${projectId}/segments/${segmentId}/renders/compare`);
+export const getSegmentReviewInspector = (projectId: string, segmentId: string) => request<SegmentReviewInspector>(`/api/v1/projects/${projectId}/segments/${segmentId}/review-inspector`);
 export const listSoundAssets = (projectId: string) => request<SoundAsset[]>(`/api/v1/projects/${projectId}/sound-assets`);
 export async function uploadSoundAsset(projectId: string, file: File, assetType: "ambience" | "music" | "sfx", name?: string, licenseNote?: string) { const form = new FormData(); form.set("file", file); form.set("asset_type", assetType); if (name) form.set("name", name); if (licenseNote) form.set("license_note", licenseNote); return request<SoundAsset>(`/api/v1/projects/${projectId}/sound-assets`, { method: "POST", body: form }); }
 export const listChapterSoundCues = (projectId: string, chapterId: string) => request<SoundCue[]>(`/api/v1/projects/${projectId}/chapters/${chapterId}/sound-cues`);
