@@ -218,6 +218,24 @@ class StructureParserWarning(ApiModel):
     created_at: datetime = Field(alias="createdAt")
 
 
+class StructureQuality(ApiModel):
+    chapter_count: int = Field(alias="chapterCount")
+    scene_count: int = Field(alias="sceneCount")
+    segment_count: int = Field(alias="segmentCount")
+    dialogue_segment_count: int = Field(alias="dialogueSegmentCount")
+    unresolved_dialogue_count: int = Field(alias="unresolvedDialogueCount")
+    average_segment_chars: float = Field(alias="averageSegmentChars")
+    long_segment_count: int = Field(alias="longSegmentCount")
+    mixed_segment_warning_count: int = Field(alias="mixedSegmentWarningCount")
+    cast_candidate_count: int = Field(alias="castCandidateCount")
+    low_confidence_cast_candidate_count: int = Field(alias="lowConfidenceCastCandidateCount")
+    possible_scene_break_count: int = Field(alias="possibleSceneBreakCount")
+    warnings_needing_review_count: int = Field(alias="warningsNeedingReviewCount")
+    llm_refinement_used: bool = Field(alias="llmRefinementUsed")
+    llm_accepted_batch_count: int = Field(alias="llmAcceptedBatchCount")
+    llm_rejected_batch_count: int = Field(alias="llmRejectedBatchCount")
+
+
 class LlmRun(ApiModel):
     id: str
     project_id: str | None = Field(default=None, alias="projectId")

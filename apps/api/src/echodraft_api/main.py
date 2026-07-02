@@ -70,6 +70,7 @@ from echodraft_domain import (
     SourcePage,
     StructureRequest,
     StructureLockUpdate,
+    StructureQuality,
     StructureParserWarning,
     TextCleanlinessIssue,
     TextCleanlinessIssueUpdate,
@@ -698,6 +699,16 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         if not container.projects.get(project_id):
             raise HTTPException(status_code=404, detail="Project not found")
         return container.structure.warnings(project_id)
+
+    @app.get(
+        "/api/v1/projects/{project_id}/structure/quality",
+        response_model=StructureQuality,
+    )
+    def get_structure_quality(project_id: str, request: Request) -> StructureQuality:
+        container: AppContainer = request.app.state.container
+        if not container.projects.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        return StructureService(container).quality(project_id)
 
     @app.get("/api/v1/chapters/{chapter_id}", response_model=Chapter)
     def get_chapter(chapter_id: str, request: Request) -> Chapter:

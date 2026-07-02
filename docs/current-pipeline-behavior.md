@@ -29,19 +29,21 @@ PDF ingestion uses `pypdf` to extract embedded text per page and invokes local O
 
 ## Structure
 
-The structure service reads the latest canonical source and replaces the project chapter/scene/segment hierarchy. Extraction is now a staged local draft pipeline: deterministic parser, optional local Ollama segment refinement, cast discovery, and speaker attribution.
+The structure service reads the latest canonical source and replaces the project chapter/scene/segment hierarchy. Extraction is now a staged local compiler pipeline: block map, chapter candidates, scene candidates, quote-aware atoms, renderable segments, optional local atom grouping, cast discovery, speaker attribution, and quality reporting.
 
 - Chapters are detected from Markdown headings, `Chapter N`, prologue/epilogue, part, and book headings.
 - Text before the first chapter heading is represented as front matter.
 - If no chapter boundary is found, a single unresolved chapter is created with a parser warning.
-- Scenes are detected from separator lines such as `***`, `---`, `####`, or `Scene N`; otherwise a single inferred scene is created with a confidence note.
-- Segments are paragraph/sentence-batched under `maxSegmentChars`, with dialogue and performance-beat segment types.
-- Basic speaker candidates are inferred from multi-word `Name said/asked/replied/whispered` and `Name:` patterns.
-- When the default Ollama model is marked installed in Model Center, bounded segment windows are refined by the local LLM. Full chapters and books are not sent to the model.
-- Invalid LLM refinement is rejected and deterministic segments are kept with parser warnings.
+- Scenes are detected from separator lines such as `***`, `---`, `####`, or `Scene N`; conservative time-shift and section-heading guesses become reviewable possible scene breaks.
+- Segments are built from source-ordered atoms under `maxSegmentChars`, with DB-compatible narration, dialogue, and performance-beat segment types.
+- Richer production types and speaker rules are stored in `parserEvidence`.
+- Basic speaker candidates are inferred from `Name:`, quote/tag, tag/quote, inverted tag, and action-beat patterns.
+- When the default Ollama model is marked installed in Model Center, bounded atom windows are grouped by the local LLM. Full chapters, books, and model-returned manuscript text are not accepted.
+- Invalid LLM grouping is rejected and deterministic segments are kept with parser warnings.
 - Cast Discovery runs after structure save. It creates high-confidence unique Character Bible records, verifies candidates against existing aliases, and leaves ambiguous candidates as review issues.
 - Cast Review persists one speaker attribution per segment, leaves uncertain dialogue in a review queue, and uses approved character voice links during production unless a segment override is set.
-- Parser warnings include scope, evidence, and confidence.
+- Parser warnings include code, review action, scope, text preview, offsets, evidence, and confidence.
+- Structure quality metrics are available from `GET /api/v1/projects/{projectId}/structure/quality` and are written into `structure_manifest.json`.
 - User-locked segments are carried forward across structure re-extraction.
 
 ## TTS And Rendering

@@ -39,6 +39,11 @@ export function SegmentEditorCard({
   onSaveDirection: (segmentId: string, direction: Direction) => Promise<void>;
 }) {
   const isEditing = editing?.id === segment.id;
+  const evidence = segment.parserEvidence ?? {};
+  const productionType = String(evidence.productionType ?? segment.segmentType ?? "narration");
+  const speakerRule = typeof evidence.speakerRule === "string" ? evidence.speakerRule : null;
+  const reviewAction = typeof evidence.reviewAction === "string" ? evidence.reviewAction : segment.status !== "ready" ? "review" : null;
+  const sources = Array.isArray(evidence.sources) ? evidence.sources.map(String).slice(0, 2).join(" + ") : "structure";
   return (
     <div className="segment-entry">
       <button
@@ -52,6 +57,13 @@ export function SegmentEditorCard({
           {segment.userLocked ? " · locked" : ""}
         </small>
       </button>
+      <div className="segment-evidence">
+        <span>{productionType.replaceAll("_", " ")}</span>
+        <span>{segment.speakerCandidate ? `${segment.speakerCandidate} · ${Math.round(segment.speakerConfidence * 100)}%` : "speaker unresolved"}</span>
+        {speakerRule ? <span>{speakerRule.replaceAll("_", " ")}</span> : null}
+        <span>{sources.replaceAll("_", " ")}</span>
+        {reviewAction ? <span className="review-action">{reviewAction.replaceAll("_", " ")}</span> : null}
+      </div>
       <div className="segment-tools">
         <button type="button" className="small-button" onClick={() => onToggleLock(segment)}>
           {segment.userLocked ? "Unlock" : "Lock"}
