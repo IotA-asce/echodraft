@@ -112,6 +112,7 @@ class SpeakerAttributionService:
     ) -> SpeakerAttribution:
         candidate = segment.speaker_candidate.strip() if segment.speaker_candidate else None
         character = character_index.by_name.get(_name_key(candidate)) if candidate else None
+        parser_evidence = _evidence(segment.parser_evidence_json)
         speaker_name: str | None
         if segment.segment_type != "dialogue" and not candidate:
             speaker_name = "Narrator"
@@ -120,16 +121,22 @@ class SpeakerAttributionService:
             evidence: dict[str, object] = {
                 "reason": "narration_segment",
                 "textPreview": segment.text_content[:160],
+                "source": "structure_parser",
+                "structure": parser_evidence,
             }
         else:
             speaker_name = candidate
             confidence = segment.speaker_confidence if candidate else 0.0
-            status = "approved" if character and confidence >= 0.7 else "needs_review"
+            status = "approved" if character and confidence >= 0.8 else "needs_review"
             evidence = {
                 "reason": "deterministic_speaker_candidate" if candidate else "dialogue_without_speaker",
                 "speakerCandidate": candidate,
                 "textPreview": segment.text_content[:160],
                 "segmentType": segment.segment_type,
+                "source": "structure_parser",
+                "speakerRule": parser_evidence.get("speakerRule"),
+                "productionType": parser_evidence.get("productionType"),
+                "structure": parser_evidence,
             }
         return self.container.speaker_attributions.upsert(
             project_id,
@@ -225,9 +232,10 @@ class SpeakerAttributionService:
                         "llmRunId": result.run.id,
                         "textPreview": segment_map[segment_id].text_content[:160],
                         "evidence": payload.get("evidence"),
+                        "structure": _evidence(segment_map[segment_id].parser_evidence_json),
                     },
                     confidence=confidence,
-                    status="approved" if character and confidence >= 0.7 else "needs_review",
+                    status="approved" if character and confidence >= 0.8 else "needs_review",
                 )
 
     def _segments(self, project_id: str) -> list[SegmentRecord]:
@@ -297,6 +305,14 @@ def _aliases(character: CharacterRecord) -> list[str]:
     if not isinstance(aliases, list):
         return []
     return [str(item) for item in aliases if str(item).strip()]
+
+
+def _evidence(payload: str | None) -> dict[str, object]:
+    try:
+        loaded = json.loads(payload or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return cast(dict[str, object], loaded if isinstance(loaded, dict) else {})
 
 
 def _confidence(value: object) -> float:

@@ -1,37 +1,54 @@
-# Structure Parser V2
+# Structure Parser
 
-Stage 4 upgraded structure extraction from a simple chapter/scene splitter into an evidence-backed parser with editorial controls. Structure Parser v3 keeps that deterministic pass and adds an optional local Ollama refinement pass.
+Stage 03 now uses `structure-parser-0.4.0`, a deterministic structure compiler with optional local atom grouping. The parser keeps the system local-first and source-preserving: canonical text is compiled into blocks, chapters, scenes, atoms, renderable segments, cast hints, quality metrics, and reviewable warnings without adding parser tables.
 
 ## Parser Scope
 
-The parser detects:
+The compiler runs these passes:
 
-- front matter before the first chapter heading;
-- Markdown chapter headings;
-- `Chapter N`, prologue, epilogue, part, and book headings;
-- explicit scene separators such as `***`, `---`, `####`, and `Scene N`;
-- paragraph and sentence batches under the requested max segment size;
-- dialogue segments from quoted text or `Name:` lines;
-- performance beats from short bracketed or parenthetical lines.
+- block map with source offsets and line ranges;
+- scored chapter candidates, including front matter and `Chapter One` plus title-line handling;
+- scored scene candidates from explicit separators and conservative inferred breaks;
+- quote-aware atomization for straight and curly quotes with apostrophe safety;
+- atom-window speaker resolution for colon speakers, quote/tag pairs, inverted tags, action beats, and unresolved dialogue;
+- segment building from source-ordered atoms while preserving offsets;
+- cast discovery and speaker attribution from parser evidence.
 
-After the deterministic pass, extraction checks whether the default local Ollama model is marked installed in Model Center. When it is available, Echodraft sends bounded windows of deterministic segments, not full chapters or books, to the local LLM. The LLM can split rough segments into narration, dialogue, and performance-beat subsegments with speaker hints and confidence. Invalid LLM output is discarded and the deterministic segment is kept with a warning.
+Segments remain DB-compatible as `narration`, `dialogue`, or `performance_beat`. Richer production types such as `dialogue_with_tag`, `action_beat`, and `heading` are stored in `parserEvidence.productionType`.
 
-When Ollama is not ready, deterministic extraction still completes and stores an informational warning that LLM refinement did not run.
+After the deterministic pass, extraction checks whether the default local Ollama model is marked installed in Model Center. When available, Echodraft sends bounded atom windows and nearby context snippets to the local LLM. The response schema returns atom IDs only, never manuscript text. Validation requires exact atom coverage, adjacency, source order, known IDs, allowed production types, and safe speaker hints.
+
+When Ollama is unavailable or invalid output is returned, deterministic atom-built segments are kept and a scoped diagnostic warning is stored.
 
 ## Warnings And Evidence
 
 Each chapter, scene, and segment can carry `parserEvidence`. Parser warnings are stored separately in `structure_parser_warnings` with:
 
+- code and review action;
 - scope type and scope ID;
 - severity;
 - message;
-- evidence JSON;
+- evidence JSON with text preview, offsets, and confidence where available;
 - confidence;
 - resolved state.
 
-The dashboard shows parser warnings above the structure editor columns.
+The dashboard shows parser warnings above the structure editor columns and shows segment-level parser evidence below each segment.
 
-Segment evidence can include both `deterministic_parser` and `llm_segment_refinement` sources. LLM refinement evidence records the rough segment ID and local LLM run ID without changing canonical manuscript text.
+Segment evidence records sources such as `block_map`, `quote_aware_atomization`, `deterministic_segment_builder`, and `optional_atom_llm_grouping`. LLM refinement evidence records the local LLM run ID and atom IDs without accepting model-returned manuscript text.
+
+Stable source-span IDs are used for chapters, scenes, segments, atoms, and offset-backed warnings:
+
+```text
+sha1("{source_id}:{start}:{end}:{text}")[:16]
+```
+
+UUID fallback is reserved for cases where offsets are unavailable.
+
+## Quality Reporting
+
+`GET /api/v1/projects/{projectId}/structure/quality` returns the current structure quality summary, including chapter, scene, segment, dialogue, unresolved-dialogue, long-segment, warning, cast-candidate, and LLM refinement counts.
+
+The same metrics are written into `structure_manifest.json` under `payload.quality`.
 
 ## Editorial Controls
 

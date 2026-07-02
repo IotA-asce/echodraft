@@ -72,9 +72,12 @@ Payload fields:
 Purpose: capture chapter, scene, and segment structure.
 
 Payload fields:
+- parser version and compiler pipeline
+- structure quality metrics
+- parser diagnostics and warning evidence
 - character candidates
 - scene list
-- segment list
+- segment list with parser evidence and source-span IDs
 - speaker attribution confidence
 
 ### Casting manifest

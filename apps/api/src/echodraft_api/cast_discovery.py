@@ -79,6 +79,17 @@ IGNORED_CHARACTER_NAMES = {
     "narrator",
     "chapter",
     "scene",
+    "someone",
+    "everyone",
+    "no one",
+    "this",
+    "that",
+    "there",
+    "what",
+    "when",
+    "where",
+    "why",
+    "how",
 }
 
 
@@ -90,6 +101,7 @@ class ObservedSegment:
     segment_type: str
     speaker_candidate: str | None
     speaker_confidence: float
+    parser_evidence: dict[str, object]
 
 
 @dataclass
@@ -178,6 +190,9 @@ class CastDiscoveryService:
         for segment in segments:
             if not segment.speaker_candidate or _ignored_name(segment.speaker_candidate):
                 continue
+            sources = _clean_strings(segment.parser_evidence.get("sources"))
+            speaker_rule = str(segment.parser_evidence.get("speakerRule") or "speaker_candidate")
+            production_type = str(segment.parser_evidence.get("productionType") or segment.segment_type)
             candidates.append(
                 CharacterCandidate(
                     display_name=segment.speaker_candidate,
@@ -185,10 +200,21 @@ class CastDiscoveryService:
                     aliases=[],
                     first_seen_segment_id=segment.id,
                     first_seen_chapter_id=segment.chapter_id,
-                    evidence=[segment.text[:220]],
+                    evidence=[
+                        json.dumps(
+                            {
+                                "textPreview": segment.text[:220],
+                                "speakerRule": speaker_rule,
+                                "productionType": production_type,
+                                "sources": sources or ["structure_parser"],
+                                "confidence": segment.speaker_confidence,
+                            },
+                            sort_keys=True,
+                        )
+                    ],
                     role_guess="supporting",
                     confidence=max(segment.speaker_confidence, 0.74),
-                    source="deterministic_parser",
+                    source="+".join(sources) if sources else "structure_parser",
                 )
             )
         return candidates
@@ -332,11 +358,13 @@ class CastDiscoveryService:
             self._merge_aliases(exact, candidate)
             return
         possible = index.possible_matches(candidate)
-        if len(possible) == 1 and candidate.confidence >= AUTO_CREATE_CONFIDENCE:
-            self._merge_aliases(possible[0], candidate)
-            return
-        if len(possible) > 1:
-            self._create_ambiguous_issue(project_id, candidate, "Multiple existing characters could match.")
+        if possible:
+            reason = (
+                "Multiple existing characters could match."
+                if len(possible) > 1
+                else "A similar existing character may already represent this candidate."
+            )
+            self._create_ambiguous_issue(project_id, candidate, reason)
             return
         if decision and decision.action == "match_existing" and decision.target_name:
             target = index.by_name.get(_name_key(decision.target_name))
@@ -444,6 +472,7 @@ class CastDiscoveryService:
                     segment_type=segment.segment_type,
                     speaker_candidate=segment.speaker_candidate,
                     speaker_confidence=segment.speaker_confidence,
+                    parser_evidence=_evidence(segment.parser_evidence_json),
                 )
                 for segment, chapter_id in rows
             ]
@@ -588,6 +617,14 @@ def _soft_name_match(left: str, right: str) -> bool:
     if len(left) < 4 or len(right) < 4:
         return False
     return left in right or right in left
+
+
+def _evidence(payload: str | None) -> dict[str, object]:
+    try:
+        loaded = json.loads(payload or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return cast(dict[str, object], loaded if isinstance(loaded, dict) else {})
 
 
 def _clamp_float(value: object, minimum: float, maximum: float) -> float:
