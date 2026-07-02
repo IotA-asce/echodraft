@@ -379,12 +379,24 @@ class StructureRepository:
                 session.scalars(
                     select(SceneRecord.id).where(SceneRecord.chapter_id.in_(old_chapter_ids))
                 )
-            )
-            old_segments = list(
-                session.scalars(select(SegmentRecord).where(SegmentRecord.scene_id.in_(old_scene_ids)))
-            )
-            locked_segments = [segment for segment in old_segments if segment.user_locked]
-            unlocked_segment_ids = [segment.id for segment in old_segments if not segment.user_locked]
+            ) if old_chapter_ids else []
+            locked_segments = list(
+                session.scalars(
+                    select(SegmentRecord).where(
+                        SegmentRecord.scene_id.in_(old_scene_ids),
+                        SegmentRecord.user_locked.is_(True),
+                    )
+                )
+            ) if old_scene_ids else []
+            locked_by_id = {segment.id: segment for segment in locked_segments}
+            unlocked_segment_ids = list(
+                session.scalars(
+                    select(SegmentRecord.id).where(
+                        SegmentRecord.scene_id.in_(old_scene_ids),
+                        SegmentRecord.user_locked.is_(False),
+                    )
+                )
+            ) if old_scene_ids else []
             if unlocked_segment_ids:
                 session.execute(
                     delete(SegmentRevisionRecord).where(
@@ -397,19 +409,60 @@ class StructureRepository:
                     StructureParserWarningRecord.project_id == project_id
                 )
             )
+            new_chapter_ids = [str(chapter["record"]["id"]) for chapter in hierarchy]
+            new_scene_ids = [
+                str(scene["record"]["id"])
+                for chapter in hierarchy
+                for scene in chapter["scenes"]
+            ]
+            existing_chapters = {
+                record.id: record
+                for record in session.scalars(
+                    select(ChapterRecord).where(ChapterRecord.id.in_(new_chapter_ids))
+                )
+            } if new_chapter_ids else {}
+            existing_scenes = {
+                record.id: record
+                for record in session.scalars(
+                    select(SceneRecord).where(SceneRecord.id.in_(new_scene_ids))
+                )
+            } if new_scene_ids else {}
             new_scenes: list[dict[str, Any]] = []
             order_counts: dict[str, int] = {}
+            placed_locked_segment_ids: set[str] = set()
             for chapter in hierarchy:
-                session.add(ChapterRecord(**chapter["record"]))
+                chapter_record = chapter["record"]
+                chapter_id = str(chapter_record["id"])
+                existing_chapter = existing_chapters.get(chapter_id)
+                if existing_chapter:
+                    for key, value in chapter_record.items():
+                        setattr(existing_chapter, key, value)
+                else:
+                    session.add(ChapterRecord(**chapter_record))
                 for scene in chapter["scenes"]:
                     scene_record = scene["record"]
-                    session.add(SceneRecord(**scene_record))
+                    scene_id = str(scene_record["id"])
+                    existing_scene = existing_scenes.get(scene_id)
+                    if existing_scene:
+                        for key, value in scene_record.items():
+                            setattr(existing_scene, key, value)
+                    else:
+                        session.add(SceneRecord(**scene_record))
                     new_scenes.append(scene_record)
-                    order_counts[str(scene_record["id"])] = 0
+                    order_counts[scene_id] = 0
                     for segment in scene["segments"]:
-                        session.add(SegmentRecord(**segment))
-                        order_counts[str(scene_record["id"])] += 1
+                        segment_id = str(segment["id"])
+                        locked_segment = locked_by_id.get(segment_id)
+                        if locked_segment:
+                            locked_segment.scene_id = scene_id
+                            locked_segment.order_index = order_counts[scene_id]
+                            placed_locked_segment_ids.add(segment_id)
+                        else:
+                            session.add(SegmentRecord(**segment))
+                        order_counts[scene_id] += 1
             for segment in locked_segments:
+                if segment.id in placed_locked_segment_ids:
+                    continue
                 target_scene = next(
                     (
                         scene
@@ -423,10 +476,14 @@ class StructureRepository:
                     segment.scene_id = target_scene_id
                     segment.order_index = order_counts[target_scene_id]
                     order_counts[target_scene_id] += 1
-            if old_scene_ids:
-                session.execute(delete(SceneRecord).where(SceneRecord.id.in_(old_scene_ids)))
-            if old_chapter_ids:
-                session.execute(delete(ChapterRecord).where(ChapterRecord.id.in_(old_chapter_ids)))
+            stale_scene_ids = [scene_id for scene_id in old_scene_ids if scene_id not in new_scene_ids]
+            if stale_scene_ids:
+                session.execute(delete(SceneRecord).where(SceneRecord.id.in_(stale_scene_ids)))
+            stale_chapter_ids = [
+                chapter_id for chapter_id in old_chapter_ids if chapter_id not in new_chapter_ids
+            ]
+            if stale_chapter_ids:
+                session.execute(delete(ChapterRecord).where(ChapterRecord.id.in_(stale_chapter_ids)))
             for warning in warnings or []:
                 session.add(StructureParserWarningRecord(**warning))
             session.commit()

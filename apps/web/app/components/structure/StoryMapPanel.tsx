@@ -1,4 +1,4 @@
-import type { ChangeEvent } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
 import type {
   Chapter,
   Direction,
@@ -12,6 +12,7 @@ import type {
   SoundAsset,
   SoundCue,
   StructureParserWarning,
+  StructureQuality,
   TtsProvider,
   VoiceProfile,
 } from "../../api";
@@ -36,6 +37,7 @@ export function StoryMapPanel({
   voices,
   directions,
   warnings,
+  quality,
   status,
   job,
   provider,
@@ -83,6 +85,7 @@ export function StoryMapPanel({
   voices: VoiceProfile[];
   directions: SegmentDirection[];
   warnings: StructureParserWarning[];
+  quality: StructureQuality | null;
   status: ProductionStatus | null;
   job: Job | null;
   provider?: TtsProvider;
@@ -121,6 +124,37 @@ export function StoryMapPanel({
   onAddCue: () => Promise<void>;
   onAssemble: (mode: "clean" | "light" | "dramatized") => Promise<void>;
 }) {
+  const [filter, setFilter] = useState<"all" | "needs_review" | "unresolved_dialogue" | "low_confidence" | "possible_scene" | "long_segment" | "mixed">("all");
+  const possibleSceneIds = useMemo(
+    () => new Set(warnings.filter((item) => item.evidence.code === "scene.possible_break_detected").map((item) => item.scopeId)),
+    [warnings],
+  );
+  const filteredSegments = useMemo(
+    () =>
+      segments.filter((segment) => {
+        const evidence = segment.parserEvidence ?? {};
+        const productionType = String(evidence.productionType ?? segment.segmentType ?? "");
+        const warningCodes = Array.isArray(evidence.warningCodes) ? evidence.warningCodes.map(String) : [];
+        if (filter === "needs_review") return segment.status !== "ready";
+        if (filter === "unresolved_dialogue") return segment.segmentType === "dialogue" && !segment.speakerCandidate;
+        if (filter === "low_confidence") return segment.segmentType === "dialogue" && Number(segment.speakerConfidence ?? 0) < 0.8;
+        if (filter === "possible_scene") return possibleSceneIds.has(segment.sceneId);
+        if (filter === "long_segment") return segment.textContent.length > 900;
+        if (filter === "mixed") return productionType.includes("mixed") || warningCodes.includes("segment.mixed_dialogue_and_narration");
+        return true;
+      }),
+    [filter, possibleSceneIds, segments],
+  );
+  const filterOptions: Array<{ id: typeof filter; label: string; count?: number }> = [
+    { id: "all", label: "All", count: segments.length },
+    { id: "needs_review", label: "Needs review", count: segments.filter((item) => item.status !== "ready").length },
+    { id: "unresolved_dialogue", label: "Unresolved dialogue", count: quality?.unresolvedDialogueCount },
+    { id: "low_confidence", label: "Low-confidence speaker", count: segments.filter((item) => item.segmentType === "dialogue" && Number(item.speakerConfidence ?? 0) < 0.8).length },
+    { id: "possible_scene", label: "Possible scene break", count: quality?.possibleSceneBreakCount },
+    { id: "long_segment", label: "Long segment", count: quality?.longSegmentCount },
+    { id: "mixed", label: "Mixed", count: quality?.mixedSegmentWarningCount },
+  ];
+
   if (!chapters.length) {
     return <EmptyState title="No story map yet." description="Import a manuscript first, then extract chapters, scenes, and lines." onAction={onGoManuscript} actionLabel="Go to manuscript" />;
   }
@@ -135,12 +169,30 @@ export function StoryMapPanel({
           Infer directions
         </button>
       </div>
+      <div className="structure-quality" aria-label="Structure quality summary">
+        <article><b>Chapters</b><strong>{quality?.chapterCount ?? chapters.length}</strong></article>
+        <article><b>Scenes</b><strong>{quality?.sceneCount ?? scenes.length}</strong></article>
+        <article><b>Segments</b><strong>{quality?.segmentCount ?? segments.length}</strong></article>
+        <article><b>Dialogue</b><strong>{quality?.dialogueSegmentCount ?? segments.filter((item) => item.segmentType === "dialogue").length}</strong></article>
+        <article><b>Unresolved</b><strong>{quality?.unresolvedDialogueCount ?? 0}</strong></article>
+        <article><b>Cast</b><strong>{quality?.castCandidateCount ?? 0}</strong></article>
+        <article><b>Warnings</b><strong>{quality?.warningsNeedingReviewCount ?? warnings.length}</strong></article>
+        <article><b>LLM</b><strong>{quality?.llmRefinementUsed ? `${quality.llmAcceptedBatchCount}/${quality.llmAcceptedBatchCount + quality.llmRejectedBatchCount}` : "local off"}</strong></article>
+      </div>
+      <div className="structure-filters" aria-label="Segment review filters">
+        {filterOptions.map((item) => (
+          <button key={item.id} type="button" className={filter === item.id ? "active" : ""} onClick={() => setFilter(item.id)}>
+            {item.label}
+            <span>{item.count ?? 0}</span>
+          </button>
+        ))}
+      </div>
       <StructureWarnings warnings={warnings} />
       <div className="structure-columns">
         <ChapterList chapters={chapters} selectedChapterId={selectedChapter?.id} onOpen={onOpenChapter} />
         <SceneList scenes={scenes} onOpen={onOpenScene} />
         <SegmentList
-          segments={segments}
+          segments={filteredSegments}
           voices={voices}
           editing={editing}
           draft={draft}
