@@ -594,6 +594,20 @@ paths:
                 items:
                   $ref: "#/components/schemas/StructureParserWarning"
 
+  /api/v1/projects/{projectId}/structure/quality:
+    get:
+      tags: [Structure]
+      summary: Get structure quality metrics for the current draft
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Structure quality summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StructureQuality"
+
   /api/v1/chapters/{chapterId}:
     get:
       tags: [Structure]
@@ -2318,6 +2332,39 @@ components:
           type:
             - string
             - "null"
+    StructureQuality:
+      type: object
+      properties:
+        chapterCount:
+          type: integer
+        sceneCount:
+          type: integer
+        segmentCount:
+          type: integer
+        dialogueSegmentCount:
+          type: integer
+        unresolvedDialogueCount:
+          type: integer
+        averageSegmentChars:
+          type: number
+        longSegmentCount:
+          type: integer
+        mixedSegmentWarningCount:
+          type: integer
+        castCandidateCount:
+          type: integer
+        lowConfidenceCastCandidateCount:
+          type: integer
+        possibleSceneBreakCount:
+          type: integer
+        warningsNeedingReviewCount:
+          type: integer
+        llmRefinementUsed:
+          type: boolean
+        llmAcceptedBatchCount:
+          type: integer
+        llmRejectedBatchCount:
+          type: integer
     ChapterAssemblyRequest:
       type: object
       properties:

@@ -254,6 +254,48 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   await page.route(/\/api\/v1\/projects\/proj_progress\/chapters$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "chap_progress", title: "Chapter 1", status: "draft", confidence: 0.96 }]) });
   });
+  await page.route(/\/api\/v1\/projects\/proj_progress\/structure-warnings$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "warn_possible_scene",
+          projectId: "proj_progress",
+          sourceDocumentId: "source_progress",
+          scopeType: "scene",
+          scopeId: "scene_progress",
+          severity: "warning",
+          message: "Possible inferred scene break needs review.",
+          evidence: { code: "scene.possible_break_detected", reviewAction: "confirm_scene_break" },
+          confidence: 0.62,
+          resolved: false,
+          createdAt: new Date().toISOString()
+        }
+      ])
+    });
+  });
+  await page.route(/\/api\/v1\/projects\/proj_progress\/structure\/quality$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        chapterCount: 1,
+        sceneCount: 1,
+        segmentCount: 24,
+        dialogueSegmentCount: 2,
+        unresolvedDialogueCount: 1,
+        averageSegmentChars: 148.4,
+        longSegmentCount: 1,
+        mixedSegmentWarningCount: 0,
+        castCandidateCount: 1,
+        lowConfidenceCastCandidateCount: 1,
+        possibleSceneBreakCount: 1,
+        warningsNeedingReviewCount: 1,
+        llmRefinementUsed: true,
+        llmAcceptedBatchCount: 1,
+        llmRejectedBatchCount: 1
+      })
+    });
+  });
   await page.route(/\/api\/v1\/projects\/proj_progress\/voices$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "voice_progress", projectId: "proj_progress", name: "Mock narrator", backend: "mock", providerVoiceId: "mock-narrator", stylePrompt: null }]) });
   });
@@ -263,13 +305,39 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   await page.route(/\/api\/v1\/projects\/proj_progress\/(issues|exports|characters|pronunciations)$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
   });
+  await page.route(/\/api\/v1\/projects\/proj_progress\/(speaker-attributions|segment-directions|sound-assets)$/, async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
+  });
   await page.route(/\/api\/v1\/chapters\/chap_progress\/scenes$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "scene_progress", status: "unresolved", confidence: 0.4 }]) });
   });
   await page.route(/\/api\/v1\/scenes\/scene_progress\/segments$/, async (route) => {
+    const segments = Array.from({ length: 24 }, (_, index) => ({
+      id: `seg_${index}`,
+      sceneId: "scene_progress",
+      textContent: index === 0
+        ? "Unresolved quoted line."
+        : index === 1
+          ? "Mara said this low-confidence line."
+          : index === 2
+            ? `Long segment ${"word ".repeat(190)}`
+            : `Scrollable segment ${index + 1}`,
+      revision: 1,
+      status: index < 2 ? "needs_review" : "ready",
+      speakerCandidate: index === 1 ? "Mara" : null,
+      speakerConfidence: index === 1 ? 0.62 : 0,
+      segmentType: index < 2 ? "dialogue" : "narration",
+      parserEvidence: {
+        productionType: index === 1 ? "dialogue_with_tag" : index < 2 ? "dialogue" : "narration",
+        speakerRule: index === 0 ? "unresolved_quote" : index === 1 ? "action_beat_before_quote" : undefined,
+        sources: ["block_map", "quote_aware_atomization"]
+      },
+      userLocked: false,
+      lockReason: null
+    }));
     await route.fulfill({
       contentType: "application/json",
-      body: JSON.stringify(Array.from({ length: 24 }, (_, index) => ({ id: `seg_${index}`, textContent: `Scrollable segment ${index + 1}`, revision: 1, status: "draft", speakerCandidate: null })))
+      body: JSON.stringify(segments)
     });
   });
   await page.route(/\/api\/v1\/projects\/proj_progress\/chapters\/chap_progress\/production-status$/, async (route) => {
@@ -287,6 +355,19 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   await openWorkflow(page, "Structure");
   await page.getByRole("button", { name: "Chapter 1" }).click();
   await expect(page.getByRole("button", { name: /Scene 1/ })).toContainText("Needs review · auto-structure confidence 40%");
+  await expect(page.locator(".structure-quality")).toContainText("Segments");
+  await expect(page.locator(".structure-quality")).toContainText("24");
+  await expect(page.locator(".structure-quality")).toContainText("LLM");
+  await expect(page.locator(".segment-evidence").first()).toContainText("speaker unresolved");
+  await expect(page.locator(".segment-evidence").first()).toContainText("quote aware atomization");
+  const filters = page.locator(".structure-filters");
+  await filters.getByRole("button", { name: /Unresolved dialogue/ }).click();
+  await expect(page.locator(".segment-entry")).toHaveCount(1);
+  await expect(page.locator(".segment-entry").first()).toContainText("Unresolved quoted line.");
+  await filters.getByRole("button", { name: /Long segment/ }).click();
+  await expect(page.locator(".segment-entry")).toHaveCount(1);
+  await expect(page.locator(".segment-entry").first()).toContainText("Long segment");
+  await filters.getByRole("button", { name: /All/ }).click();
   const structure = page.locator(".structure-columns");
   const structureStyles = await structure.evaluate((element) => {
     const styles = window.getComputedStyle(element);
