@@ -99,10 +99,19 @@ class MockTtsAdapter(TtsProvider):
 
 
 class KokoroTtsAdapter(TtsProvider):
+    """Custom prebuilt Kokoro wrapper.
+
+    Echodraft controls neither the executable nor its CLI, so there is no
+    contract to transmit pace (or any other engine-native direction) to it. The
+    only direction Echodraft can honor for this adapter is the pause spacing it
+    inserts during chapter assembly, so ``direction_support`` advertises only
+    the pause controls — never a pace claim it cannot fulfil.
+    """
+
     provider_id = "kokoro"
     display_name = "Kokoro custom adapter"
     setup_mode = "custom_adapter"
-    direction_support = {"pace"}
+    direction_support = {"pauseBeforeMs", "pauseAfterMs"}
 
     def __init__(
         self, executable: str | None, model_path: Path | None, voice_path: Path | None
@@ -162,7 +171,8 @@ class KokoroTtsAdapter(TtsProvider):
             **self.render_identity(),
             "voiceId": voice_id,
             "sampleRate": sample_rate,
-            "effectiveDirection": {"pace": direction.pace},
+            # No CLI contract transmits any direction to the custom engine.
+            "effectiveDirection": {},
             "unsupportedDirection": _unsupported_direction(self.direction_support),
         }
 
@@ -171,7 +181,9 @@ class ManagedKokoroOnnxAdapter(TtsProvider):
     provider_id = "kokoro"
     display_name = "Kokoro managed ONNX"
     setup_mode = "managed_onnx"
-    direction_support = {"pace"}
+    # pace is transmitted to the engine via the wrapper's --speed flag; the pause
+    # controls are honored engine-independently by chapter assembly.
+    direction_support = {"pace", "pauseBeforeMs", "pauseAfterMs"}
 
     def __init__(
         self,
@@ -227,6 +239,11 @@ class ManagedKokoroOnnxAdapter(TtsProvider):
         assert self.voice_registry_path is not None
         if voice_id not in self.list_voices():
             raise ValueError(f"Kokoro voice '{voice_id}' is not registered locally.")
+        # Existing installs may carry an older wrapper that hardcoded speed=1.0;
+        # refresh it to the current source so pace transmission actually works.
+        from .kokoro_setup import write_managed_wrapper
+
+        write_managed_wrapper(self.wrapper_path)
         command = [
             str(self.python_path),
             str(self.wrapper_path),
@@ -242,6 +259,8 @@ class ManagedKokoroOnnxAdapter(TtsProvider):
             text,
             "--output",
             str(output),
+            "--speed",
+            f"{direction.pace:.3f}",
         ]
         _run_tts_command(command, "Kokoro", timeout=180)
         sample_rate = _validate_wav(output, "Kokoro")
@@ -259,7 +278,9 @@ class PiperTtsAdapter(TtsProvider):
     display_name = "Piper local CLI"
     setup_mode = "local_cli"
     supports_pronunciation = True
-    direction_support = {"pace", "pauseAfterMs"}
+    # pace + sentence silence are engine-native; assembly additionally honors the
+    # per-segment pause spacing controls.
+    direction_support = {"pace", "pauseAfterMs", "pauseBeforeMs"}
 
     def __init__(
         self,
@@ -336,7 +357,9 @@ class XttsV2Adapter(TtsProvider):
     supports_reference_voice = True
     supports_pronunciation = True
     requires_reference_consent = True
-    direction_support = {"stylePrompt"}
+    # tts_to_file exposes no style/pace parameter, so XTTS honors no engine-native
+    # direction; only the assembly-level pause spacing applies.
+    direction_support = {"pauseBeforeMs", "pauseAfterMs"}
 
     def __init__(
         self,
@@ -405,7 +428,8 @@ class XttsV2Adapter(TtsProvider):
             "sampleRate": sample_rate,
             "referenceVoicePath": str(self.reference_voice_path),
             "language": self.language,
-            "effectiveDirection": {"stylePrompt": direction.style_prompt},
+            # tts_to_file has no style/pace hook; the engine honors no direction.
+            "effectiveDirection": {},
             "unsupportedDirection": _unsupported_direction(self.direction_support),
         }
 
@@ -447,6 +471,8 @@ def _unsupported_direction(supported: set[str]) -> list[str]:
         "pauseAfterMs",
         "emphasis",
         "whisper",
+        "stylePrompt",
+        "noSfx",
     }
     return sorted(all_controls - supported)
 

@@ -7,6 +7,7 @@ export function SegmentList({
   editing,
   draft,
   directions,
+  supportedDirection,
   busy,
   onStartEdit,
   onDraftChange,
@@ -24,6 +25,7 @@ export function SegmentList({
   editing: Segment | null;
   draft: string;
   directions: SegmentDirection[];
+  supportedDirection?: string[] | null;
   busy: boolean;
   onStartEdit: (segment: Segment) => void;
   onDraftChange: (value: string) => void;
@@ -47,6 +49,7 @@ export function SegmentList({
           editing={editing}
           draft={draft}
           savedDirection={directions.find((item) => item.segmentId === segment.id)}
+          supportedDirection={supportedDirection}
           busy={busy}
           onStartEdit={onStartEdit}
           onDraftChange={onDraftChange}

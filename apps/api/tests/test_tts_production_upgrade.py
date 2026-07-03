@@ -40,6 +40,50 @@ def test_tts_provider_registry_exposes_local_options(client) -> None:
     assert by_provider["xtts_v2"]["requiresReferenceConsent"] is True
 
 
+def test_provider_direction_capability_is_truthful(client) -> None:
+    from echodraft_api.tts_providers import (
+        KokoroTtsAdapter,
+        ManagedKokoroOnnxAdapter,
+        XttsV2Adapter,
+    )
+
+    providers = client.get("/api/v1/settings/tts/providers").json()
+    by_provider = {item["provider"]: item for item in providers}
+
+    # In the default (custom-adapter) state the kokoro registry entry has no CLI
+    # contract to send pace: it may only advertise the pauses assembly honors.
+    assert by_provider["kokoro"]["capabilities"]["direction"] == ["pauseAfterMs", "pauseBeforeMs"]
+    # XTTS-v2 has no per-line direction hook: pauses only, no fake stylePrompt claim.
+    assert by_provider["xtts_v2"]["capabilities"]["direction"] == [
+        "pauseAfterMs",
+        "pauseBeforeMs",
+    ]
+    assert "stylePrompt" not in by_provider["xtts_v2"]["capabilities"]["direction"]
+    # Piper honors pace natively plus the assembly-level pauses.
+    assert by_provider["piper"]["capabilities"]["direction"] == [
+        "pace",
+        "pauseAfterMs",
+        "pauseBeforeMs",
+    ]
+
+    # Managed Kokoro genuinely transmits pace (via --speed) and pauses via assembly.
+    managed = ManagedKokoroOnnxAdapter(None, None, None, None, None)
+    assert managed.capability()["capabilities"]["direction"] == [
+        "pace",
+        "pauseAfterMs",
+        "pauseBeforeMs",
+    ]
+    # The adapter-native contracts never claim engine-side pace they cannot send.
+    assert KokoroTtsAdapter(None, None, None).capability()["capabilities"]["direction"] == [
+        "pauseAfterMs",
+        "pauseBeforeMs",
+    ]
+    assert XttsV2Adapter(None, None, False, "en").capability()["capabilities"]["direction"] == [
+        "pauseAfterMs",
+        "pauseBeforeMs",
+    ]
+
+
 def test_render_queue_pronunciations_and_compare(client) -> None:
     project, chapter, segment = project_with_segment(client)
     client.put("/api/v1/settings/tts", json={"provider": "mock"})

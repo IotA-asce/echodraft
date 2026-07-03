@@ -1,11 +1,17 @@
 import os
 import stat
 import time
+import wave
 from pathlib import Path
 
 import pytest
 
-from echodraft_api.kokoro_setup import ManagedKokoroPaths, ManagedKokoroSetupService, managed_python_path
+from echodraft_api.kokoro_setup import (
+    WRAPPER_SOURCE,
+    ManagedKokoroPaths,
+    ManagedKokoroSetupService,
+    managed_python_path,
+)
 
 
 def wait_for_job(client, job_id: str) -> dict:
@@ -191,3 +197,59 @@ def test_managed_wrapper_avoids_python_suffix_and_rewrites_only_when_changed(tmp
     paths.wrapper.write_text("outdated helper", encoding="utf-8")
     service._write_wrapper()
     assert paths.wrapper.read_text(encoding="utf-8").startswith("#!/usr/bin/env python3")
+
+
+def test_managed_wrapper_source_transmits_speed() -> None:
+    assert "--speed" in WRAPPER_SOURCE
+    assert "speed=args.speed" in WRAPPER_SOURCE
+    assert "speed=1.0)" not in WRAPPER_SOURCE
+
+
+def _ready_managed_adapter(tmp_path: Path, stale_wrapper: bool):
+    from echodraft_api.tts_providers import ManagedKokoroOnnxAdapter
+
+    python = tmp_path / "python"
+    python.write_text("# python", encoding="utf-8")
+    wrapper = tmp_path / "echodraft_kokoro_onnx"
+    wrapper.write_text("stale helper" if stale_wrapper else WRAPPER_SOURCE, encoding="utf-8")
+    model = tmp_path / "kokoro-v1.0.onnx"
+    model.write_bytes(b"model")
+    voices_data = tmp_path / "voices-v1.0.bin"
+    voices_data.write_bytes(b"voices")
+    registry = tmp_path / "voices.txt"
+    registry.write_text("af_heart\n", encoding="utf-8")
+    adapter = ManagedKokoroOnnxAdapter(python, wrapper, model, voices_data, registry)
+    return adapter, wrapper
+
+
+def test_managed_kokoro_preview_transmits_speed_and_self_heals_wrapper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from echodraft_domain import DirectionProfile
+
+    adapter, wrapper = _ready_managed_adapter(tmp_path, stale_wrapper=True)
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(command, provider_name, *, timeout, stdin=None):  # type: ignore[no-untyped-def]
+        captured["command"] = command
+        output = Path(command[command.index("--output") + 1])
+        with wave.open(str(output), "wb") as target:
+            target.setnchannels(1)
+            target.setsampwidth(2)
+            target.setframerate(16000)
+            target.writeframes(b"\x00\x00" * 1000)
+
+    monkeypatch.setattr("echodraft_api.tts_providers._run_tts_command", fake_run)
+
+    adapter.preview(
+        "Hello there.",
+        "af_heart",
+        tmp_path / "out.wav",
+        DirectionProfile(scopeType="segment", scopeId="seg", pace=1.25),
+    )
+
+    command = captured["command"]
+    assert "--speed" in command
+    assert command[command.index("--speed") + 1] == "1.250"
+    # The stale on-disk wrapper is refreshed to the current source before running.
+    assert wrapper.read_text(encoding="utf-8") == WRAPPER_SOURCE
