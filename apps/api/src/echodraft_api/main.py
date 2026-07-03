@@ -26,6 +26,7 @@ from echodraft_domain import (
     Character,
     CharacterCreate,
     CharacterMergeRequest,
+    CharacterRejectMergeRequest,
     CharacterSplitRequest,
     CharacterUpdate,
     CleaningRun,
@@ -66,6 +67,7 @@ from echodraft_domain import (
     SpeakerAttribution,
     SpeakerAttributionRunRequest,
     SpeakerAttributionUpdate,
+    SpeakerAttributionUpdateResult,
     SourceDocument,
     SourcePage,
     StructureRequest,
@@ -991,6 +993,46 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         voice_id = request.app.state.container.casting.character_voice_assignment(character_id)
         return character_model(x, voice_id)
 
+    @app.post("/api/v1/characters/{character_id}/reject-merge", response_model=Character)
+    def reject_merge(
+        character_id: str, payload: CharacterRejectMergeRequest, request: Request
+    ) -> Character:
+        container: AppContainer = request.app.state.container
+        character = container.casting.character(character_id)
+        if not character:
+            raise HTTPException(status_code=404, detail="Character not found")
+        decision = container.cast_merge_decisions.record(
+            character.project_id,
+            character.display_name,
+            payload.candidate_name,
+            "rejected",
+            payload.reason,
+        )
+        if decision is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot reject a merge between a character and itself.",
+            )
+        # Resolve any open "possible duplicate" issue linking this pair so the
+        # rejection actually clears the reviewer's queue.
+        candidate_key = payload.candidate_name.strip().casefold()
+        character_key = character.display_name.strip().casefold()
+        for issue in container.review.issues(character.project_id, status="open"):
+            metadata = json.loads(issue.metadata_json or "{}")
+            if metadata.get("code") != "cast.possible_duplicate":
+                continue
+            if str(metadata.get("candidateName", "")).strip().casefold() != candidate_key:
+                continue
+            possible = [
+                str(name).strip().casefold()
+                for name in metadata.get("possibleMatches", [])
+                if isinstance(name, str)
+            ]
+            if character_key in possible or not possible:
+                container.review.update_issue(issue.id, status="resolved", severity=None)
+        voice_id = container.casting.character_voice_assignment(character_id)
+        return character_model(character, voice_id)
+
     @app.post("/api/v1/characters/{character_id}/split", response_model=Character, status_code=201)
     def split_character(
         character_id: str, payload: CharacterSplitRequest, request: Request
@@ -1051,11 +1093,11 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
 
     @app.patch(
         "/api/v1/speaker-attributions/{attribution_id}",
-        response_model=SpeakerAttribution,
+        response_model=SpeakerAttributionUpdateResult,
     )
     def update_speaker_attribution(
         attribution_id: str, payload: SpeakerAttributionUpdate, request: Request
-    ) -> SpeakerAttribution:
+    ) -> SpeakerAttributionUpdateResult:
         try:
             return SpeakerAttributionService(request.app.state.container).update(
                 attribution_id,
