@@ -364,6 +364,112 @@ def test_ocr_warning_and_failed_parse_preserve_original(client) -> None:
     assert failed["status"] == "failed"
 
 
+def docx_heading_bytes() -> bytes:
+    document = Document()
+    document.add_heading("The Arrival", level=1)
+    document.add_paragraph("Body of the first chapter.")
+    document.add_heading("A Quiet Scene", level=2)
+    document.add_paragraph("Body of the scene.")
+    document.add_heading("The Departure", level=1)
+    document.add_paragraph("Body of the second chapter.")
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def multi_item_epub_bytes(tmp_path: Path) -> bytes:
+    book = epub.EpubBook()
+    book.set_identifier("multi")
+    book.set_title("Multi")
+    book.set_language("en")
+    first = epub.EpubHtml(title="The Arrival", file_name="c1.xhtml", lang="en", uid="arrival")
+    first.content = "<h1>The Arrival</h1><p>Body one.</p>"
+    second = epub.EpubHtml(title="The Departure", file_name="c2.xhtml", lang="en", uid="departure")
+    second.content = "<h1>The Departure</h1><p>Body two.</p>"
+    third = epub.EpubHtml(title="Untitled", file_name="c3.xhtml", lang="en", uid="return")
+    third.content = "<h1>The Return</h1><p>Body three.</p>"
+    book.add_item(first)
+    book.add_item(second)
+    book.add_item(third)
+    book.toc = (first, second)
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = ["nav", first, second, third]
+    target = tmp_path / "multi.epub"
+    epub.write_epub(str(target), book)
+    return target.read_bytes()
+
+
+def _signals_from_manifest(source: dict) -> list[dict]:
+    manifest = json.loads(Path(source["manifestPath"]).read_text())
+    signals_path = manifest["payload"]["structureSignalsPath"]
+    assert signals_path, "manifest payload is missing structureSignalsPath"
+    assert f"/sources/{source['id']}/structure_signals/" in signals_path.replace("\\", "/")
+    return json.loads(Path(signals_path).read_text())
+
+
+def test_docx_heading_styles_emit_ordered_chapter_signals(client) -> None:
+    project = project_id(client)
+    assert import_bytes(client, project, "headings.docx", docx_heading_bytes())["status"] == "succeeded"
+    source = client.get(f"/api/v1/projects/{project}/source").json()
+    signals = _signals_from_manifest(source)
+    assert [(item["title"], item["sourceKind"], item["level"]) for item in signals] == [
+        ("The Arrival", "docx_heading", 1),
+        ("A Quiet Scene", "docx_heading", 2),
+        ("The Departure", "docx_heading", 1),
+    ]
+    assert signals[0]["anchorText"] == "The Arrival"
+
+
+def test_epub_spine_order_and_toc_emit_chapter_signals(client, tmp_path: Path) -> None:
+    project = project_id(client)
+    assert import_bytes(client, project, "multi.epub", multi_item_epub_bytes(tmp_path))["status"] == "succeeded"
+    source = client.get(f"/api/v1/projects/{project}/source").json()
+    signals = _signals_from_manifest(source)
+    # TOC entries first (0.95), then the first-h1 of a spine item not covered by TOC (0.8).
+    assert [(item["title"], item["sourceKind"]) for item in signals] == [
+        ("The Arrival", "epub_toc"),
+        ("The Departure", "epub_toc"),
+        ("The Return", "epub_spine"),
+    ]
+    assert signals[-1]["confidence"] == 0.8
+
+
+def test_txt_import_records_no_structure_signals(client) -> None:
+    project = project_id(client)
+    assert import_bytes(client, project, "plain.txt", b"A plain paragraph.\n")["status"] == "succeeded"
+    source = client.get(f"/api/v1/projects/{project}/source").json()
+    manifest = json.loads(Path(source["manifestPath"]).read_text())
+    assert manifest["payload"]["structureSignalsPath"] is None
+
+
+def test_reparse_docx_regenerates_signals_for_new_source(client) -> None:
+    project = project_id(client)
+    assert import_bytes(client, project, "headings.docx", docx_heading_bytes())["status"] == "succeeded"
+    first = client.get(f"/api/v1/projects/{project}/source").json()
+    first_signals = json.loads(
+        Path(json.loads(Path(first["manifestPath"]).read_text())["payload"]["structureSignalsPath"]).read_text()
+    )
+    response = client.post(
+        f"/api/v1/projects/{project}/source/reparse", json={"parserVersion": "ingestion-0.1.1"}
+    )
+    assert response.status_code == 202
+    assert wait_for_job(client, response.json()["id"])["status"] == "succeeded"
+    second = client.get(f"/api/v1/projects/{project}/source").json()
+    assert second["id"] != first["id"]
+    second_path = json.loads(Path(second["manifestPath"]).read_text())["payload"]["structureSignalsPath"]
+    assert f"/sources/{second['id']}/" in second_path.replace("\\", "/")
+    second_signals = json.loads(Path(second_path).read_text())
+    assert [item["title"] for item in second_signals] == [item["title"] for item in first_signals]
+
+    extract_job = client.post(
+        f"/api/v1/projects/{project}/structure/extract", json={"maxSegmentChars": 200}
+    ).json()
+    assert wait_for_job(client, extract_job["id"])["status"] == "succeeded"
+    chapters = client.get(f"/api/v1/projects/{project}/chapters").json()
+    assert [chapter["title"] for chapter in chapters] == ["The Arrival", "The Departure"]
+
+
 def test_reparse_preserves_prior_manifest(client) -> None:
     project = project_id(client)
     assert import_bytes(client, project, "story.txt", b"One paragraph.")["status"] == "succeeded"

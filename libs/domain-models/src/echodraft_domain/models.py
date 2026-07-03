@@ -93,6 +93,7 @@ class SourceDocument(ApiModel):
     original_path: str = Field(alias="originalPath")
     canonical_path: str | None = Field(default=None, alias="canonicalPath")
     manifest_path: str | None = Field(default=None, alias="manifestPath")
+    structure_signals_path: str | None = Field(default=None, alias="structureSignalsPath")
     status: str
     warnings: list[ParserWarning] = Field(default_factory=list)
     preview: str | None = None
@@ -220,6 +221,9 @@ class StructureParserWarning(ApiModel):
 
 class StructureQuality(ApiModel):
     chapter_count: int = Field(alias="chapterCount")
+    chapters_from_container_signals: int = Field(
+        default=0, alias="chaptersFromContainerSignals"
+    )
     scene_count: int = Field(alias="sceneCount")
     segment_count: int = Field(alias="segmentCount")
     dialogue_segment_count: int = Field(alias="dialogueSegmentCount")

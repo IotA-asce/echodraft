@@ -63,6 +63,12 @@ class Database:
         inspector = inspect(self.engine)
         tables = set(inspector.get_table_names())
         repairs: list[str] = []
+        if "source_documents" in tables:
+            columns = {column["name"] for column in inspector.get_columns("source_documents")}
+            if "structure_signals_path" not in columns:
+                repairs.append(
+                    "ALTER TABLE source_documents ADD COLUMN structure_signals_path TEXT"
+                )
         if "voice_profiles" in tables:
             columns = {column["name"] for column in inspector.get_columns("voice_profiles")}
             if "provider_voice_id" not in columns:

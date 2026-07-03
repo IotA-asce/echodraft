@@ -7,6 +7,17 @@ Stage 03 now uses `structure-parser-0.4.0`, a deterministic structure compiler w
 The compiler runs these passes:
 
 - block map with source offsets and line ranges;
+- container chapter-signal promotion: chapter signals recovered at ingestion from
+  DOCX heading styles and EPUB spine/TOC (`source_manifest.payload.structureSignalsPath`
+  → `chapter_signals.json`) are matched to parsed blocks by case-insensitive,
+  whitespace-collapsed **anchor text** (never raw offsets, which cleaning shifts).
+  A matched block is promoted to a chapter boundary bypassing `EXPLICIT_CHAPTER_RE`,
+  with `parserEvidence.reason` set to the signal's `sourceKind` (`docx_heading` /
+  `epub_toc` / `epub_spine`). Only `level <= 1` signals promote a chapter (`Title`
+  level 0, `Heading 1` level 1); `Heading 2` (level 2) is a scene-break hint only.
+  A signal matching no block emits a `container_signal_unmatched` warning instead
+  of failing. Regex detection still runs; a block promoted by both keeps the
+  container reason;
 - scored chapter candidates, including front matter and `Chapter One` plus title-line handling;
 - scored scene candidates from explicit separators and conservative inferred breaks;
 - quote-aware atomization for straight and curly quotes with apostrophe safety;
@@ -50,7 +61,7 @@ UUID fallback is reserved for cases where offsets are unavailable.
 
 ## Quality Reporting
 
-`GET /api/v1/projects/{projectId}/structure/quality` returns the current structure quality summary, including chapter, scene, segment, dialogue attribution, unresolved-dialogue, duplicate-cast, offset-validation, unclosed-quote, long-segment, warning, cast-candidate, and LLM refinement counts.
+`GET /api/v1/projects/{projectId}/structure/quality` returns the current structure quality summary, including chapter, `chaptersFromContainerSignals`, scene, segment, dialogue attribution, unresolved-dialogue, duplicate-cast, offset-validation, unclosed-quote, long-segment, warning, cast-candidate, and LLM refinement counts.
 
 The same metrics are written into `structure_manifest.json` under `payload.quality`.
 
