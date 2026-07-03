@@ -1,6 +1,6 @@
 # QA Rulebook
 
-See also: [voice-bible-spec.md](voice-bible-spec.md), [pipeline-manifest-spec.md](pipeline-manifest-spec.md), [mvp-product-spec.md](mvp-product-spec.md)
+See also: [voice-bible-spec.md](../casting/voice-bible-spec.md), [pipeline-manifest-spec.md](../../architecture/pipeline-manifest-spec.md), [mvp-product-spec.md](../../product/mvp-product-spec.md)
 
 ## Purpose
 Define the automated and human review standards for the MVP. The quality target is not human-studio perfection; it is a trustworthy, immersive, patchable premium draft.

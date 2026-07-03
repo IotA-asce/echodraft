@@ -1,6 +1,6 @@
 # MVP Product Spec
 
-See also: [project-overview.md](project-overview.md), [architecture.md](architecture.md), [qa-rulebook.md](qa-rulebook.md), [api-spec.yaml](api-spec.yaml)
+See also: [project-overview.md](project-overview.md), [architecture.md](../architecture/architecture.md), [qa-rulebook.md](../pipeline/qa/qa-rulebook.md), [api-spec.yaml](../api/api-spec.yaml)
 
 ## Product goal
 Ship a usable local-first MVP that transforms a manuscript into a premium draft audiobook with:
