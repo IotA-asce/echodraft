@@ -5,10 +5,11 @@ import threading
 import time
 
 import pytest
+from sqlalchemy import func, select
 
 from echodraft_api.jobs import InProcessJobRunner
-from echodraft_db import Database, JobRepository
-from echodraft_db.models import JobRecord
+from echodraft_db import CastMergeDecisionRepository, Database, JobRepository
+from echodraft_db.models import CastMergeDecisionRecord, JobRecord, ProjectRecord
 from echodraft_domain import JobState
 
 
@@ -193,6 +194,43 @@ def test_session_rolls_back_on_exception(tmp_path: Path) -> None:
             raise RuntimeError("boom")
     with database.session() as session:
         assert session.get(JobRecord, "job_rollback") is None
+
+
+def test_cast_merge_decision_upsert_normalizes_name_pair(tmp_path: Path) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'cast-merge.db'}")
+    database.create_schema()
+    with database.session() as session:
+        session.add(
+            ProjectRecord(
+                id="proj_cast_merge",
+                title="Cast Merge",
+                author=None,
+                description=None,
+                rights_status="declared",
+                status="draft",
+                artifact_path=str(tmp_path / "artifacts"),
+            )
+        )
+        session.commit()
+
+    repository = CastMergeDecisionRepository(database)
+    first = repository.record(
+        "proj_cast_merge", "Bran", "Brandon", "rejected", "Different people."
+    )
+    second = repository.record(
+        "proj_cast_merge", "Brandon", "Bran", "confirmed", "Same person."
+    )
+
+    assert first is not None
+    assert second is not None
+    assert second.id == first.id
+    decision = repository.decision_for("proj_cast_merge", "Bran", "Brandon")
+    assert decision is not None
+    assert decision.decision == "confirmed"
+    assert decision.reason == "Same person."
+    with database.session() as session:
+        count = session.scalar(select(func.count()).select_from(CastMergeDecisionRecord))
+    assert count == 1
 
 
 def test_bounded_executor_keeps_second_job_queued(app) -> None:

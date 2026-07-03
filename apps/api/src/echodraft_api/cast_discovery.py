@@ -365,7 +365,11 @@ class CastDiscoveryService:
         if exact:
             self._merge_aliases(exact, candidate)
             return
-        possible = index.possible_matches(candidate)
+        possible = [
+            match
+            for match in index.possible_matches(candidate)
+            if not self._pair_rejected(project_id, candidate.display_name, match.display_name)
+        ]
         if possible:
             reason = (
                 "Multiple existing characters could match."
@@ -376,10 +380,21 @@ class CastDiscoveryService:
             return
         if decision and decision.action == "match_existing" and decision.target_name:
             target = index.by_name.get(_name_key(decision.target_name))
-            if target:
+            if target and not self._pair_rejected(
+                project_id, candidate.display_name, target.display_name
+            ):
                 self._merge_aliases(target, candidate, decision.aliases)
                 return
-        if decision and decision.action == "ambiguous":
+        if (
+            decision
+            and decision.action == "ambiguous"
+            and not (
+                decision.target_name
+                and self._pair_rejected(
+                    project_id, candidate.display_name, decision.target_name
+                )
+            )
+        ):
             self._create_ambiguous_issue(project_id, candidate, decision.reason)
             return
         if decision and decision.action == "merge_candidate":
@@ -437,6 +452,10 @@ class CastDiscoveryService:
         merged = _clean_strings([*aliases, *additions])
         if merged != aliases:
             self.container.casting.update_character(character.id, aliases=merged)
+
+    def _pair_rejected(self, project_id: str, name_a: str, name_b: str) -> bool:
+        """True when a reviewer already ruled this name pair is NOT a duplicate."""
+        return self.container.cast_merge_decisions.is_rejected(project_id, name_a, name_b)
 
     def _create_ambiguous_issue(
         self,
@@ -582,15 +601,31 @@ class CastDiscoveryService:
             )
             for candidate in candidates
         )
+        decision_block = self._merge_decision_block(project_id)
         return (
             "Verify cast candidates against existing Character Bible records and prior candidates. "
             "Choose action match_existing, merge_candidate, create_new, or ambiguous. "
             "Use match_existing for canonical names or aliases that already exist. "
             "Use create_new only when a candidate is high-confidence and unique. "
             "Return only JSON matching the schema.\n\n"
+            f"{decision_block}"
             f"Existing Character Bible records:\n{character_lines or 'None'}\n\n"
             f"Candidates:\n{candidate_lines}"
         )
+
+    def _merge_decision_block(self, project_id: str) -> str:
+        decisions = self.container.cast_merge_decisions.recent(project_id, limit=10)
+        if not decisions:
+            return ""
+        lines: list[str] = []
+        for decision in decisions:
+            verdict = (
+                "confirmed same person"
+                if decision.decision == "confirmed"
+                else "different people"
+            )
+            lines.append(f'- "{decision.name_a}" and "{decision.name_b}": {verdict}')
+        return "Previously confirmed decisions (respect these):\n" + "\n".join(lines) + "\n\n"
 
     @staticmethod
     def _consolidate(candidates: list[CharacterCandidate]) -> list[CharacterCandidate]:
