@@ -2343,6 +2343,8 @@ components:
           type: integer
         dialogueSegmentCount:
           type: integer
+        dialogueAttributionCoverage:
+          type: number
         unresolvedDialogueCount:
           type: integer
         averageSegmentChars:
@@ -2353,9 +2355,15 @@ components:
           type: integer
         castCandidateCount:
           type: integer
+        possibleDuplicateCastCount:
+          type: integer
         lowConfidenceCastCandidateCount:
           type: integer
         possibleSceneBreakCount:
+          type: integer
+        offsetValidationFailureCount:
+          type: integer
+        quoteUnclosedCount:
           type: integer
         warningsNeedingReviewCount:
           type: integer

@@ -266,7 +266,14 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
           scopeId: "scene_progress",
           severity: "warning",
           message: "Possible inferred scene break needs review.",
-          evidence: { code: "scene.possible_break_detected", reviewAction: "confirm_scene_break" },
+          evidence: {
+            code: "scene.possible_break_detected",
+            reviewAction: "confirm_scene_break",
+            textPreview: "Later that night, the windows rattled.",
+            startOffset: 120,
+            endOffset: 158,
+            confidence: 0.62
+          },
           confidence: 0.62,
           resolved: false,
           createdAt: new Date().toISOString()
@@ -282,13 +289,17 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
         sceneCount: 1,
         segmentCount: 24,
         dialogueSegmentCount: 2,
+        dialogueAttributionCoverage: 50,
         unresolvedDialogueCount: 1,
         averageSegmentChars: 148.4,
         longSegmentCount: 1,
         mixedSegmentWarningCount: 0,
         castCandidateCount: 1,
+        possibleDuplicateCastCount: 1,
         lowConfidenceCastCandidateCount: 1,
         possibleSceneBreakCount: 1,
+        offsetValidationFailureCount: 0,
+        quoteUnclosedCount: 0,
         warningsNeedingReviewCount: 1,
         llmRefinementUsed: true,
         llmAcceptedBatchCount: 1,
@@ -330,7 +341,11 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
       parserEvidence: {
         productionType: index === 1 ? "dialogue_with_tag" : index < 2 ? "dialogue" : "narration",
         speakerRule: index === 0 ? "unresolved_quote" : index === 1 ? "action_beat_before_quote" : undefined,
-        sources: ["block_map", "quote_aware_atomization"]
+        sources: ["block_map", "quote_aware_atomization"],
+        atomIds: [`atom_${index}`],
+        sourceSpanId: `span_${index}`,
+        reviewAction: index === 0 ? "assign_speaker" : undefined,
+        speakerEvidence: index === 1 ? "quote followed by a speech tag" : undefined
       },
       userLocked: false,
       lockReason: null
@@ -358,8 +373,28 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   await expect(page.locator(".structure-quality")).toContainText("Segments");
   await expect(page.locator(".structure-quality")).toContainText("24");
   await expect(page.locator(".structure-quality")).toContainText("LLM");
+  await expect(page.locator(".structure-quality")).toContainText("Attribution");
+  await expect(page.locator(".structure-quality")).toContainText("50%");
+  await expect(page.locator(".structure-quality")).toContainText("Duplicates");
+  await expect(page.locator(".structure-quality")).toContainText("Offset issues");
+  await expect(page.locator(".structure-quality")).toContainText("Unclosed quotes");
+  await expect(page.locator(".structure-warning-panel")).toContainText("Parser Review");
+  await expect(page.locator(".structure-warning-panel")).toContainText("Scene breaks");
+  await expect(page.locator(".structure-warning-panel")).toContainText("scene.possible_break_detected");
+  await expect(page.locator(".structure-warning-panel")).toContainText("confirm scene break");
+  await expect(page.locator(".structure-warning-panel")).toContainText("Later that night");
+  await expect(page.locator(".structure-warning-panel")).toContainText("120-158");
+  await page.locator(".structure-warning-panel").getByRole("button", { name: /Cast issues/ }).click();
+  await expect(page.locator(".structure-warning-panel")).toContainText("No warnings in this category.");
+  await page.locator(".structure-warning-panel").getByRole("button", { name: /All/ }).click();
   await expect(page.locator(".segment-evidence").first()).toContainText("speaker unresolved");
   await expect(page.locator(".segment-evidence").first()).toContainText("quote aware atomization");
+  await page.locator(".segment-entry").first().getByRole("button", { name: "Why?" }).click();
+  await expect(page.locator(".segment-why-panel").first()).toContainText("Production type");
+  await expect(page.locator(".segment-why-panel").first()).toContainText("dialogue");
+  await expect(page.locator(".segment-why-panel").first()).toContainText("Atom IDs");
+  await expect(page.locator(".segment-why-panel").first()).toContainText("atom_0");
+  await expect(page.locator(".segment-why-panel").first()).toContainText("assign speaker");
   const filters = page.locator(".structure-filters");
   await filters.getByRole("button", { name: /Unresolved dialogue/ }).click();
   await expect(page.locator(".segment-entry")).toHaveCount(1);
