@@ -119,8 +119,35 @@ class ReviewService:
             render.id,
             chapter_render.id,
         )
+        if request.issue_id:
+            self._auto_resolve_patched_issue(request.issue_id, render.id)
         return SegmentPatchResult(
             segment=segment_model(segment), render=render, chapterRender=chapter_render
+        )
+
+    def _auto_resolve_patched_issue(self, issue_id: str, new_render_id: str) -> None:
+        """Re-verify a render-QA issue after a corrective patch render.
+
+        The new render's QA (already run by the renderer) either recreated a finding of the
+        same category for the fresh render or it did not. Only render-QA issues carry a
+        ``segmentRenderId`` in their metadata; when the re-render produced no open issue of
+        the same category, the original finding is genuinely fixed and auto-resolves.
+        """
+        issue = self.container.review.issue(issue_id)
+        if not issue:
+            return
+        metadata = json.loads(issue.metadata_json)
+        if "segmentRenderId" not in metadata:
+            return
+        recurred = self.container.review.issue_by_dedupe_key(
+            f"segment:{new_render_id}:{issue.category}"
+        )
+        if recurred and recurred.status == "open":
+            return
+        self.container.review.merge_issue_metadata(
+            issue_id,
+            {"resolvedBy": "rerender", "newRenderId": new_render_id},
+            status="resolved",
         )
 
     @staticmethod

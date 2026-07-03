@@ -60,6 +60,49 @@ def test_qa_issues_are_durable_and_deduplicated_per_render(client) -> None:
     )
 
 
+def test_patch_auto_resolves_render_qa_issue_when_new_render_passes(client, app) -> None:
+    project, _, segment = prepared_segment(client)
+    original = client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/generate", json=render_payload(project)
+    ).json()
+
+    # Model a render-QA finding that a re-render genuinely fixes. The mock TTS provider only
+    # ever emits `excessive_silence` (its audio is always pure silence), so it can never make
+    # a render-QA issue disappear; we therefore seed a `very_short_duration` finding with the
+    # exact shape `qa_segment` produces (a `segmentRenderId` in metadata) pinned to the render.
+    seeded = app.state.container.review.create_issue(
+        project_id=project,
+        segment_id=segment,
+        category="very_short_duration",
+        severity="warning",
+        title="Very Short Duration",
+        description="Audio is shorter than 250 ms.",
+        metadata={"segmentRenderId": original["id"]},
+        dedupe_key=f"segment:{original['id']}:very_short_duration",
+    )
+    assert seeded.status == "open"
+
+    patched = client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/patch",
+        json={
+            **render_payload(project),
+            "textContent": "A much longer reviewable sentence produced by the corrective patch.",
+            "issueId": seeded.id,
+        },
+    )
+    assert patched.status_code == 202, patched.text
+    new_render_id = patched.json()["render"]["id"]
+
+    resolved = next(
+        item
+        for item in client.get(f"/api/v1/projects/{project}/issues").json()
+        if item["id"] == seeded.id
+    )
+    assert resolved["status"] == "resolved"
+    assert resolved["metadata"]["resolvedBy"] == "rerender"
+    assert resolved["metadata"]["newRenderId"] == new_render_id
+
+
 def test_issue_comment_and_selective_patch_preserve_render_history(client) -> None:
     project, chapter, segment = prepared_segment(client)
     original = client.post(
