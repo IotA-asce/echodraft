@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-03
 **Baseline:** current `main` implementation + documented behavior in `docs/`.
-**Target:** the "flawless product" defined in [`product-vision-analysis.md`](product-vision-analysis.md), grounded by the engineering findings in [`deep-analysis-report.md`](deep-analysis-report.md).
+**Target:** the "flawless product" defined in [`product-vision-analysis.md`](product-vision-analysis.md), grounded by the engineering findings in [`deep-analysis-report.md`](deep-analysis-report.md). "Flawless" is made concrete by the [Sunday Suspense quality benchmark](../product/quality-benchmark.md) — that document defines what a maturity **5** actually sounds like, dimension by dimension.
 **Purpose:** measure, per capability and per cross-cutting principle, how far today's system is from the vision, and size each gap so a roadmap can sequence the work. This document intentionally does not propose the sequence — that is the roadmap's job.
 
 ---
@@ -18,7 +18,7 @@ Each capability and principle is scored on a 0–5 maturity scale against the vi
 | **2 — Naive** | Real but crude heuristics; works only on the easy/happy path. |
 | **3 — Functional-limited** | Works for common cases; known gaps degrade real-world inputs. |
 | **4 — Strong** | Robust across most real inputs; minor polish remaining. |
-| **5 — Flawless** | Meets the vision; reliably produces publishable output with minimal effort. |
+| **5 — Flawless** | Meets the vision; the output would be indistinguishable from the [Sunday Suspense benchmark](../product/quality-benchmark.md) on its matching dimension, produced with minimal effort. |
 
 "Gap" = Target − Current. Priority reflects impact on deliverable quality × user trust, not effort.
 

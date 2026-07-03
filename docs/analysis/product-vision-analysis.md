@@ -16,6 +16,8 @@ A flawless Echodraft would feel like this to a creator:
 
 Every gap below is a place where that story currently breaks. The encouraging finding: the fixes are mostly **wiring, honesty, and closing loops** on top of infrastructure that already exists — not new subsystems.
 
+**Concrete north star.** "Flawless" is otherwise unmeasurable, so this analysis anchors it to a real production that already exists: **Sunday Suspense**, the Bengali multi-voice audio-drama program from Radio Mirchi — a human-made instance of exactly what Echodraft generates (distinct voiced cast, narrator/dialogue separation, tasteful score and ambience under legible speech). The [Sunday Suspense quality benchmark](../product/quality-benchmark.md) decomposes it into eight scored dimensions and, crucially, marks which are reachable with today's local models (most) and which sit at the local-TTS performance ceiling (expressive per-character *acting* — a tiering decision, not a bug). Read "flawless" throughout this document as "Sunday-Suspense-grade on the matching dimension."
+
 ---
 
 ## 2. Cross-cutting principles (the heart of "flawless")
