@@ -19,7 +19,7 @@ from echodraft_db.models import (
 )
 from sqlalchemy import select
 
-from .audio_analysis import analyze_wav
+from .audio_analysis import AudioAnalysis, analyze_wav
 from .container import AppContainer
 
 # Isolated inter-sample rounding is not audible clipping; only a real run of clipped
@@ -45,7 +45,12 @@ class ReviewService:
     def __init__(self, container: AppContainer) -> None:
         self.container = container
 
-    def qa_segment(self, project_id: str, render: SegmentRenderRecord) -> None:
+    def qa_segment(
+        self,
+        project_id: str,
+        render: SegmentRenderRecord,
+        analysis: AudioAnalysis | None = None,
+    ) -> None:
         with self.container.structure.database.session() as session:
             segment = session.get(SegmentRecord, render.segment_id)
             if not segment:
@@ -54,7 +59,10 @@ class ReviewService:
             chapter = session.get(ChapterRecord, scene.chapter_id) if scene else None
         payload = json.loads(render.request_json)
         rules = self._audio_rules(
-            Path(render.audio_path), render.duration_ms, payload.get("synthesisText")
+            Path(render.audio_path),
+            render.duration_ms,
+            payload.get("synthesisText"),
+            analysis=analysis,
         )
         if segment.normalized_text != payload.get("text"):
             rules.append(
@@ -74,9 +82,17 @@ class ReviewService:
             )
 
     def qa_chapter(
-        self, project_id: str, chapter_id: str, render_id: str, path: str, duration: int
+        self,
+        project_id: str,
+        chapter_id: str,
+        render_id: str,
+        path: str,
+        duration: int,
+        analysis: AudioAnalysis | None = None,
     ) -> None:
-        for category, severity, description in self._audio_rules(Path(path), duration):
+        for category, severity, description in self._audio_rules(
+            Path(path), duration, analysis=analysis
+        ):
             self.container.review.create_issue(
                 project_id=project_id,
                 chapter_id=chapter_id,
@@ -196,14 +212,26 @@ class ReviewService:
 
     @staticmethod
     def _audio_rules(
-        path: Path, declared_duration_ms: int, synthesis_text: str | None = None
+        path: Path,
+        declared_duration_ms: int,
+        synthesis_text: str | None = None,
+        analysis: AudioAnalysis | None = None,
     ) -> list[tuple[str, str, str]]:
+        """Derive QA findings for one audio artifact.
+
+        Callers that already ran ``analyze_wav`` on the same file (rendering, assembly)
+        pass their result via ``analysis`` so the WAV is decoded exactly once; when it is
+        omitted this decodes internally and keeps the missing/corrupt guards.
+        """
         if not path.is_file():
             return [("missing_audio", "blocking", "Expected audio artifact is missing.")]
-        try:
-            analysis = analyze_wav(path)
-        except (EOFError, wave.Error, ValueError):
-            return [("corrupt_audio", "blocking", "Audio artifact cannot be decoded as WAV.")]
+        if analysis is None:
+            try:
+                analysis = analyze_wav(path)
+            except (EOFError, wave.Error, ValueError):
+                return [
+                    ("corrupt_audio", "blocking", "Audio artifact cannot be decoded as WAV.")
+                ]
         duration = analysis.duration_ms
         rules: list[tuple[str, str, str]] = []
         if duration < 250:

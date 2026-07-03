@@ -121,7 +121,9 @@ class SegmentRenderer:
             with self.container.structure.database.session() as s:
                 s.add(record)
                 s.commit()
-        ReviewService(self.container).qa_segment(project_id, record)
+        # Reuse the analysis computed for metadata.json above: QA must not re-decode the
+        # same WAV a second time.
+        ReviewService(self.container).qa_segment(project_id, record, analysis=analysis)
         return SegmentRender(
             id=record.id,
             segmentId=segment_id,

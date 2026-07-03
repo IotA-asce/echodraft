@@ -118,8 +118,13 @@ def test_chapter_assembly_writes_real_waveform_and_validation_telemetry(client) 
     # Old fake was a hardcoded empty list regardless of content; the real analysis always
     # produces the full bucket count.
     assert len(waveform["peaks"]) == 200
+    # The mock provider renders pure digital silence, so honest chapter QA must surface
+    # `low_loudness` (RMS floors at -120 dBFS) as a warning finding -- which, being
+    # non-blocking, still leaves the validation status "passed".
+    findings = {item["category"]: item["severity"] for item in validation["findings"]}
+    assert findings["low_loudness"] == "warning"
+    assert not any(severity == "blocking" for severity in findings.values())
     assert validation["status"] == "passed"
-    assert isinstance(validation["findings"], list)
 
 
 def test_chapter_assembly_selects_latest_render_despite_adversarial_ids(client, app) -> None:
