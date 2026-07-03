@@ -217,7 +217,9 @@ class ExportService:
                 session.scalars(
                     select(ExportPackageRecord)
                     .where(ExportPackageRecord.project_id == project_id)
-                    .order_by(ExportPackageRecord.id.desc())
+                    .order_by(
+                        ExportPackageRecord.created_at.desc(), ExportPackageRecord.id.desc()
+                    )
                 )
             )
         return [self._model(record) for record in records]
@@ -451,7 +453,7 @@ class ExportService:
                     ChapterRenderRecord.chapter_id == chapter_id,
                     ChapterRenderRecord.status == "succeeded",
                 )
-                .order_by(ChapterRenderRecord.id.desc())
+                .order_by(ChapterRenderRecord.created_at.desc(), ChapterRenderRecord.id.desc())
             )
         )
 
@@ -611,6 +613,7 @@ class ExportService:
             metadata=metadata,
             manifestSummary=summary,
             blockers=[],
+            createdAt=record.created_at,
         )
 
 

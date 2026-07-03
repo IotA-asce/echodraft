@@ -1,4 +1,6 @@
+import json
 import time
+from pathlib import Path
 
 
 def wait_for_job(client, job_id: str) -> dict:
@@ -96,6 +98,9 @@ def test_issue_comment_and_selective_patch_preserve_render_history(client) -> No
     assert result["render"]["parentRenderId"] == original["id"]
     assert result["chapterRender"]["chapterId"] == chapter
     assert len(client.get(f"/api/v1/projects/{project}/chapters/{chapter}/renders").json()) == 1
+    manifest = json.loads(Path(result["chapterRender"]["manifestPath"]).read_text())
+    stitched = {item["segmentId"]: item["segmentRenderId"] for item in manifest["inputs"]}
+    assert stitched[segment] == result["render"]["id"]
 
 
 def test_segment_review_inspector_layers_patch_history_and_waveform(client) -> None:

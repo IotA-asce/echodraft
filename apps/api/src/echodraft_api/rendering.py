@@ -50,7 +50,9 @@ class SegmentRenderer:
                         SegmentRenderRecord.render_key == key,
                         SegmentRenderRecord.status == "succeeded",
                     )
-                    .order_by(SegmentRenderRecord.id.desc())
+                    .order_by(
+                        SegmentRenderRecord.created_at.desc(), SegmentRenderRecord.id.desc()
+                    )
                 )
             if cached:
                 return self._model(cached)
@@ -106,6 +108,7 @@ class SegmentRenderer:
             metadataPath=record.metadata_path,
             durationMs=duration,
             parentRenderId=record.parent_render_id,
+            createdAt=record.created_at,
         )
 
     def compare(self, project_id: str, segment_id: str) -> SegmentRenderComparison:
@@ -152,7 +155,9 @@ class SegmentRenderer:
                 session.scalars(
                     select(SegmentRenderRecord)
                     .where(SegmentRenderRecord.segment_id == segment_id)
-                    .order_by(SegmentRenderRecord.id.desc())
+                    .order_by(
+                        SegmentRenderRecord.created_at.desc(), SegmentRenderRecord.id.desc()
+                    )
                 )
             )
         return [self._model(record) for record in records]
@@ -187,10 +192,12 @@ class SegmentRenderer:
     def _latest_successful(session: Session, segment_id: str) -> SegmentRenderRecord | None:
         records = list(
             session.scalars(
-                select(SegmentRenderRecord).where(
+                select(SegmentRenderRecord)
+                .where(
                     SegmentRenderRecord.segment_id == segment_id,
                     SegmentRenderRecord.status == "succeeded",
                 )
+                .order_by(SegmentRenderRecord.created_at, SegmentRenderRecord.id)
             )
         )
         return SegmentRenderer._tip(records)
@@ -214,4 +221,5 @@ class SegmentRenderer:
             metadataPath=record.metadata_path,
             durationMs=record.duration_ms,
             parentRenderId=record.parent_render_id,
+            createdAt=record.created_at,
         )
