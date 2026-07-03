@@ -7,6 +7,7 @@ from uuid import uuid4
 from echodraft_db.models import (
     ChapterRecord,
     CharacterRecord,
+    IssueRecord,
     SceneRecord,
     SegmentRecord,
     SegmentRevisionRecord,
@@ -366,9 +367,19 @@ class StructureService:
                     "llmRunId": run_id,
                     "llmEvidence": llm_evidence,
                     "llmConfidence": confidence,
+                    "atomKinds": [atom.kind for atom in group],
+                    "atomSpeakerHints": [
+                        {
+                            "name": atom.speaker_hint,
+                            "confidence": atom.speaker_confidence,
+                            "kind": atom.kind,
+                        }
+                        for atom in group
+                        if atom.speaker_hint
+                    ],
                 },
             )
-            records.append(compiler.segment_record(scene_id, index, draft))
+            records.append(compiler.segment_record(scene_id, index, compiler.review_segment_draft(draft, warnings)))
         return records
 
     def _reject_atom_refinement(
@@ -577,6 +588,14 @@ class StructureService:
                     )
                 )
             )
+            issues = list(
+                session.scalars(
+                    select(IssueRecord).where(
+                        IssueRecord.project_id == project_id,
+                        IssueRecord.status == "open",
+                    )
+                )
+            )
         dialogue = [segment for segment in segments if segment.segment_type == "dialogue"]
         unresolved = [
             segment
@@ -584,19 +603,26 @@ class StructureService:
             if not segment.speaker_candidate or segment.speaker_confidence < 0.8
         ]
         warning_codes = [_warning_record_code(warning) for warning in warnings]
+        issue_codes = [_issue_record_code(issue) for issue in issues]
         total_chars = sum(len(segment.text_content) for segment in segments)
+        attributed_dialogue = len(dialogue) - len(unresolved)
         return {
             "chapterCount": len(chapters),
             "sceneCount": len(scenes),
             "segmentCount": len(segments),
             "dialogueSegmentCount": len(dialogue),
+            "dialogueAttributionCoverage": round((attributed_dialogue / len(dialogue)) * 100, 1) if dialogue else 100.0,
             "unresolvedDialogueCount": len(unresolved),
             "averageSegmentChars": round(total_chars / len(segments), 1) if segments else 0,
             "longSegmentCount": sum(1 for segment in segments if len(segment.text_content) > 900),
             "mixedSegmentWarningCount": warning_codes.count("segment.mixed_dialogue_and_narration"),
             "castCandidateCount": len(characters),
-            "lowConfidenceCastCandidateCount": sum(1 for character in characters if character.confidence < 0.72),
+            "possibleDuplicateCastCount": issue_codes.count("cast.possible_duplicate"),
+            "lowConfidenceCastCandidateCount": issue_codes.count("cast.low_confidence_candidate")
+            or sum(1 for character in characters if character.confidence < 0.72),
             "possibleSceneBreakCount": warning_codes.count("scene.possible_break_detected"),
+            "offsetValidationFailureCount": warning_codes.count("segment.offset_validation_failed"),
+            "quoteUnclosedCount": warning_codes.count("segment.quote_unclosed"),
             "warningsNeedingReviewCount": sum(
                 1 for warning in warnings if warning.severity in {"warning", "blocking", "error"}
             ),
@@ -615,9 +641,20 @@ class StructureService:
                     )
                 )
             )
+            issues = list(
+                session.scalars(
+                    select(IssueRecord).where(
+                        IssueRecord.project_id == project_id,
+                        IssueRecord.status == "open",
+                    )
+                )
+            )
+        issue_codes = [_issue_record_code(issue) for issue in issues]
         return {
             "castCandidateCount": len(characters),
-            "lowConfidenceCastCandidateCount": sum(1 for character in characters if character.confidence < 0.72),
+            "possibleDuplicateCastCount": issue_codes.count("cast.possible_duplicate"),
+            "lowConfidenceCastCandidateCount": issue_codes.count("cast.low_confidence_candidate")
+            or sum(1 for character in characters if character.confidence < 0.72),
         }
 
 
@@ -657,6 +694,11 @@ def _manifest_hierarchy(hierarchy: list[dict[str, object]]) -> list[dict[str, ob
 
 def _warning_record_code(warning: StructureParserWarningRecord) -> str:
     evidence = _evidence(warning.evidence_json)
+    return str(evidence.get("code") or "")
+
+
+def _issue_record_code(issue: IssueRecord) -> str:
+    evidence = _evidence(issue.metadata_json)
     return str(evidence.get("code") or "")
 
 

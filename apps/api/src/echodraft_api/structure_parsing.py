@@ -154,6 +154,13 @@ class TextAtom:
 
 
 @dataclass(frozen=True)
+class QuoteScan:
+    spans: list[tuple[int, int]]
+    unclosed_start: int | None = None
+    unclosed_char: str | None = None
+
+
+@dataclass(frozen=True)
 class SegmentDraft:
     atom_ids: list[str]
     segment_type: str
@@ -199,6 +206,24 @@ def compatible_segment_type(production_type: str) -> str:
 
 def safe_json(payload: dict[str, object]) -> str:
     return json.dumps(payload, sort_keys=True)
+
+
+def validate_atom_offsets(scene_text: str, base: int, atoms: list[TextAtom]) -> bool:
+    scene_start = base
+    scene_end = base + len(scene_text)
+    previous_end = scene_start
+    for atom in atoms:
+        if atom.start_offset < scene_start or atom.end_offset > scene_end:
+            return False
+        if atom.start_offset > atom.end_offset:
+            return False
+        if atom.start_offset < previous_end:
+            return False
+        source_slice = scene_text[atom.start_offset - base : atom.end_offset - base]
+        if source_slice.strip() != atom.text.strip():
+            return False
+        previous_end = atom.end_offset
+    return True
 
 
 class StructureCompiler:
@@ -455,7 +480,22 @@ class StructureCompiler:
                         min(trimmed_end, trimmed_start + 160),
                     )
                 )
-            atoms = self.atoms_for_scene(trimmed_text, trimmed_start)
+            atoms = self.atoms_for_scene(trimmed_text, trimmed_start, warnings, scene_id)
+            if not validate_atom_offsets(trimmed_text, trimmed_start, atoms):
+                warnings.append(
+                    self.structure_issue(
+                        "scene",
+                        scene_id,
+                        "segment.offset_validation_failed",
+                        "warning",
+                        "One or more atom offsets did not match the source text.",
+                        "inspect_segment",
+                        {"textPreview": trimmed_text[:160]},
+                        0.72,
+                        trimmed_start,
+                        min(trimmed_end, trimmed_start + 160),
+                    )
+                )
             segments = self.segments_from_atoms(scene_id, atoms, max_chars, warnings)
             scenes.append(
                 {
@@ -595,7 +635,13 @@ class StructureCompiler:
             )
         return candidates
 
-    def atoms_for_scene(self, scene_text: str, base: int) -> list[TextAtom]:
+    def atoms_for_scene(
+        self,
+        scene_text: str,
+        base: int,
+        warnings: list[dict[str, object]] | None = None,
+        scene_id: str | None = None,
+    ) -> list[TextAtom]:
         atoms: list[TextAtom] = []
         for paragraph_index, (start, end, paragraph) in enumerate(_paragraph_spans(scene_text)):
             absolute_start = base + start
@@ -632,7 +678,12 @@ class StructureCompiler:
                     )
                 )
                 continue
-            paragraph_atoms = self._atoms_for_paragraph(stripped_text, stripped_start)
+            paragraph_atoms = self._atoms_for_paragraph(
+                stripped_text,
+                stripped_start,
+                warnings,
+                scene_id,
+            )
             if paragraph_index > 0 and paragraph_atoms:
                 first_atom = paragraph_atoms[0]
                 paragraph_atoms[0] = replace(
@@ -650,6 +701,7 @@ class StructureCompiler:
         warnings: list[dict[str, object]],
     ) -> list[dict[str, object]]:
         drafts = self.segment_drafts_from_atoms(atoms, max_chars, warnings)
+        drafts = [self.review_segment_draft(draft, warnings) for draft in drafts]
         return [
             self.segment_record(scene_id, index, draft)
             for index, draft in enumerate(drafts)
@@ -760,7 +812,122 @@ class StructureCompiler:
             if sum(len(item.text) for item in narration_group) >= max_chars:
                 flush_narration()
         flush_narration()
-        return drafts
+        return self._mark_ambiguous_exchange(drafts, warnings)
+
+    def review_segment_draft(
+        self, draft: SegmentDraft, warnings: list[dict[str, object]]
+    ) -> SegmentDraft:
+        warning_codes = _clean_string_list(draft.evidence.get("warningCodes"))
+        review_action = str(draft.evidence.get("reviewAction") or "")
+        atom_kinds = _clean_string_list(draft.evidence.get("atomKinds"))
+        high_confidence_speakers = {
+            _speaker_key(name): name
+            for name, confidence in _speaker_hint_pairs(draft.evidence.get("atomSpeakerHints"))
+            if confidence >= 0.8 and _speaker_key(name)
+        }
+        if draft.speaker_hint and draft.speaker_confidence >= 0.8:
+            high_confidence_speakers[_speaker_key(draft.speaker_hint)] = draft.speaker_hint
+
+        if len(high_confidence_speakers) > 1:
+            warning_codes.append("segment.multiple_speakers")
+            review_action = "assign_speakers"
+            warnings.append(
+                self.structure_issue(
+                    "segment",
+                    stable_id("seg", self.source_id, draft.start_offset, draft.end_offset, draft.text),
+                    "segment.multiple_speakers",
+                    "warning",
+                    "Segment contains multiple high-confidence speaker hints.",
+                    "assign_speakers",
+                    {
+                        "textPreview": draft.text[:160],
+                        "speakerCandidates": list(high_confidence_speakers.values()),
+                    },
+                    0.7,
+                    draft.start_offset,
+                    draft.end_offset,
+                )
+            )
+
+        has_quote = "quote" in atom_kinds
+        has_substantial_narration = "narration" in atom_kinds
+        if has_quote and has_substantial_narration and draft.production_type != "dialogue_with_tag":
+            warning_codes.append("segment.mixed_dialogue_and_narration")
+            review_action = "split_segment"
+            warnings.append(
+                self.structure_issue(
+                    "segment",
+                    stable_id("seg", self.source_id, draft.start_offset, draft.end_offset, draft.text),
+                    "segment.mixed_dialogue_and_narration",
+                    "warning",
+                    "Segment contains both dialogue and substantial narration.",
+                    "split_segment",
+                    {"textPreview": draft.text[:160], "atomKinds": atom_kinds},
+                    0.68,
+                    draft.start_offset,
+                    draft.end_offset,
+                )
+            )
+
+        if not warning_codes:
+            return draft
+        return replace(
+            draft,
+            status="needs_review",
+            evidence={
+                **draft.evidence,
+                "warningCodes": sorted(set(warning_codes)),
+                "reviewAction": review_action or "review_segment",
+            },
+        )
+
+    def _mark_ambiguous_exchange(
+        self, drafts: list[SegmentDraft], warnings: list[dict[str, object]]
+    ) -> list[SegmentDraft]:
+        index = 0
+        marked: set[int] = set()
+        while index < len(drafts):
+            if not _is_unresolved_dialogue_draft(drafts[index]):
+                index += 1
+                continue
+            start = index
+            while index < len(drafts) and _is_unresolved_dialogue_draft(drafts[index]):
+                index += 1
+            if index - start < 4:
+                continue
+            window = drafts[start:index]
+            preview = " ".join(draft.text for draft in window)[:160]
+            warnings.append(
+                self.structure_issue(
+                    "segment",
+                    stable_id("seg", self.source_id, window[0].start_offset, window[-1].end_offset, preview),
+                    "speaker.ambiguous_two_person_exchange",
+                    "warning",
+                    "Alternating unattributed dialogue needs speaker review.",
+                    "assign_speakers",
+                    {"textPreview": preview, "segmentCount": len(window)},
+                    0.62,
+                    window[0].start_offset,
+                    window[-1].end_offset,
+                )
+            )
+            marked.update(range(start, index))
+        if not marked:
+            return drafts
+        updated = list(drafts)
+        for item in marked:
+            codes = _clean_string_list(updated[item].evidence.get("warningCodes"))
+            codes.append("speaker.ambiguous_two_person_exchange")
+            updated[item] = replace(
+                updated[item],
+                status="needs_review",
+                evidence={
+                    **updated[item].evidence,
+                    "warningCodes": sorted(set(codes)),
+                    "reviewAction": "assign_speakers",
+                },
+            )
+        return updated
 
     def segment_record(self, scene_id: str, order_index: int, draft: SegmentDraft) -> dict[str, object]:
         evidence = {
@@ -857,11 +1024,13 @@ class StructureCompiler:
         total_chars = sum(len(str(segment.get("text_content") or "")) for segment in segments)
         warning_codes = [_warning_code(warning) for warning in warnings]
         low_cast = sum(1 for segment in dialogue if float(segment.get("speaker_confidence") or 0) < 0.72)
+        attributed_dialogue = len(dialogue) - len(unresolved)
         return {
             "chapterCount": len(chapters),
             "sceneCount": len(scenes),
             "segmentCount": len(segments),
             "dialogueSegmentCount": len(dialogue),
+            "dialogueAttributionCoverage": round((attributed_dialogue / len(dialogue)) * 100, 1) if dialogue else 100.0,
             "unresolvedDialogueCount": len(unresolved),
             "averageSegmentChars": round(total_chars / len(segments), 1) if segments else 0,
             "longSegmentCount": len(long_segments),
@@ -873,8 +1042,11 @@ class StructureCompiler:
                     if segment.get("speaker_candidate")
                 }
             ),
+            "possibleDuplicateCastCount": 0,
             "lowConfidenceCastCandidateCount": low_cast,
             "possibleSceneBreakCount": warning_codes.count("scene.possible_break_detected"),
+            "offsetValidationFailureCount": warning_codes.count("segment.offset_validation_failed"),
+            "quoteUnclosedCount": warning_codes.count("segment.quote_unclosed"),
             "warningsNeedingReviewCount": sum(
                 1
                 for warning in warnings
@@ -910,8 +1082,38 @@ class StructureCompiler:
             return "possible_heading", 0.58, {"reason": "short_heading_like_line"}
         return "paragraph", 0.84, {"reason": "body_paragraph"}
 
-    def _atoms_for_paragraph(self, paragraph: str, base: int) -> list[TextAtom]:
-        spans = _quote_spans(paragraph)
+    def _atoms_for_paragraph(
+        self,
+        paragraph: str,
+        base: int,
+        warnings: list[dict[str, object]] | None = None,
+        scene_id: str | None = None,
+    ) -> list[TextAtom]:
+        scan = _scan_quotes(paragraph)
+        if scan.unclosed_start is not None:
+            warning_start = base + scan.unclosed_start
+            warning_end = base + len(paragraph)
+            if warnings is not None:
+                warnings.append(
+                    self.structure_issue(
+                        "segment",
+                        stable_id("seg", self.source_id, warning_start, warning_end, paragraph[scan.unclosed_start :]),
+                        "segment.quote_unclosed",
+                        "warning",
+                        "Quoted text has an opening quote without a closing quote.",
+                        "inspect_segment",
+                        {
+                            "textPreview": paragraph[scan.unclosed_start : scan.unclosed_start + 160],
+                            "quoteChar": scan.unclosed_char or "",
+                            "sceneId": scene_id or "",
+                        },
+                        0.74,
+                        warning_start,
+                        warning_end,
+                    )
+                )
+            return self._sentence_atoms(paragraph, base, "narration")
+        spans = scan.spans
         if not spans:
             return self._sentence_atoms(paragraph, base, "narration")
         atoms: list[TextAtom] = []
@@ -1080,6 +1282,16 @@ class StructureCompiler:
             evidence={
                 "sources": ["block_map", "quote_aware_atomization", "deterministic_segment_builder"],
                 "confidence": confidence,
+                "atomKinds": [atom.kind for atom in atoms],
+                "atomSpeakerHints": [
+                    {
+                        "name": atom.speaker_hint,
+                        "confidence": atom.speaker_confidence,
+                        "kind": atom.kind,
+                    }
+                    for atom in atoms
+                    if atom.speaker_hint
+                ],
             },
         )
 
@@ -1143,6 +1355,42 @@ def _warning_code(warning: dict[str, object]) -> str:
     except json.JSONDecodeError:
         return ""
     return str(evidence.get("code") or "") if isinstance(evidence, dict) else ""
+
+
+def _is_unresolved_dialogue_draft(draft: SegmentDraft) -> bool:
+    return draft.segment_type == "dialogue" and (
+        not draft.speaker_hint or draft.speaker_confidence < 0.8
+    )
+
+
+def _clean_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
+def _speaker_hint_pairs(value: object) -> list[tuple[str, float]]:
+    if not isinstance(value, list):
+        return []
+    pairs: list[tuple[str, float]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            confidence = float(item.get("confidence") or 0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        pairs.append((name, confidence))
+    return pairs
+
+
+def _speaker_key(value: str | None) -> str:
+    if not value:
+        return ""
+    return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
 
 
 def _strip_markdown_heading(value: str) -> str:
@@ -1222,23 +1470,30 @@ def _trim_span(text: str, start: int, end: int) -> tuple[int, int, str]:
 
 
 def _quote_spans(text: str) -> list[tuple[int, int]]:
+    return _scan_quotes(text).spans
+
+
+def _scan_quotes(text: str) -> QuoteScan:
     spans: list[tuple[int, int]] = []
     pairs = {"“": "”", "‘": "’"}
     cursor = 0
     open_start: int | None = None
     close_char = ""
+    open_char = ""
     while cursor < len(text):
         char = text[cursor]
         if open_start is None:
             if char in {'"', "“", "‘"} or (char == "'" and not _is_apostrophe(text, cursor)):
                 open_start = cursor
+                open_char = char
                 close_char = pairs.get(char, char)
         elif char == close_char and not (char == "'" and _is_apostrophe(text, cursor)):
             spans.append((open_start, cursor + 1))
             open_start = None
             close_char = ""
+            open_char = ""
         cursor += 1
-    return spans
+    return QuoteScan(spans=spans, unclosed_start=open_start, unclosed_char=open_char or None)
 
 
 def _is_apostrophe(text: str, index: int) -> bool:

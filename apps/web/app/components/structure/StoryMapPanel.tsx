@@ -174,8 +174,12 @@ export function StoryMapPanel({
         <article><b>Scenes</b><strong>{quality?.sceneCount ?? scenes.length}</strong></article>
         <article><b>Segments</b><strong>{quality?.segmentCount ?? segments.length}</strong></article>
         <article><b>Dialogue</b><strong>{quality?.dialogueSegmentCount ?? segments.filter((item) => item.segmentType === "dialogue").length}</strong></article>
+        <article><b>Attribution</b><strong>{`${quality?.dialogueAttributionCoverage ?? 100}%`}</strong></article>
         <article><b>Unresolved</b><strong>{quality?.unresolvedDialogueCount ?? 0}</strong></article>
         <article><b>Cast</b><strong>{quality?.castCandidateCount ?? 0}</strong></article>
+        <article><b>Duplicates</b><strong>{quality?.possibleDuplicateCastCount ?? 0}</strong></article>
+        <article><b>Offset issues</b><strong>{quality?.offsetValidationFailureCount ?? 0}</strong></article>
+        <article><b>Unclosed quotes</b><strong>{quality?.quoteUnclosedCount ?? 0}</strong></article>
         <article><b>Warnings</b><strong>{quality?.warningsNeedingReviewCount ?? warnings.length}</strong></article>
         <article><b>LLM</b><strong>{quality?.llmRefinementUsed ? `${quality.llmAcceptedBatchCount}/${quality.llmAcceptedBatchCount + quality.llmRejectedBatchCount}` : "local off"}</strong></article>
       </div>
