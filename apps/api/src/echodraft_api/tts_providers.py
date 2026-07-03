@@ -74,6 +74,8 @@ class MockTtsAdapter(TtsProvider):
         "pauseAfterMs",
         "emphasis",
         "whisper",
+        "stylePrompt",
+        "noSfx",
     }
 
     def model_version(self) -> str:

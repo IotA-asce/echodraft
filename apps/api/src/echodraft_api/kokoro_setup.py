@@ -370,13 +370,21 @@ def write_managed_wrapper(wrapper_path: Path) -> None:
     current source (e.g. an older install that hardcoded ``speed=1.0``) is
     refreshed. Callers use this both at setup time and lazily before each render
     so existing installs pick up wrapper fixes without a manual repair.
+
+    The refresh is atomic (temp file + ``os.replace`` in the same directory) so a
+    concurrent render never observes a mid-truncate wrapper.
     """
     if wrapper_path.is_file() and wrapper_path.read_text(encoding="utf-8") == WRAPPER_SOURCE:
         return
     wrapper_path.parent.mkdir(parents=True, exist_ok=True)
-    wrapper_path.write_text(WRAPPER_SOURCE, encoding="utf-8")
+    with NamedTemporaryFile(
+        "w", encoding="utf-8", dir=wrapper_path.parent, delete=False
+    ) as temporary:
+        temporary.write(WRAPPER_SOURCE)
+        temporary_path = Path(temporary.name)
     if os.name != "nt":
-        wrapper_path.chmod(0o755)
+        temporary_path.chmod(0o755)
+    os.replace(temporary_path, wrapper_path)
 
 
 WRAPPER_SOURCE = r'''#!/usr/bin/env python3
