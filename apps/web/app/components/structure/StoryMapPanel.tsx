@@ -37,6 +37,7 @@ export function StoryMapPanel({
   draft,
   voices,
   directions,
+  supportedDirection,
   warnings,
   issues,
   quality,
@@ -86,6 +87,7 @@ export function StoryMapPanel({
   draft: string;
   voices: VoiceProfile[];
   directions: SegmentDirection[];
+  supportedDirection?: string[] | null;
   warnings: StructureParserWarning[];
   issues: Issue[];
   quality: StructureQuality | null;
@@ -204,6 +206,7 @@ export function StoryMapPanel({
           editing={editing}
           draft={draft}
           directions={directions}
+          supportedDirection={supportedDirection}
           busy={busy}
           onStartEdit={onStartEdit}
           onDraftChange={onDraftChange}
