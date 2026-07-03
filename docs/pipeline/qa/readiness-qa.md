@@ -14,7 +14,13 @@ Readiness QA runs locally and checks:
 - character voice coverage
 - narrator fallback rows from unvoiced or narrator-approved cast rows
 - segment direction coverage
-- chapter and segment audio artifacts
+- chapter and segment audio artifacts, including real loudness/dead-air metrics (Phase 2
+  task B1/G11): `chapter_audio_hot_{chapterId}` warns when a chapter's peak level exceeds
+  the -3 dBFS mastering ceiling, and `chapter_audio_dead_air_{chapterId}` warns when the
+  chapter WAV contains a genuine interior dead-air stretch (see
+  [qa-rulebook.md](./qa-rulebook.md) for the exact thresholds, computed by
+  `echodraft_api.audio_analysis`). Both checks keep the same id whether they pass or fail,
+  per the stable-id-plus-`reason`-metadata convention below.
 - stale segment renders
 - export blockers such as rights and open blocking issues
 

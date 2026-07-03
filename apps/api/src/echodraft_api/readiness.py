@@ -30,8 +30,14 @@ from echodraft_domain import ReadinessCheck, ReadinessReport
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .audio_analysis import AudioAnalysis, analyze_wav
 from .container import AppContainer
 from .production import ProductionService
+
+# Mastering headroom target: -3 dBTP ceiling (see docs/plans/2026-07-04-phase-2-publishable-
+# audio.md). Peaks hotter than this leave no room for the loudness-normalization/limiting
+# pass that Phase 2 task B1 adds.
+CHAPTER_PEAK_CEILING_DBFS = -3.0
 
 
 @dataclass(frozen=True)
@@ -534,7 +540,7 @@ class ReadinessService:
                 )
                 continue
             audio_path = render.mixed_audio_path or render.speech_path
-            audio_error = self._audio_error(audio_path, render.duration_ms)
+            analysis, audio_error = self._analyze_chapter_audio(audio_path, render.duration_ms)
             if audio_error:
                 checks.append(
                     self._issue(
@@ -552,6 +558,9 @@ class ReadinessService:
                 checks.append(
                     self._passed(f"chapter_audio_{chapter.id}", "audio", "Chapter audio is readable.")
                 )
+            if analysis is not None:
+                checks.append(self._chapter_audio_hot_check(chapter.id, analysis))
+                checks.append(self._chapter_audio_dead_air_check(chapter.id, analysis))
         missing_segment_renders = self._missing_segment_renders(session, segments)
         if missing_segment_renders:
             checks.append(
@@ -690,18 +699,69 @@ class ReadinessService:
         return missing
 
     @staticmethod
-    def _audio_error(path: str, declared_duration_ms: int) -> str | None:
+    def _analyze_chapter_audio(
+        path: str, declared_duration_ms: int
+    ) -> tuple[AudioAnalysis | None, str | None]:
+        """Decode+analyze once; the blocking readability check and the hot/dead-air warning
+        checks all read from the same result instead of re-decoding the WAV three times.
+        """
         audio_path = Path(path)
         if not audio_path.is_file():
-            return "Expected chapter audio artifact is missing."
+            return None, "Expected chapter audio artifact is missing."
         try:
-            with wave.open(str(audio_path), "rb") as audio:
-                duration = int(audio.getnframes() / audio.getframerate() * 1000)
-        except (EOFError, wave.Error):
-            return "Chapter audio artifact cannot be decoded as WAV."
-        if abs(duration - declared_duration_ms) > 100:
-            return "Stored chapter duration differs from the WAV duration."
-        return None
+            analysis = analyze_wav(audio_path)
+        except (EOFError, wave.Error, ValueError):
+            return None, "Chapter audio artifact cannot be decoded as WAV."
+        if abs(analysis.duration_ms - declared_duration_ms) > 100:
+            return analysis, "Stored chapter duration differs from the WAV duration."
+        return analysis, None
+
+    @staticmethod
+    def _chapter_audio_hot_check(chapter_id: str, analysis: AudioAnalysis) -> CheckDraft:
+        check_id = f"chapter_audio_hot_{chapter_id}"
+        if analysis.peak_dbfs > CHAPTER_PEAK_CEILING_DBFS:
+            return ReadinessService._issue(
+                check_id,
+                "audio",
+                "warning",
+                "readiness_audio",
+                "Chapter audio peak is too hot",
+                f"Peak level is {analysis.peak_dbfs:.1f} dBFS, above the "
+                f"{CHAPTER_PEAK_CEILING_DBFS:.0f} dBFS mastering ceiling.",
+                chapter_id=chapter_id,
+                metadata={"peakDbfs": analysis.peak_dbfs, "reason": "hot"},
+            )
+        return ReadinessService._passed(
+            check_id,
+            "audio",
+            f"Chapter audio peak is within headroom ({analysis.peak_dbfs:.1f} dBFS).",
+        )
+
+    @staticmethod
+    def _chapter_audio_dead_air_check(chapter_id: str, analysis: AudioAnalysis) -> CheckDraft:
+        check_id = f"chapter_audio_dead_air_{chapter_id}"
+        if analysis.dead_air_ranges:
+            total_ms = sum(end - start for start, end in analysis.dead_air_ranges)
+            longest_ms = max(end - start for start, end in analysis.dead_air_ranges)
+            return ReadinessService._issue(
+                check_id,
+                "audio",
+                "warning",
+                "readiness_audio",
+                "Chapter audio contains dead air",
+                f"{len(analysis.dead_air_ranges)} dead-air stretch(es) totalling {total_ms} ms "
+                f"(longest {longest_ms} ms).",
+                chapter_id=chapter_id,
+                metadata={
+                    "deadAirRangeCount": len(analysis.dead_air_ranges),
+                    "totalDeadAirMs": total_ms,
+                    "longestDeadAirMs": longest_ms,
+                    "reason": "dead_air_detected",
+                },
+            )
+        return ReadinessService._passed(
+            check_id, "audio", "No dead air detected in chapter audio."
+        )
 
     @staticmethod
     def _passed(check_id: str, scope: str, description: str) -> CheckDraft:

@@ -1,9 +1,10 @@
-import io
 import json
 import struct
 import time
 import wave
 from pathlib import Path
+
+from audio_fixtures import wav_bytes
 
 
 def wait_for_job(client, job_id: str) -> dict:
@@ -13,19 +14,6 @@ def wait_for_job(client, job_id: str) -> dict:
             return job
         time.sleep(0.02)
     raise AssertionError("job did not finish")
-
-
-def wav_bytes(amplitude: int = 4000, duration_ms: int = 600) -> bytes:
-    buffer = io.BytesIO()
-    sample_rate = 16_000
-    frames = int(sample_rate * duration_ms / 1000)
-    samples = [amplitude if index % 2 == 0 else -amplitude for index in range(frames)]
-    with wave.open(buffer, "wb") as target:
-        target.setnchannels(1)
-        target.setsampwidth(2)
-        target.setframerate(sample_rate)
-        target.writeframes(struct.pack(f"<{len(samples)}h", *samples))
-    return buffer.getvalue()
 
 
 def project_with_produced_chapter(client) -> tuple[str, str, str]:
