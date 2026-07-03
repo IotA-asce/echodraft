@@ -303,6 +303,7 @@ export function ProjectDashboard() {
           draft={draft}
           voices={voices}
           directions={segmentDirections}
+          supportedDirection={(ttsProviders.find((item) => item.provider === tts?.provider)?.capabilities as { direction?: string[] } | undefined)?.direction ?? null}
           warnings={structureWarnings}
           issues={issues}
           quality={structureQuality}

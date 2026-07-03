@@ -42,6 +42,9 @@ class AssemblyInput:
     scene_id: str
     segment: SegmentRecord
     render: SegmentRenderRecord
+    # Pause spacing (ms) from the direction that actually rendered this segment.
+    pause_before_ms: int = 0
+    pause_after_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -94,7 +97,9 @@ class ChapterAssembler:
             root = Path(project.artifact_path) / "audio" / "chapters" / chapter_id / render_id
             root.mkdir(parents=True, exist_ok=True)
             speech_path = root / "speech.wav"
-            duration_ms, scene_offsets = self._write_speech_stem(speech_path, inputs)
+            duration_ms, scene_offsets, applied_pauses = self._write_speech_stem(
+                speech_path, inputs
+            )
             ambience_path = None
             mixed_path = None
             sound_cues: list[SoundCueInput] = []
@@ -129,6 +134,7 @@ class ChapterAssembler:
                         "pauses": {
                             "paragraphMs": self.paragraph_pause_ms,
                             "sceneMs": self.scene_pause_ms,
+                            "applied": applied_pauses,
                         },
                         "inputs": [
                             {
@@ -246,9 +252,10 @@ class ChapterAssembler:
                 if not render:
                     raise ValueError(f"Missing successful render for segment {segment.id}.")
                 try:
-                    render_revision = json.loads(render.request_json).get("revision")
+                    request_payload = json.loads(render.request_json)
                 except json.JSONDecodeError:
-                    render_revision = None
+                    request_payload = {}
+                render_revision = request_payload.get("revision")
                 if render_revision != segment.revision:
                     raise ValueError(
                         f"Stale render for segment {segment.id}: render revision "
@@ -257,16 +264,37 @@ class ChapterAssembler:
                     )
                 if not Path(render.audio_path).is_file():
                     raise ValueError(f"Audio artifact is missing for render {render.id}.")
-                inputs.append(AssemblyInput(scene_id=scene.id, segment=segment, render=render))
+                # Pauses come from the direction that actually rendered (stored with
+                # by-alias keys), never a re-derived direction, and are clamped to the
+                # DirectionProfile bounds so a corrupt payload cannot inject silence.
+                direction_payload = request_payload.get("direction") or {}
+                pause_before_ms = self._clamp_pause(direction_payload.get("pauseBeforeMs"))
+                pause_after_ms = self._clamp_pause(direction_payload.get("pauseAfterMs"))
+                inputs.append(
+                    AssemblyInput(
+                        scene_id=scene.id,
+                        segment=segment,
+                        render=render,
+                        pause_before_ms=pause_before_ms,
+                        pause_after_ms=pause_after_ms,
+                    )
+                )
         if not inputs:
             raise ValueError("Chapter has no renderable segments.")
         return inputs
 
+    def _clamp_pause(self, value: object) -> int:
+        # Mirror DirectionProfile's 0–5000 ms bounds; ignore non-numeric payloads.
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return 0
+        return max(0, min(5000, int(value)))
+
     def _write_speech_stem(
         self, output_path: Path, inputs: list[AssemblyInput]
-    ) -> tuple[int, dict[str, int]]:
+    ) -> tuple[int, dict[str, int], list[dict[str, object]]]:
         frame_cursor = 0
         scene_offsets: dict[str, int] = {}
+        applied_pauses: list[dict[str, object]] = []
         with wave.open(str(output_path), "wb") as target:
             target.setnchannels(self.channels)
             target.setsampwidth(self.sample_width)
@@ -278,15 +306,22 @@ class ChapterAssembler:
                 frame_cursor += self._frame_count(frames)
                 if index < len(inputs) - 1:
                     next_item = inputs[index + 1]
-                    pause = (
+                    # A scene boundary keeps its 800 ms floor; within a scene the
+                    # paragraph default applies. The larger of that default and either
+                    # side's requested pause wins so deliberate silences are honored.
+                    default_gap = (
                         self.scene_pause_ms
                         if item.scene_id != next_item.scene_id
                         else self.paragraph_pause_ms
                     )
+                    pause = max(
+                        item.pause_after_ms, next_item.pause_before_ms, default_gap
+                    )
                     silence = self._silence(pause)
                     target.writeframes(silence)
                     frame_cursor += self._frame_count(silence)
-        return self._frames_to_ms(frame_cursor), scene_offsets
+                    applied_pauses.append({"afterSegmentId": item.segment.id, "ms": pause})
+        return self._frames_to_ms(frame_cursor), scene_offsets, applied_pauses
 
     def _resolve_sound_cues(
         self, session: Session, chapter_id: str, render_mode: str
