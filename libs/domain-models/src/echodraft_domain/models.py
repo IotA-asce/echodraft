@@ -696,6 +696,7 @@ class SegmentRender(ApiModel):
     duration_ms: int = Field(alias="durationMs")
     parent_render_id: str | None = Field(default=None, alias="parentRenderId")
     audio_url: str | None = Field(default=None, alias="audioUrl")
+    created_at: datetime | None = Field(default=None, alias="createdAt")
 
 
 class SegmentRenderComparison(ApiModel):
@@ -732,6 +733,7 @@ class ChapterRender(ApiModel):
     ambience_stem_path: str | None = Field(default=None, alias="ambienceStemPath")
     mixed_audio_path: str | None = Field(default=None, alias="mixedAudioPath")
     audio_url: str | None = Field(default=None, alias="audioUrl")
+    created_at: datetime | None = Field(default=None, alias="createdAt")
 
 
 class ChapterAssemblyRequest(ApiModel):
@@ -930,6 +932,7 @@ class ExportPackage(ApiModel):
     metadata: dict[str, object] = Field(default_factory=dict)
     manifest_summary: dict[str, object] = Field(default_factory=dict, alias="manifestSummary")
     blockers: list[ExportBlocker] = Field(default_factory=list)
+    created_at: datetime | None = Field(default=None, alias="createdAt")
 
 
 class ExportRequest(ApiModel):
