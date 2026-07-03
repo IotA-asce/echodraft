@@ -1,10 +1,15 @@
+import json
 import time
 from types import SimpleNamespace
 
 import echodraft_api.cast_discovery as cast_discovery_module
 import echodraft_api.structure as structure_module
 import pytest
-from echodraft_api.structure_parsing import StructureCompiler, validate_atom_offsets
+from echodraft_api.structure_parsing import (
+    StructureCompiler,
+    TextAtom,
+    validate_atom_offsets,
+)
 
 
 def wait_for_job(client, job_id: str) -> dict:
@@ -250,7 +255,85 @@ def test_atom_offset_validation_direct_handles_apostrophe_dialogue() -> None:
     compiler = StructureCompiler("project", "source", "structure-parser-0.4.0")
     text = 'Rahul said, "I\'m here."'
     atoms = compiler.atoms_for_scene(text, 0)
-    assert validate_atom_offsets(text, 0, atoms)
+    assert validate_atom_offsets(text, 0, atoms).valid
+
+
+def test_atom_offset_validation_detects_non_whitespace_gap() -> None:
+    atom = TextAtom("atom_1", "narration", "Alpha", 0, 5, None, 0.0, 1.0, {})
+
+    validation = validate_atom_offsets("Alpha beta.", 0, [atom])
+
+    assert validation.valid is False
+    assert "uncovered_source_text" in validation.errors
+    assert validation.uncovered_ranges == [(5, 11)]
+
+
+def test_atom_offset_validation_allows_whitespace_only_gap() -> None:
+    atoms = [
+        TextAtom("atom_1", "narration", "Alpha", 0, 5, None, 0.0, 1.0, {}),
+        TextAtom("atom_2", "narration", "beta", 8, 12, None, 0.0, 1.0, {}),
+    ]
+
+    validation = validate_atom_offsets("Alpha   beta", 0, atoms)
+
+    assert validation.valid is True
+    assert validation.uncovered_ranges == []
+
+
+def test_atom_offset_validation_reports_overlap() -> None:
+    atoms = [
+        TextAtom("atom_1", "narration", "abc", 0, 3, None, 0.0, 1.0, {}),
+        TextAtom("atom_2", "narration", "cde", 2, 5, None, 0.0, 1.0, {}),
+        TextAtom("atom_3", "narration", "f", 5, 6, None, 0.0, 1.0, {}),
+    ]
+
+    validation = validate_atom_offsets("abcdef", 0, atoms)
+
+    assert validation.valid is False
+    assert "overlapping_atoms" in validation.errors
+    assert validation.overlapping_ranges == [(2, 3)]
+
+
+def test_atom_offset_validation_reports_slice_mismatch() -> None:
+    atom = TextAtom("atom_1", "narration", "Alphi", 0, 5, None, 0.0, 1.0, {})
+
+    validation = validate_atom_offsets("Alpha", 0, [atom])
+
+    assert validation.valid is False
+    assert "source_slice_mismatch" in validation.errors
+
+
+def test_atom_offset_validation_reports_out_of_bounds() -> None:
+    atom = TextAtom("atom_1", "narration", "Alpha!", 0, 6, None, 0.0, 1.0, {})
+
+    validation = validate_atom_offsets("Alpha", 0, [atom])
+
+    assert validation.valid is False
+    assert "out_of_bounds" in validation.errors
+
+
+def test_offset_validation_warning_includes_ranges(client, monkeypatch) -> None:
+    original = StructureCompiler.atoms_for_scene
+
+    def dropped_atom(self, scene_text, base, warnings=None, scene_id=None):
+        atoms = original(self, scene_text, base, warnings, scene_id)
+        return atoms[:1]
+
+    monkeypatch.setattr(StructureCompiler, "atoms_for_scene", dropped_atom)
+    project = project_with_source(client, "Chapter 1\n\nAlpha. Beta.")
+
+    extract(client, project)
+
+    warning = next(
+        warning
+        for warning in structure_warnings(client, project)
+        if warning["evidence"].get("code") == "segment.offset_validation_failed"
+    )
+    evidence = warning["evidence"]
+    assert evidence["reviewAction"] == "inspect_segment"
+    assert "uncovered_source_text" in evidence["errors"]
+    assert evidence["uncoveredRanges"]
+    assert evidence["startOffset"] < evidence["endOffset"]
 
 
 def test_alternating_unattributed_dialogue_remains_reviewable(client) -> None:
@@ -569,6 +652,22 @@ def test_cast_duplicate_metadata_for_honorific_alias(client) -> None:
     assert issue["metadata"]["reviewAction"] == "merge_cast"
     assert issue["metadata"]["possibleMatches"] == ["Dr. Priya Sen"]
     assert issue["metadata"]["evidenceGraph"]["canonicalName"] == "Dr. Sen"
+    quality = client.get(f"/api/v1/projects/{project}/structure/quality").json()
+    assert quality["possibleDuplicateCastCount"] == 1
+
+    extract(client, project)
+
+    issues_after_rerun = client.get(f"/api/v1/projects/{project}/issues").json()
+    duplicate_issues = [
+        issue
+        for issue in issues_after_rerun
+        if issue["metadata"].get("code") == "cast.possible_duplicate"
+    ]
+    assert len(duplicate_issues) == 1
+
+    client.patch(f"/api/v1/issues/{issue['id']}", json={"status": "resolved"})
+    quality = client.get(f"/api/v1/projects/{project}/structure/quality").json()
+    assert quality["possibleDuplicateCastCount"] == 0
 
 
 def test_low_confidence_cast_candidate_issue_metadata(client) -> None:
@@ -586,6 +685,32 @@ def test_low_confidence_cast_candidate_issue_metadata(client) -> None:
     assert issue["metadata"]["candidateName"] == "Rahul"
     assert issue["metadata"]["reviewAction"] == "confirm_cast"
     assert issue["metadata"]["confidence"] < 0.72
+    quality = client.get(f"/api/v1/projects/{project}/structure/quality").json()
+    assert quality["lowConfidenceCastCandidateCount"] == 1
+
+    client.patch(f"/api/v1/issues/{issue['id']}", json={"status": "resolved"})
+    quality = client.get(f"/api/v1/projects/{project}/structure/quality").json()
+    assert quality["lowConfidenceCastCandidateCount"] == 0
+
+
+def test_cast_evidence_graph_counts_mentions(client) -> None:
+    project = project_with_source(
+        client,
+        "Chapter 1\n\nPriya: Sit down.\n\nRahul looked at Priya.",
+    )
+
+    extract(client, project)
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    priya = next(character for character in characters if character["displayName"] == "Priya")
+    notes = json.loads(priya["notes"])
+    graph = notes["evidenceGraph"]
+    assert graph["speakerEvidenceCount"] >= 1
+    assert graph["mentionEvidenceCount"] >= 1
+    assert graph["firstSeenOffset"] is not None
+    assert graph["lastSeenOffset"] is not None
+    assert "mention" in graph["sources"]
+    assert notes["mentionEvidence"]
 
 
 def test_cast_discovery_uses_aliases_without_creating_duplicates(client) -> None:
