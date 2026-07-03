@@ -104,6 +104,52 @@ ALLOWED_PRODUCTION_TYPES = {
     "performance_beat",
     "heading",
 }
+# Chapter signals extracted from container structure (DOCX heading styles, EPUB
+# spine/TOC) rather than from in-text keyword headings. Only these source kinds
+# mark a chapter as container-derived.
+CONTAINER_SIGNAL_KINDS = ("docx_heading", "epub_toc", "epub_spine")
+
+
+@dataclass(frozen=True)
+class ChapterSignal:
+    """A chapter boundary hint recovered from a container's structural metadata.
+
+    Resolution is by anchor text, never by raw offsets: cleaning/normalization
+    shifts character positions, so signals are matched against parsed blocks by
+    case-insensitive, whitespace-collapsed text equality.
+    """
+
+    title: str
+    source_kind: str
+    level: int
+    anchor_text: str
+    confidence: float
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "title": self.title,
+            "sourceKind": self.source_kind,
+            "level": self.level,
+            "anchorText": self.anchor_text,
+            "confidence": self.confidence,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> "ChapterSignal":
+        level = payload.get("level")
+        confidence = payload.get("confidence")
+        return cls(
+            title=str(payload.get("title") or ""),
+            source_kind=str(payload.get("sourceKind") or ""),
+            level=int(level) if isinstance(level, (int, float, str)) else 0,
+            anchor_text=str(payload.get("anchorText") or ""),
+            confidence=float(confidence) if isinstance(confidence, (int, float, str)) else 0.0,
+        )
+
+
+def normalize_anchor(value: str) -> str:
+    """Collapse whitespace and casefold so anchor text compares stably."""
+    return re.sub(r"\s+", " ", value).strip().casefold()
 
 
 @dataclass(frozen=True)
@@ -291,10 +337,15 @@ class StructureCompiler:
         self.source_id = source_id
         self.parser_version = parser_version
 
-    def compile(self, text: str, max_chars: int) -> CompileResult:
+    def compile(
+        self,
+        text: str,
+        max_chars: int,
+        chapter_signals: list[ChapterSignal] | None = None,
+    ) -> CompileResult:
         warnings: list[dict[str, object]] = []
         blocks = self.block_map(text)
-        chapters = self.chapter_candidates(blocks, text)
+        chapters = self.chapter_candidates(blocks, text, chapter_signals, warnings)
         if not chapters:
             chapter_id = stable_id("chap", self.source_id, 0, len(text), text[:180])
             chapters = [
@@ -421,9 +472,14 @@ class StructureCompiler:
             )
         return blocks
 
-    def chapter_candidates(self, blocks: list[TextBlock], text: str) -> list[ChapterCandidate]:
-        candidates: list[ChapterCandidate] = []
-        used_starts: set[int] = set()
+    def chapter_candidates(
+        self,
+        blocks: list[TextBlock],
+        text: str,
+        chapter_signals: list[ChapterSignal] | None = None,
+        warnings: list[dict[str, object]] | None = None,
+    ) -> list[ChapterCandidate]:
+        candidates_by_start: dict[int, ChapterCandidate] = {}
         for index, block in enumerate(blocks):
             if block.kind != "heading":
                 continue
@@ -446,22 +502,102 @@ class StructureCompiler:
                 evidence["subtitleBlockId"] = next_block.id
                 evidence["subtitle"] = next_block.text
             confidence = 0.96 if markdown_level in {1, 2} else 0.9
-            candidates.append(
-                ChapterCandidate(
-                    start=block.start_offset,
-                    content_start=content_start,
-                    end=None,
-                    title=title,
-                    confidence=confidence,
-                    status="structured",
-                    evidence=evidence,
-                )
+            candidates_by_start[block.start_offset] = ChapterCandidate(
+                start=block.start_offset,
+                content_start=content_start,
+                end=None,
+                title=title,
+                confidence=confidence,
+                status="structured",
+                evidence=evidence,
             )
-            used_starts.add(block.start_offset)
 
-        candidates = [candidate for candidate in candidates if candidate.start in used_starts]
-        candidates.sort(key=lambda item: item.start)
-        return candidates
+        if chapter_signals:
+            self._promote_signal_chapters(blocks, candidates_by_start, chapter_signals, warnings)
+
+        return sorted(candidates_by_start.values(), key=lambda item: item.start)
+
+    def _promote_signal_chapters(
+        self,
+        blocks: list[TextBlock],
+        candidates_by_start: dict[int, ChapterCandidate],
+        chapter_signals: list[ChapterSignal],
+        warnings: list[dict[str, object]] | None,
+    ) -> None:
+        """Promote container signals to chapter boundaries by anchor-text match.
+
+        Signals with ``level <= 1`` become chapters; a matched block bypasses
+        ``EXPLICIT_CHAPTER_RE``. When a block is promoted by both the regex and a
+        signal it keeps the container reason. Level-2 signals are scene-break
+        hints only and never open a chapter in this task. Signals that match no
+        block raise a ``container_signal_unmatched`` warning rather than crashing.
+        """
+        blocks_by_anchor: dict[str, list[TextBlock]] = {}
+        for block in blocks:
+            anchor = normalize_anchor(block.text)
+            if anchor:
+                blocks_by_anchor.setdefault(anchor, []).append(block)
+        used_block_ids: set[str] = set()
+        for signal in chapter_signals:
+            if signal.level > 1:
+                continue
+            anchor = normalize_anchor(signal.anchor_text)
+            match = next(
+                (
+                    block
+                    for block in blocks_by_anchor.get(anchor, [])
+                    if block.id not in used_block_ids
+                ),
+                None,
+            )
+            if match is None:
+                if warnings is not None:
+                    warnings.append(
+                        self.structure_issue(
+                            "chapter",
+                            stable_id(
+                                "chap",
+                                self.source_id,
+                                0,
+                                0,
+                                f"{signal.source_kind}:{signal.anchor_text}",
+                            ),
+                            "container_signal_unmatched",
+                            "warning",
+                            "A container chapter signal did not match any parsed text block.",
+                            "confirm_chapter_heading",
+                            {
+                                "signalTitle": signal.title,
+                                "sourceKind": signal.source_kind,
+                                "anchorText": signal.anchor_text,
+                                "level": signal.level,
+                            },
+                            signal.confidence,
+                            0,
+                            0,
+                        )
+                    )
+                continue
+            used_block_ids.add(match.id)
+            existing = candidates_by_start.get(match.start_offset)
+            confidence = max(signal.confidence, existing.confidence) if existing else signal.confidence
+            candidates_by_start[match.start_offset] = ChapterCandidate(
+                start=match.start_offset,
+                content_start=match.end_offset,
+                end=None,
+                title=signal.title or match.text,
+                confidence=confidence,
+                status="structured",
+                evidence={
+                    "parserVersion": self.parser_version,
+                    "reason": signal.source_kind,
+                    "sourceBlockId": match.id,
+                    "sourceKind": signal.source_kind,
+                    "containerSignal": True,
+                    "signalConfidence": signal.confidence,
+                    "signalLevel": signal.level,
+                },
+            )
 
     def scenes(
         self,
@@ -1096,8 +1232,12 @@ class StructureCompiler:
         warning_codes = [_warning_code(warning) for warning in warnings]
         low_cast = sum(1 for segment in dialogue if float(segment.get("speaker_confidence") or 0) < 0.72)
         attributed_dialogue = len(dialogue) - len(unresolved)
+        container_chapters = sum(
+            1 for chapter in chapters if _chapter_from_container_signal(chapter)
+        )
         return {
             "chapterCount": len(chapters),
+            "chaptersFromContainerSignals": container_chapters,
             "sceneCount": len(scenes),
             "segmentCount": len(segments),
             "dialogueSegmentCount": len(dialogue),
@@ -1418,6 +1558,15 @@ def cast_dict(value: object) -> dict[str, object]:
 
 def _as_list(value: object) -> list[object]:
     return value if isinstance(value, list) else []
+
+
+def _chapter_from_container_signal(chapter: object) -> bool:
+    record = cast_dict(chapter).get("record")
+    try:
+        evidence = json.loads(str(cast_dict(record).get("parser_evidence_json") or "{}"))
+    except json.JSONDecodeError:
+        return False
+    return isinstance(evidence, dict) and str(evidence.get("reason")) in CONTAINER_SIGNAL_KINDS
 
 
 def _warning_code(warning: dict[str, object]) -> str:

@@ -59,22 +59,45 @@ Optional but recommended:
 
 ## Stage manifests
 ### Source manifest
-Purpose: capture ingestion output.
+Purpose: capture ingestion output. Current `schemaVersion`: `0.2.0` (added
+`structureSignalsPath`).
 
 Payload fields:
 - source document metadata
 - normalized text artifact path
+- `structureSignalsPath` — path to `chapter_signals.json` (container chapter
+  signals from DOCX heading styles / EPUB spine + TOC), or `null` when the
+  container carried no structural metadata (e.g. plain `.txt`). The DB stores
+  only this path (`source_documents.structure_signals_path`); the signal payload
+  lives on the filesystem under `sources/{sourceId}/structure_signals/`.
 - chapter boundary hints
 - parser warnings
 - checksum
+
+Each entry in `chapter_signals.json` has the shape:
+
+```json
+{"title": "The Arrival", "sourceKind": "docx_heading", "level": 1, "anchorText": "The Arrival", "confidence": 0.95}
+```
+
+`sourceKind` is one of `docx_heading` (Title→level 0/0.9, Heading 1→level 1/0.95,
+Heading 2→level 2/0.75), `epub_toc` (0.95), or `epub_spine` (first `<h1>` of a
+spine item not already covered by TOC, 0.8). Signals resolve to chapters by
+case-insensitive, whitespace-collapsed **anchor-text** match against parsed
+blocks — never by raw offsets, which cleaning shifts. Only `level <= 1` promotes
+a chapter; level 2 is a scene-break hint recorded on the signal but not a
+chapter in the current parser.
 
 ### Structure manifest
 Purpose: capture chapter, scene, and segment structure.
 
 Payload fields:
-- parser version and compiler pipeline
-- structure quality metrics
-- parser diagnostics and warning evidence
+- parser version and compiler pipeline (includes the `container_chapter_signals`
+  stage, which promotes source-manifest chapter signals to chapter boundaries)
+- structure quality metrics (includes `chaptersFromContainerSignals`, the count
+  of chapters opened by a container signal rather than by an in-text keyword)
+- parser diagnostics and warning evidence (a signal matching no block emits a
+  `container_signal_unmatched` warning)
 - character candidates
 - scene list
 - segment list with parser evidence and source-span IDs

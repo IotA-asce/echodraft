@@ -399,6 +399,7 @@ class SourceDocumentRepository:
                 "originalPath": record.original_path,
                 "canonicalPath": record.canonical_path,
                 "manifestPath": record.manifest_path,
+                "structureSignalsPath": record.structure_signals_path,
                 "status": record.status,
                 "warnings": [
                     ParserWarning.model_validate(item)
