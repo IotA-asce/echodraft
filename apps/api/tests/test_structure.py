@@ -10,6 +10,7 @@ import pytest
 from docx import Document
 from ebooklib import epub
 from echodraft_api.structure_parsing import (
+    ChapterSignal,
     StructureCompiler,
     TextAtom,
     validate_atom_offsets,
@@ -780,6 +781,29 @@ def test_epub_spine_and_toc_become_chapters(client, tmp_path: Path) -> None:
     extract(client, project)
     chapters = client.get(f"/api/v1/projects/{project}/chapters").json()
     assert [chapter["title"] for chapter in chapters] == ["The Arrival", "The Departure"]
+
+
+def test_container_signal_matches_heading_longer_than_display_title() -> None:
+    heading = "An Uncommonly Long Heading About " + "Very " * 25 + "Distant Shores"
+    assert len(heading) > 120
+    text = f"{heading}\n\nA body paragraph follows the long heading here.\n"
+    compiler = StructureCompiler("proj_test", "src_test", "test-parser")
+    signal = ChapterSignal(
+        title=heading[:120],
+        source_kind="docx_heading",
+        level=1,
+        anchor_text=heading,
+        confidence=0.95,
+    )
+
+    result = compiler.compile(text, 200, chapter_signals=[signal])
+
+    titles = [chapter["record"]["title"] for chapter in result.hierarchy]
+    assert titles == [heading[:120]]
+    codes = {
+        json.loads(str(warning["evidence_json"])).get("code") for warning in result.warnings
+    }
+    assert "container_signal_unmatched" not in codes
 
 
 def test_cast_discovery_uses_aliases_without_creating_duplicates(client) -> None:
