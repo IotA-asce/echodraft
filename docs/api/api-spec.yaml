@@ -3339,7 +3339,12 @@ components:
           type: string
     SegmentPatchRequest:
       type: object
-      required: [voiceProfileId, direction]
+      description: >-
+        voiceProfileId and direction are optional. When omitted, each is resolved
+        server-side from the segment's production override, then its cast
+        assignment, then the project narrator settings (voice) / saved segment or
+        project default direction. Explicitly supplied values act as manual
+        overrides for this patch.
       properties:
         voiceProfileId:
           type: string

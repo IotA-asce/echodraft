@@ -869,6 +869,11 @@ class CommentCreate(ApiModel):
 
 
 class SegmentPatchRequest(SegmentRenderRequest):
+    # Overrides of the inherited required fields: omitted means "resolve server-side"
+    # from the segment's production override / cast / narrator voice and saved direction.
+    # Explicitly supplied values act as manual overrides.
+    voice_profile_id: str | None = Field(default=None, alias="voiceProfileId")  # type: ignore[assignment]
+    direction: DirectionProfile | None = None  # type: ignore[assignment]
     text_content: str | None = Field(default=None, alias="textContent")
     issue_id: str | None = Field(default=None, alias="issueId")
 
