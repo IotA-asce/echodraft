@@ -547,6 +547,29 @@ class SpeakerAttributionRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class CastMergeDecisionRecord(Base):
+    """A remembered human ruling on whether two names are the same character.
+
+    ``name_a``/``name_b`` are the normalized, lexically sorted pair so a pair is
+    stored once regardless of argument order. ``decision`` is ``confirmed`` (a
+    merge happened) or ``rejected`` ("not a duplicate"). These teach cast
+    discovery (suppress re-flagging rejected pairs) and the merge LLM prompt.
+    """
+
+    __tablename__ = "cast_merge_decisions"
+    __table_args__ = (
+        Index("ix_cast_merge_decisions_pair", "project_id", "name_a", "name_b", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    name_a: Mapped[str] = mapped_column(String(200), nullable=False)
+    name_b: Mapped[str] = mapped_column(String(200), nullable=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class PronunciationEntryRecord(Base):
     __tablename__ = "pronunciation_entries"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

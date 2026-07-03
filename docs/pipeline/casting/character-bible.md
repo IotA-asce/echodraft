@@ -21,6 +21,9 @@ Each character stores:
 - Ambiguous candidates are kept as review issues instead of creating duplicate Character Bible records.
 - User locks survive reruns and local extraction passes.
 - Merge preserves the source record with `mergedIntoCharacterId`; it does not delete data.
+- Merge also re-points speaker attributions from the merged-away source record to the surviving character.
+- Confirmed and rejected merge decisions are remembered per project so future cast discovery respects prior rulings.
+- Rejecting a possible duplicate resolves the linked review issue and prevents that pair from being re-flagged.
 - Split creates a new character and appends history on both records.
 - Voice links must reference a voice profile in the same project.
 - Approved speaker attributions use linked character voices during production unless a segment override is set.
@@ -31,6 +34,7 @@ Each character stores:
 - `POST /api/v1/projects/{projectId}/characters`
 - `PATCH /api/v1/characters/{characterId}`
 - `POST /api/v1/characters/{characterId}/merge`
+- `POST /api/v1/characters/{characterId}/reject-merge`
 - `POST /api/v1/characters/{characterId}/split`
 - `POST /api/v1/characters/{characterId}/assign-voice`
 - `GET /api/v1/projects/{projectId}/speaker-attributions`
