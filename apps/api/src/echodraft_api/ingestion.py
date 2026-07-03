@@ -12,6 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 from bs4 import BeautifulSoup, Tag
+from bs4.element import NavigableString
 from docx import Document
 from ebooklib import ITEM_DOCUMENT, epub  # type: ignore[import-untyped]
 from pypdf import PdfReader
@@ -277,10 +278,12 @@ class IngestionService:
             heading = _docx_heading_signal(paragraph.style.name if paragraph.style else "")
             if heading and line.strip():
                 level, confidence = heading
-                anchor = line.strip()[:120]
+                # Anchor stays untruncated so long headings still match their
+                # block text; only the display title is bounded.
+                anchor = line.strip()
                 signals.append(
                     ChapterSignal(
-                        title=anchor,
+                        title=anchor[:120],
                         source_kind="docx_heading",
                         level=level,
                         anchor_text=anchor,
@@ -297,12 +300,12 @@ class IngestionService:
             book = epub.read_epub(str(path))
             covered_anchors: set[str] = set()
             for title in _flatten_epub_toc(book.toc):
-                anchor = title.strip()[:120]
+                anchor = title.strip()
                 if not anchor:
                     continue
                 signals.append(
                     ChapterSignal(
-                        title=anchor,
+                        title=anchor[:120],
                         source_kind="epub_toc",
                         level=1,
                         anchor_text=anchor,
@@ -315,11 +318,11 @@ class IngestionService:
                 soup = BeautifulSoup(item.get_content(), "html.parser")
                 heading = soup.find("h1")
                 if isinstance(heading, Tag):
-                    anchor = heading.get_text(" ", strip=True)[:120].strip()
+                    anchor = heading.get_text(" ", strip=True)
                     if anchor and normalize_anchor(anchor) not in covered_anchors:
                         signals.append(
                             ChapterSignal(
-                                title=anchor,
+                                title=anchor[:120],
                                 source_kind="epub_spine",
                                 level=1,
                                 anchor_text=anchor,
@@ -855,7 +858,20 @@ def _docx_heading_signal(style_name: str | None) -> tuple[int, float] | None:
     return None
 
 
-_EPUB_BLOCK_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "blockquote")
+_EPUB_BLOCK_TAGS = (
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "p",
+    "li",
+    "blockquote",
+    "div",
+    "section",
+)
+_EPUB_SKIP_TAGS = frozenset({"head", "script", "style"})
 
 
 def _epub_section_text(soup: BeautifulSoup) -> str:
@@ -863,17 +879,55 @@ def _epub_section_text(soup: BeautifulSoup) -> str:
 
     Headings and paragraphs must stay on separate paragraphs so downstream
     cleaning (line-wrap merge) does not fold a heading into the following body,
-    which would erase the chapter-signal anchor.
+    which would erase the chapter-signal anchor. Only top-most leaf blocks are
+    emitted: a block containing other blocks recurses into them instead of
+    flattening, so nested structures like ``<blockquote><p>`` or ``<li><p>``
+    never duplicate text, and text held directly by container elements
+    (``<div>``/``<section>`` used as paragraph wrappers, or stray text nodes)
+    is preserved as its own block.
     """
-    blocks = [
-        element.get_text(" ", strip=True)
-        for element in soup.find_all(_EPUB_BLOCK_TAGS)
-        if isinstance(element, Tag)
-    ]
-    blocks = [block for block in blocks if block]
+    blocks = _epub_blocks(soup)
     if blocks:
         return "\n\n".join(blocks)
     return soup.get_text("\n", strip=True)
+
+
+def _epub_blocks(node: Tag) -> list[str]:
+    blocks: list[str] = []
+    stray: list[str] = []
+
+    def flush_stray() -> None:
+        text = re.sub(r"\s+", " ", " ".join(stray)).strip()
+        stray.clear()
+        if text:
+            blocks.append(text)
+
+    for child in node.children:
+        if isinstance(child, Tag):
+            if child.name in _EPUB_SKIP_TAGS:
+                continue
+            if child.find(_EPUB_BLOCK_TAGS) is not None:
+                # Container holding other blocks: recurse so each inner block is
+                # emitted exactly once and the container's direct text survives.
+                flush_stray()
+                blocks.extend(_epub_blocks(child))
+            elif child.name in _EPUB_BLOCK_TAGS:
+                flush_stray()
+                text = child.get_text(" ", strip=True)
+                if text:
+                    blocks.append(text)
+            else:
+                # Inline element (span/em/a/...): part of the surrounding text.
+                text = child.get_text(" ", strip=True)
+                if text:
+                    stray.append(text)
+        elif type(child) is NavigableString:
+            # Exact-type check: excludes Comment/Doctype/Declaration subclasses.
+            text = str(child).strip()
+            if text:
+                stray.append(text)
+    flush_stray()
+    return blocks
 
 
 def _flatten_epub_toc(toc: Any) -> list[str]:

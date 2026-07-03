@@ -435,6 +435,57 @@ def test_epub_spine_order_and_toc_emit_chapter_signals(client, tmp_path: Path) -
     assert signals[-1]["confidence"] == 0.8
 
 
+def nested_blocks_epub_bytes(tmp_path: Path) -> bytes:
+    book = epub.EpubBook()
+    book.set_identifier("nested")
+    book.set_title("Nested")
+    book.set_language("en")
+    chapter = epub.EpubHtml(title="Nested Blocks", file_name="c1.xhtml", lang="en", uid="nested")
+    chapter.content = (
+        "<h1>Nested Blocks</h1>"
+        "<blockquote><p>Quote paragraph one.</p><p>Quote paragraph two.</p></blockquote>"
+        "<ul><li><p>List item one.</p></li><li>List item two.</li></ul>"
+        "<div>Div paragraph one.</div>"
+        "<div>Div paragraph two.</div>"
+        "<section>Section text before.<p>Section inner paragraph.</p></section>"
+    )
+    book.add_item(chapter)
+    book.toc = (chapter,)
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = ["nav", chapter]
+    target = tmp_path / "nested.epub"
+    epub.write_epub(str(target), book)
+    return target.read_bytes()
+
+
+def test_epub_nested_blocks_emit_once_and_container_text_survives(tmp_path: Path) -> None:
+    target = tmp_path / "nested-source.epub"
+    target.write_bytes(nested_blocks_epub_bytes(tmp_path))
+
+    text, _warnings, signals = IngestionService._extract_epub(target)
+
+    expected_once = [
+        "Quote paragraph one.",
+        "Quote paragraph two.",
+        "List item one.",
+        "List item two.",
+        "Div paragraph one.",
+        "Div paragraph two.",
+        "Section text before.",
+        "Section inner paragraph.",
+    ]
+    for expected in expected_once:
+        assert text.count(expected) == 1, (expected, text)
+    blocks = text.split("\n\n")
+    # Nested blocks are emitted as their own paragraphs, not merged into the
+    # container, and div/section-held text is preserved as blocks.
+    for expected in expected_once:
+        assert expected in blocks, (expected, blocks)
+    assert "Nested Blocks" in blocks
+    assert [item.title for item in signals] == ["Nested Blocks"]
+
+
 def test_txt_import_records_no_structure_signals(client) -> None:
     project = project_id(client)
     assert import_bytes(client, project, "plain.txt", b"A plain paragraph.\n")["status"] == "succeeded"
