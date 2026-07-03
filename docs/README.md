@@ -17,7 +17,7 @@ The source files above remain raw reference inputs. The documents in this direct
 - Tasteful production. Ambience and expressive delivery are intentionally conservative.
 
 ## Directory map
-- **`product/`** — vision, scope, and strategy: [project-overview](product/project-overview.md), [mvp-product-spec](product/mvp-product-spec.md), [platform-evolution](product/platform-evolution.md), [roadmap](product/roadmap.md)
+- **`product/`** — vision, scope, and strategy: [project-overview](product/project-overview.md), [mvp-product-spec](product/mvp-product-spec.md), [platform-evolution](product/platform-evolution.md), [quality-benchmark](product/quality-benchmark.md) (the Sunday Suspense yardstick for "flawless"), [roadmap](product/roadmap.md)
 - **`architecture/`** — system design & cross-cutting infra: [architecture](architecture/architecture.md), [current-pipeline-behavior](architecture/current-pipeline-behavior.md), [pipeline-manifest-spec](architecture/pipeline-manifest-spec.md), [repository-blueprint](architecture/repository-blueprint.md), and `local-ai/` ([model-center](architecture/local-ai/model-center.md), [local-llm-service](architecture/local-ai/local-llm-service.md))
 - **`domain/`** — data model & persistence: [domain-model](domain/domain-model.md), [db-schema](domain/db-schema.md)
 - **`pipeline/`** — stage-by-stage build contracts, grouped by stage:
@@ -62,6 +62,6 @@ The source files above remain raw reference inputs. The documents in this direct
 - Start with the overview and MVP spec to understand scope and success criteria.
 - Use current pipeline behavior to distinguish implemented alpha behavior from roadmap goals.
 - Use architecture, domain, DB, manifest, voice, QA, and API docs as build contracts.
-- Use `analysis/` + `product/roadmap.md` to understand the gap to a flawless product and the planned sequence to close it.
+- Use `analysis/` + `product/roadmap.md` to understand the gap to a flawless product and the planned sequence to close it. "Flawless" is defined concretely in [product/quality-benchmark.md](product/quality-benchmark.md) (the Sunday Suspense yardstick).
 - Use `../plans/` and `plans/` for sequencing, sprint focus, and stage history.
 - Keep future-platform work separated from MVP execution unless a task explicitly targets the hosted evolution path.
