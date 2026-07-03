@@ -165,6 +165,48 @@ def test_chapter_assembly_honors_saved_pause_after_ms(client) -> None:
     )
 
 
+def test_chapter_assembly_writes_real_waveform_and_validation_telemetry(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Real Telemetry", "rightsStatus": "declared"}
+    ).json()["id"]
+    import_job = client.post(
+        f"/api/v1/projects/{project}/source/import",
+        files={"file": ("book.txt", b"A sentence to assemble for telemetry checks.", "text/plain")},
+        data={"rightsAcknowledged": "true"},
+    ).json()
+    assert wait_for_job(client, import_job["id"])["status"] == "succeeded"
+    structure_job = client.post(f"/api/v1/projects/{project}/structure/extract", json={}).json()
+    assert wait_for_job(client, structure_job["id"])["status"] == "succeeded"
+    chapter_id = client.get(f"/api/v1/projects/{project}/chapters").json()[0]["id"]
+    scene_id = client.get(f"/api/v1/chapters/{chapter_id}/scenes").json()[0]["id"]
+    segment_id = client.get(f"/api/v1/scenes/{scene_id}/segments").json()[0]["id"]
+    rendered = client.post(
+        f"/api/v1/projects/{project}/segments/{segment_id}/generate",
+        json={
+            "voiceProfileId": "voice_test",
+            "direction": {"scopeType": "project", "scopeId": project},
+        },
+    )
+    assert rendered.status_code == 202
+
+    assembled = client.post(f"/api/v1/projects/{project}/chapters/{chapter_id}/assemble")
+    assert assembled.status_code == 202, assembled.text
+    root = Path(assembled.json()["manifestPath"]).parent
+    waveform = json.loads((root / "waveform.json").read_text())
+    validation = json.loads((root / "validation_report.json").read_text())
+
+    # Old fake was a hardcoded empty list regardless of content; the real analysis always
+    # produces the full bucket count.
+    assert len(waveform["peaks"]) == 200
+    # The mock provider renders pure digital silence, so honest chapter QA must surface
+    # `low_loudness` (RMS floors at -120 dBFS) as a warning finding -- which, being
+    # non-blocking, still leaves the validation status "passed".
+    findings = {item["category"]: item["severity"] for item in validation["findings"]}
+    assert findings["low_loudness"] == "warning"
+    assert not any(severity == "blocking" for severity in findings.values())
+    assert validation["status"] == "passed"
+
+
 def test_chapter_assembly_selects_latest_render_despite_adversarial_ids(client, app) -> None:
     project = client.post(
         "/api/v1/projects", json={"title": "Adversarial", "rightsStatus": "declared"}

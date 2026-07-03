@@ -19,7 +19,24 @@ from echodraft_db.models import (
 )
 from sqlalchemy import select
 
+from .audio_analysis import AudioAnalysis, analyze_wav
 from .container import AppContainer
+
+# Isolated inter-sample rounding is not audible clipping; only a real run of clipped
+# samples counts.
+CLIPPING_SAMPLE_THRESHOLD = 8
+# "Excessive" silence is judged against genuine dead air (see `audio_analysis`'s 3s/
+# boundary-excluding rules), not brief natural pauses between sentences.
+EXCESSIVE_SILENCE_RATIO = 0.20
+EXCESSIVE_SILENCE_SINGLE_RANGE_MS = 5000
+# Rough segment-level RMS bounds; exact LUFS gating arrives with mastering (Phase 2 task
+# B1 per docs/plans/2026-07-04-phase-2-publishable-audio.md).
+LOW_LOUDNESS_DBFS = -30.0
+HIGH_LOUDNESS_DBFS = -14.0
+# 30 chars/sec is fast speech; audio much shorter than that floor for its text length is
+# probably truncated, not just terse.
+TRUNCATION_CHARS_PER_SECOND = 30
+TRUNCATION_MIN_TEXT_CHARS = 40
 
 
 class ReviewService:
@@ -28,15 +45,25 @@ class ReviewService:
     def __init__(self, container: AppContainer) -> None:
         self.container = container
 
-    def qa_segment(self, project_id: str, render: SegmentRenderRecord) -> None:
+    def qa_segment(
+        self,
+        project_id: str,
+        render: SegmentRenderRecord,
+        analysis: AudioAnalysis | None = None,
+    ) -> None:
         with self.container.structure.database.session() as session:
             segment = session.get(SegmentRecord, render.segment_id)
             if not segment:
                 return
             scene = session.get(SceneRecord, segment.scene_id)
             chapter = session.get(ChapterRecord, scene.chapter_id) if scene else None
-        rules = self._audio_rules(Path(render.audio_path), render.duration_ms)
         payload = json.loads(render.request_json)
+        rules = self._audio_rules(
+            Path(render.audio_path),
+            render.duration_ms,
+            payload.get("synthesisText"),
+            analysis=analysis,
+        )
         if segment.normalized_text != payload.get("text"):
             rules.append(
                 ("render_source_mismatch", "error", "Render request does not match segment text.")
@@ -55,9 +82,17 @@ class ReviewService:
             )
 
     def qa_chapter(
-        self, project_id: str, chapter_id: str, render_id: str, path: str, duration: int
+        self,
+        project_id: str,
+        chapter_id: str,
+        render_id: str,
+        path: str,
+        duration: int,
+        analysis: AudioAnalysis | None = None,
     ) -> None:
-        for category, severity, description in self._audio_rules(Path(path), duration):
+        for category, severity, description in self._audio_rules(
+            Path(path), duration, analysis=analysis
+        ):
             self.container.review.create_issue(
                 project_id=project_id,
                 chapter_id=chapter_id,
@@ -176,16 +211,28 @@ class ReviewService:
         )
 
     @staticmethod
-    def _audio_rules(path: Path, declared_duration_ms: int) -> list[tuple[str, str, str]]:
+    def _audio_rules(
+        path: Path,
+        declared_duration_ms: int,
+        synthesis_text: str | None = None,
+        analysis: AudioAnalysis | None = None,
+    ) -> list[tuple[str, str, str]]:
+        """Derive QA findings for one audio artifact.
+
+        Callers that already ran ``analyze_wav`` on the same file (rendering, assembly)
+        pass their result via ``analysis`` so the WAV is decoded exactly once; when it is
+        omitted this decodes internally and keeps the missing/corrupt guards.
+        """
         if not path.is_file():
             return [("missing_audio", "blocking", "Expected audio artifact is missing.")]
-        try:
-            with wave.open(str(path), "rb") as audio:
-                frames = audio.readframes(audio.getnframes())
-                duration = int(audio.getnframes() / audio.getframerate() * 1000)
-                width = audio.getsampwidth()
-        except (EOFError, wave.Error):
-            return [("corrupt_audio", "blocking", "Audio artifact cannot be decoded as WAV.")]
+        if analysis is None:
+            try:
+                analysis = analyze_wav(path)
+            except (EOFError, wave.Error, ValueError):
+                return [
+                    ("corrupt_audio", "blocking", "Audio artifact cannot be decoded as WAV.")
+                ]
+        duration = analysis.duration_ms
         rules: list[tuple[str, str, str]] = []
         if duration < 250:
             rules.append(("very_short_duration", "warning", "Audio is shorter than 250 ms."))
@@ -193,11 +240,52 @@ class ReviewService:
             rules.append(
                 ("duration_mismatch", "warning", "Stored duration differs from WAV duration.")
             )
-        if width == 2 and any(
-            abs(int.from_bytes(frames[i : i + 2], "little", signed=True)) >= 32_760
-            for i in range(0, len(frames), 2)
-        ):
+        if analysis.clipped_sample_count > CLIPPING_SAMPLE_THRESHOLD:
             rules.append(("clipping", "warning", "PCM samples approach the clipping threshold."))
-        if frames and not any(frames):
-            rules.append(("excessive_silence", "warning", "Audio contains only silence."))
+
+        total_dead_air_ms = sum(end - start for start, end in analysis.dead_air_ranges)
+        longest_dead_air_ms = max(
+            (end - start for start, end in analysis.dead_air_ranges), default=0
+        )
+        if duration and (
+            total_dead_air_ms / duration > EXCESSIVE_SILENCE_RATIO
+            or longest_dead_air_ms >= EXCESSIVE_SILENCE_SINGLE_RANGE_MS
+        ):
+            rules.append(
+                (
+                    "excessive_silence",
+                    "warning",
+                    "Audio contains excessive silence relative to its length.",
+                )
+            )
+        if analysis.dead_air_ranges:
+            rules.append(
+                (
+                    "dead_air",
+                    "warning",
+                    f"Detected {len(analysis.dead_air_ranges)} dead-air stretch(es) totalling "
+                    f"{total_dead_air_ms} ms (longest {longest_dead_air_ms} ms).",
+                )
+            )
+
+        if analysis.rms_dbfs < LOW_LOUDNESS_DBFS:
+            rules.append(
+                ("low_loudness", "warning", "Audio is quieter than the expected loudness range.")
+            )
+        elif analysis.rms_dbfs > HIGH_LOUDNESS_DBFS:
+            rules.append(
+                ("high_loudness", "warning", "Audio is louder than the expected loudness range.")
+            )
+
+        if synthesis_text and len(synthesis_text) > TRUNCATION_MIN_TEXT_CHARS:
+            expected_floor_ms = len(synthesis_text) / TRUNCATION_CHARS_PER_SECOND * 1000
+            if duration < 0.5 * expected_floor_ms:
+                rules.append(
+                    (
+                        "truncation_suspected",
+                        "warning",
+                        "Audio is much shorter than the text length would suggest; "
+                        "the render may be truncated.",
+                    )
+                )
         return rules
