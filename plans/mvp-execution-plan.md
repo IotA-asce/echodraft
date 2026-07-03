@@ -1,6 +1,6 @@
 # MVP Execution Plan
 
-See also: [foundation-sprint-plan.md](foundation-sprint-plan.md), [backlog-seed.md](backlog-seed.md), [../docs/mvp-product-spec.md](../docs/mvp-product-spec.md)
+See also: [foundation-sprint-plan.md](foundation-sprint-plan.md), [backlog-seed.md](backlog-seed.md), [../docs/mvp-product-spec.md](../docs/product/mvp-product-spec.md)
 
 ## Goal
 Ship a usable local-first MVP that lets a user create a project, import a manuscript, structure it into chapters/scenes/segments, assign voices, generate a chapter, selectively regenerate bad lines, and export chaptered audio.

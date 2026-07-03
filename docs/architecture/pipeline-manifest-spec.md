@@ -1,6 +1,6 @@
 # Pipeline Manifest Spec
 
-See also: [architecture.md](architecture.md), [domain-model.md](domain-model.md), [db-schema.md](db-schema.md), [api-spec.yaml](api-spec.yaml)
+See also: [architecture.md](architecture.md), [domain-model.md](../domain/domain-model.md), [db-schema.md](../domain/db-schema.md), [api-spec.yaml](../api/api-spec.yaml)
 
 ## Purpose
 Pipeline manifests make each stage resumable, inspectable, and reproducible. Every stage consumes a manifest and emits a manifest for the next stage or review step.
