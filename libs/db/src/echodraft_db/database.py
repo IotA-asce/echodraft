@@ -1,8 +1,8 @@
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
-from sqlalchemy import Engine, create_engine, inspect, text
+from sqlalchemy import Engine, create_engine, event, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import Base
@@ -14,8 +14,24 @@ class Database:
             Path(url.removeprefix("sqlite:///"),).expanduser().resolve().parent.mkdir(
                 parents=True, exist_ok=True
             )
-        connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+        connect_args: dict[str, Any] = (
+            {"check_same_thread": False, "timeout": 30} if url.startswith("sqlite") else {}
+        )
         self.engine: Engine = create_engine(url, connect_args=connect_args)
+        if url.startswith("sqlite"):
+
+            @event.listens_for(self.engine, "connect")
+            def _set_sqlite_pragmas(dbapi_connection: Any, _record: Any) -> None:
+                # Applied on every pooled connection: WAL + a generous busy_timeout keep
+                # concurrent readers/writers from tripping "database is locked", and
+                # foreign_keys=ON enforces referential integrity SQLite ignores by default.
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.close()
+
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
 
     def create_schema(self) -> None:
@@ -27,6 +43,9 @@ class Database:
         session = self.sessions()
         try:
             yield session
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()
 
@@ -61,6 +80,23 @@ class Database:
             columns = {column["name"] for column in inspector.get_columns("segment_renders")}
             if "created_at" not in columns:
                 repairs.append("ALTER TABLE segment_renders ADD COLUMN created_at TIMESTAMP")
+            indexes = {index["name"] for index in inspector.get_indexes("segment_renders")}
+            if "uq_segment_renders_succeeded_key" not in indexes:
+                # Mirror migration 0024: dedupe append-only history (UPDATE to 'superseded',
+                # never DELETE) before creating the partial unique index. Idempotent.
+                repairs.append(
+                    "UPDATE segment_renders SET status = 'superseded' "
+                    "WHERE status = 'succeeded' AND id NOT IN ("
+                    "SELECT id FROM (SELECT id, ROW_NUMBER() OVER ("
+                    "PARTITION BY segment_id, render_key "
+                    "ORDER BY created_at DESC, rowid DESC) AS rn "
+                    "FROM segment_renders WHERE status = 'succeeded') ranked "
+                    "WHERE ranked.rn = 1)"
+                )
+                repairs.append(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_segment_renders_succeeded_key "
+                    "ON segment_renders (segment_id, render_key) WHERE status = 'succeeded'"
+                )
         if "chapter_renders" in tables:
             columns = {column["name"] for column in inspector.get_columns("chapter_renders")}
             if "render_mode" not in columns:

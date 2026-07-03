@@ -1,9 +1,14 @@
+from datetime import UTC, datetime
 from pathlib import Path
 import sqlite3
+import threading
+import time
 
 import pytest
 
-from echodraft_db import Database
+from echodraft_api.jobs import InProcessJobRunner
+from echodraft_db import Database, JobRepository
+from echodraft_db.models import JobRecord
 from echodraft_domain import JobState
 
 
@@ -158,3 +163,58 @@ def test_startup_repairs_legacy_sqlite_production_columns(tmp_path: Path) -> Non
     assert traits_json == "[]"
     assert merge_history_json == "[]"
     assert user_locked == 0
+
+
+def test_sqlite_engine_applies_concurrency_pragmas(tmp_path: Path) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'pragmas.db'}")
+    database.create_schema()
+    with database.engine.connect() as connection:
+        assert connection.exec_driver_sql("PRAGMA journal_mode").scalar() == "wal"
+        assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+        assert connection.exec_driver_sql("PRAGMA busy_timeout").scalar() == 30000
+
+
+def test_session_rolls_back_on_exception(tmp_path: Path) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'rollback.db'}")
+    database.create_schema()
+    with pytest.raises(RuntimeError):
+        with database.session() as session:
+            session.add(
+                JobRecord(
+                    id="job_rollback",
+                    project_id=None,
+                    job_type="test.rollback",
+                    target_id=None,
+                    status="queued",
+                    created_at=datetime.now(UTC),
+                )
+            )
+            session.flush()
+            raise RuntimeError("boom")
+    with database.session() as session:
+        assert session.get(JobRecord, "job_rollback") is None
+
+
+def test_bounded_executor_keeps_second_job_queued(app) -> None:
+    repository: JobRepository = app.state.container.jobs_repository
+    runner = InProcessJobRunner(repository, max_workers=1)
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking() -> None:
+        started.set()
+        assert release.wait(5)
+
+    first = runner.submit("test.block", blocking)
+    assert started.wait(2)
+    second = runner.submit("test.block", lambda: None)
+    time.sleep(0.1)
+    assert repository.get(second.id).status is JobState.QUEUED
+    assert repository.get(first.id).status is JobState.RUNNING
+    release.set()
+    for job_id in (first.id, second.id):
+        for _ in range(200):
+            if repository.get(job_id).status is JobState.SUCCEEDED:
+                break
+            time.sleep(0.02)
+        assert repository.get(job_id).status is JobState.SUCCEEDED

@@ -12,6 +12,17 @@
 
 Use `blocking` for an inability to import, render, assemble, patch, or export. Include reproduction steps, job ID, app version, and the redacted error message.
 
+## Concurrency
+
+- SQLite runs in WAL mode with `busy_timeout=30000` and `foreign_keys=ON` on every connection, so concurrent readers and a single writer coexist without `database is locked` errors under normal alpha load.
+- Background jobs run on a bounded thread pool. The worker count is `ECHODRAFT_MAX_CONCURRENT_JOBS` (default `2`); extra submissions stay `queued` until a worker frees up. Lower it to `1` on constrained machines; raise it only if local TTS/assembly work is I/O-bound.
+- Segment renders are serialized per segment and chapter assembly per chapter, so a burst of duplicate requests cannot fork the append-only render history. A partial unique index (`uq_segment_renders_succeeded_key`) is the database-level backstop; forced re-renders remain safe because each carries a distinct render key.
+
+## Continuous integration
+
+- `.github/workflows/ci.yml` gates `main` and every pull request with four jobs: `backend` (pytest, ruff, mypy), `migrations` (Alembic upgrade → downgrade base → upgrade round-trip), `web` (lint, typecheck), and `smoke` (Playwright, gated behind `backend` + `web`).
+- The app bootstraps schema via `create_all` plus the SQLite repair pass, not Alembic, so `apps/api/tests/test_migrations.py` compares the Alembic head against `Base.metadata` and fails on any drift. When models change, add a migration in the same PR; never weaken that comparison.
+
 ## Known Limits
 
 - In-process jobs cannot resume mid-operation.
