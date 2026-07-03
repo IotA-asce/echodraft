@@ -36,6 +36,8 @@ The dashboard shows parser warnings above the structure editor columns and shows
 
 Segment evidence records sources such as `block_map`, `quote_aware_atomization`, `deterministic_segment_builder`, and `optional_atom_llm_grouping`. LLM refinement evidence records the local LLM run ID and atom IDs without accepting model-returned manuscript text.
 
+Review hardening warnings include unclosed quotes, atom offset validation failures, mixed narration/dialogue segments, multiple-speaker segments, ambiguous two-person exchanges, unresolved dialogue, possible scene breaks, and LLM diagnostics. Cast duplicate and low-confidence candidate reviews remain review issues with structured metadata codes.
+
 Stable source-span IDs are used for chapters, scenes, segments, atoms, and offset-backed warnings:
 
 ```text
@@ -46,7 +48,7 @@ UUID fallback is reserved for cases where offsets are unavailable.
 
 ## Quality Reporting
 
-`GET /api/v1/projects/{projectId}/structure/quality` returns the current structure quality summary, including chapter, scene, segment, dialogue, unresolved-dialogue, long-segment, warning, cast-candidate, and LLM refinement counts.
+`GET /api/v1/projects/{projectId}/structure/quality` returns the current structure quality summary, including chapter, scene, segment, dialogue attribution, unresolved-dialogue, duplicate-cast, offset-validation, unclosed-quote, long-segment, warning, cast-candidate, and LLM refinement counts.
 
 The same metrics are written into `structure_manifest.json` under `payload.quality`.
 
