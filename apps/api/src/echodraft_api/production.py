@@ -95,15 +95,12 @@ class ProductionService:
             direction=json.loads(record.direction_json) if record.direction_json else None,
         )
 
-    def resolve_voice_and_direction(
-        self, project_id: str, segment_id: str
-    ) -> tuple[str, DirectionProfile]:
-        """Resolve the voice/direction a fresh render should use for one segment.
+    def resolve_voice(self, project_id: str, segment_id: str) -> str:
+        """Resolve the voice a fresh render should use for one segment.
 
         Layering mirrors `status`/`produce`: segment production override wins, then the
         cast-resolved voice for approved speaker attributions, then the project narrator
-        voice. Direction falls back through override -> saved segment direction -> project
-        default -> a blank profile. Reuses `_direction_for` rather than duplicating it.
+        voice.
         """
         self._validate_segment_project(project_id, segment_id)
         settings = self.settings(project_id)
@@ -112,11 +109,35 @@ class ProductionService:
         voice = self._voice_for(segment_id, override, speaker_voices, settings.narrator_voice_profile_id)
         if not voice:
             raise ValueError("Set a narrator voice before patching.")
+        return voice
+
+    def resolve_direction(self, project_id: str, segment_id: str) -> DirectionProfile:
+        """Resolve the direction a fresh render should use for one segment.
+
+        Falls back through override -> saved segment direction -> project default -> a
+        blank profile. Reuses `_direction_for` rather than duplicating it.
+        """
+        self._validate_segment_project(project_id, segment_id)
+        settings = self.settings(project_id)
+        override = self.container.production.override(segment_id)
         segment_directions = self.container.segment_directions.records([segment_id])
-        direction = self._direction_for(
+        return self._direction_for(
             segment_id, override, segment_directions, settings.default_direction
         )
-        return voice, direction
+
+    def resolve_voice_and_direction(
+        self, project_id: str, segment_id: str
+    ) -> tuple[str, DirectionProfile]:
+        """Resolve both the voice and direction a fresh render should use for one segment.
+
+        Kept for callers that need both regardless of what was already supplied; callers
+        that already have one half (e.g. a patch payload that only supplies a voice) should
+        call `resolve_voice`/`resolve_direction` individually instead, since resolving the
+        unneeded half can raise unnecessarily (e.g. no narrator voice configured yet).
+        """
+        return self.resolve_voice(project_id, segment_id), self.resolve_direction(
+            project_id, segment_id
+        )
 
     def status(self, project_id: str, chapter_id: str) -> ChapterProductionStatus:
         chapter = self.container.structure.chapter(chapter_id)

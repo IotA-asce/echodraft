@@ -16,6 +16,9 @@ down_revision = "0024_segment_render_uniqueness"
 branch_labels = None
 depends_on = None
 
+# No `_repair_sqlite_schema_drift` mirror needed: legacy DBs bootstrap via `create_all`,
+# which already matches current models, so these NOT NULL tightenings must not be repaired.
+
 
 def upgrade() -> None:
     with op.batch_alter_table("direction_profiles", schema=None) as batch_op:

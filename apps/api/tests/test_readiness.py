@@ -263,6 +263,82 @@ def test_readiness_reports_cast_voice_coverage_and_narrator_fallback(client) -> 
     assert fallback_check["metadata"]["narratorFallbackRows"] == 1
 
 
+def test_readiness_auto_resolves_stale_render_check(client) -> None:
+    project, chapter = produced_chapter(client)
+    scene = client.get(f"/api/v1/chapters/{chapter}/scenes").json()[0]["id"]
+    segment = client.get(f"/api/v1/scenes/{scene}/segments").json()[0]["id"]
+    stale_id = f"stale_render_{chapter}"
+
+    # Editing the segment's text without re-rendering makes the chapter's produced audio
+    # stale relative to the current segment content.
+    client.patch(
+        f"/api/v1/segments/{segment}",
+        json={"textContent": "Ready checks need audio, revised for staleness."},
+    )
+
+    report = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+    stale_check = next(check for check in report["checks"] if check["id"] == stale_id)
+    assert stale_check["status"] == "failed"
+    issue_id = stale_check["issueId"]
+    assert issue_id
+
+    # Re-produce so the segment's render catches up with its current text.
+    produced = client.post(f"/api/v1/projects/{project}/chapters/{chapter}/produce").json()
+    assert wait_for_job(client, produced["id"])["status"] == "succeeded"
+
+    rerun = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+    rerun_stale = next(check for check in rerun["checks"] if check["id"] == stale_id)
+    assert rerun_stale["status"] == "passed"
+
+    issue = next(
+        item
+        for item in client.get(f"/api/v1/projects/{project}/issues").json()
+        if item["id"] == issue_id
+    )
+    assert issue["status"] == "resolved"
+
+
+def test_readiness_auto_resolves_segment_audio_missing_check(client) -> None:
+    project, chapter = structured_project(client)
+    check_id = "segment_audio_missing"
+
+    report = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+    check = next(item for item in report["checks"] if item["id"] == check_id)
+    assert check["status"] == "failed"
+    issue_id = check["issueId"]
+    assert issue_id
+
+    voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Narrator", "backend": "mock", "providerVoiceId": "mock-narrator"},
+    ).json()
+    client.put(
+        f"/api/v1/projects/{project}/production-settings",
+        json={"narratorVoiceProfileId": voice["id"]},
+    )
+    produced = client.post(f"/api/v1/projects/{project}/chapters/{chapter}/produce").json()
+    assert wait_for_job(client, produced["id"])["status"] == "succeeded"
+
+    rerun = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+    rerun_check = next(item for item in rerun["checks"] if item["id"] == check_id)
+    assert rerun_check["status"] == "passed"
+
+    issue = next(
+        item
+        for item in client.get(f"/api/v1/projects/{project}/issues").json()
+        if item["id"] == issue_id
+    )
+    assert issue["status"] == "resolved"
+
+
 def test_readiness_reports_chapter_audio_hot_and_dead_air_with_stable_ids(client, app) -> None:
     project, chapter = produced_chapter(client)
     active = client.get(f"/api/v1/projects/{project}/chapters/{chapter}/active-render").json()
