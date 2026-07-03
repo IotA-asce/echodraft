@@ -1,11 +1,11 @@
 import json
-import struct
 import threading
 import wave
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
+import numpy as np
 from echodraft_domain import ChapterRender
 from echodraft_db.models import (
     AmbienceAssetRecord,
@@ -18,9 +18,40 @@ from echodraft_db.models import (
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .audio_analysis import AudioAnalysis, analyze_wav
+from . import mastering
+from .audio_analysis import AudioAnalysis, _decode_pcm, analyze_wav
 from .container import AppContainer
 from .review import ReviewService
+
+# Ambience loop seams get a 250 ms equal-power crossfade; cue ducking dips -6 dB but the
+# transition is ramped over 50 ms so the gain change never "zips".
+AMBIENCE_CROSSFADE_MS = 250
+DUCK_RAMP_MS = 50
+DUCK_ATTENUATION_DB = -6.0
+
+
+def band_limited_resample(
+    samples: np.ndarray, source_rate: int, target_rate: int
+) -> np.ndarray:
+    """Resample ``samples`` via the Fourier method (ideal band-limited interpolation).
+
+    Zero-padding the spectrum when upsampling introduces no energy above the source
+    Nyquist (so a 16 kHz render carries no alias images into the 44.1 kHz band);
+    truncating it when downsampling acts as an ideal anti-alias low-pass. This is the
+    numpy fallback used whenever ffmpeg's soxr resampler is unavailable at render time.
+    Returns a float64 array; callers clip/round to PCM16.
+    """
+    samples = np.asarray(samples, dtype=np.float64)
+    n_in = samples.size
+    if n_in == 0 or source_rate == target_rate:
+        return samples.copy()
+    n_out = max(1, int(round(n_in * target_rate / source_rate)))
+    spectrum = np.fft.rfft(samples)
+    n_freq_out = n_out // 2 + 1
+    resized = np.zeros(n_freq_out, dtype=complex)
+    copy = min(spectrum.size, n_freq_out)
+    resized[:copy] = spectrum[:copy]
+    return np.fft.irfft(resized, n=n_out) * (n_out / n_in)
 
 # Serialize assembly per chapter so concurrent assemble() calls cannot interleave their
 # input resolution and record insert, forking the append-only chapter render history.
@@ -69,7 +100,7 @@ class SoundCueInput:
 class ChapterAssembler:
     """Build immutable chapter stems from the current successful segment renders."""
 
-    sample_rate = 16_000
+    sample_rate = 44_100
     channels = 1
     sample_width = 2
     paragraph_pause_ms = 350
@@ -118,9 +149,38 @@ class ChapterAssembler:
                     sound_cues,
                     render_mode,
                 )
+            output_path = mixed_path or speech_path
+            # Master the deliverable in place: lay ~-70 dBFS room tone at the head/tail
+            # (ACX rejects pure digital silence) and, when ffmpeg is present, loudness-
+            # normalise to -19 LUFS and true-peak-limit to -3 dBTP. Without ffmpeg the room-
+            # toned 44.1 kHz bed is written un-mastered and the manifest records
+            # "mastered": false so export readiness can raise the honest ffmpeg blocker
+            # instead of shipping a falsely-labelled master.
+            mastered, measured = self._apply_mastering(output_path)
+
             manifest_path = root / "chapter_render_manifest.json"
             waveform_path = root / "waveform.json"
             validation_path = root / "validation_report.json"
+
+            # Decode the mastered output exactly once; the duration, the waveform, the
+            # validation report, and chapter QA (below) all consume this same analysis. A
+            # WAV we just wrote but cannot re-read is reported honestly as a failed
+            # validation, never an unhandled crash after the audio work already succeeded.
+            analysis: AudioAnalysis | None
+            try:
+                analysis = analyze_wav(output_path)
+            except (EOFError, wave.Error, ValueError):
+                analysis = None
+            # Room tone + mastering change the sample count, so the stored duration is the
+            # final decoded duration; the pre-master stem duration only drove the mixing.
+            if analysis is not None:
+                duration_ms = analysis.duration_ms
+            if analysis is None:
+                findings = [
+                    ("corrupt_audio", "blocking", "Audio artifact cannot be decoded as WAV.")
+                ]
+            else:
+                findings = ReviewService._audio_rules(output_path, duration_ms, analysis=analysis)
 
             manifest_path.write_text(
                 json.dumps(
@@ -148,6 +208,17 @@ class ChapterAssembler:
                         "durationMs": duration_ms,
                         "renderMode": render_mode,
                         "ambienceInputs": [self._sound_cue_manifest(item) for item in sound_cues],
+                        "mastering": {
+                            "targetLufs": mastering.TARGET_LUFS,
+                            "truePeakDb": mastering.TRUE_PEAK_DB,
+                            "lra": mastering.TARGET_LRA,
+                            "mastered": mastered,
+                            "roomToneMs": {
+                                "head": mastering.ROOM_TONE_HEAD_MS,
+                                "tail": mastering.ROOM_TONE_TAIL_MS,
+                            },
+                            "measured": self._mastering_measurement(measured),
+                        },
                         "soundDesign": {
                             "mode": self._public_render_mode(render_mode),
                             "cleanNarrationDefault": render_mode == "speech_only",
@@ -164,22 +235,6 @@ class ChapterAssembler:
                     sort_keys=True,
                 )
             )
-            output_path = mixed_path or speech_path
-            # Decode the assembled output exactly once; the waveform, the validation
-            # report, and chapter QA (below) all consume this same analysis. A WAV we just
-            # wrote but cannot re-read is reported honestly as a failed validation, never
-            # an unhandled crash after the audio work already succeeded.
-            analysis: AudioAnalysis | None
-            try:
-                analysis = analyze_wav(output_path)
-            except (EOFError, wave.Error, ValueError):
-                analysis = None
-            if analysis is None:
-                findings = [
-                    ("corrupt_audio", "blocking", "Audio artifact cannot be decoded as WAV.")
-                ]
-            else:
-                findings = ReviewService._audio_rules(output_path, duration_ms, analysis=analysis)
             waveform_path.write_text(
                 json.dumps(
                     {
@@ -221,6 +276,12 @@ class ChapterAssembler:
             )
             session.add(record)
             session.commit()
+        mastered_lufs: float | None = None
+        if mastered and measured:
+            try:
+                mastered_lufs = float(measured["input_i"])
+            except (KeyError, ValueError):
+                mastered_lufs = None
         ReviewService(self.container).qa_chapter(
             project_id,
             chapter_id,
@@ -228,6 +289,7 @@ class ChapterAssembler:
             record.mixed_audio_path or record.speech_path,
             record.duration_ms,
             analysis=analysis,
+            mastered_lufs=mastered_lufs,
         )
         return self._model(record)
 
@@ -408,11 +470,11 @@ class ChapterAssembler:
         cues: list[SoundCueInput],
         render_mode: str,
     ) -> list[str]:
-        speech_samples = self._samples_from_wav(speech_path)
-        target_length = max(len(speech_samples), int(self.sample_rate * duration_ms / 1000))
-        if len(speech_samples) < target_length:
-            speech_samples.extend([0] * (target_length - len(speech_samples)))
-        sound_stem = [0.0] * target_length
+        speech = self._read_samples_array(speech_path).astype(np.float64)
+        target_length = max(speech.size, int(self.sample_rate * duration_ms / 1000))
+        if speech.size < target_length:
+            speech = np.pad(speech, (0, target_length - speech.size))
+        stem = np.zeros(target_length, dtype=np.float64)
         warnings: list[str] = []
         for cue in cues:
             if cue.no_sfx and (cue.asset_type == "sfx" or cue.cue_type == "sfx"):
@@ -423,11 +485,11 @@ class ChapterAssembler:
                 warnings.append(f"Skipped cue {cue.id}; asset file is missing.")
                 continue
             try:
-                asset_samples = self._samples_from_wav(asset_path)
+                asset = self._read_samples_array(asset_path).astype(np.float64)
             except (wave.Error, ValueError, OSError) as error:
                 warnings.append(f"Skipped cue {cue.id}; asset is not a readable WAV: {error}.")
                 continue
-            if not asset_samples:
+            if asset.size == 0:
                 warnings.append(f"Skipped cue {cue.id}; asset contains no audio frames.")
                 continue
             start_frame = int(
@@ -436,38 +498,88 @@ class ChapterAssembler:
             if start_frame >= target_length:
                 warnings.append(f"Skipped cue {cue.id}; start time is beyond the chapter length.")
                 continue
-            cue_samples = self._cue_samples(asset_samples, target_length - start_frame, cue)
-            gain = self._cue_gain(cue, render_mode)
-            fade_in_frames = int(self.sample_rate * max(0, cue.fade_in_ms) / 1000)
-            fade_out_frames = int(self.sample_rate * max(0, cue.fade_out_ms) / 1000)
-            for offset, sample in enumerate(cue_samples):
-                position = start_frame + offset
-                if position >= target_length:
-                    break
-                envelope = 1.0
-                if fade_in_frames and offset < fade_in_frames:
-                    envelope = min(envelope, offset / fade_in_frames)
-                if fade_out_frames and offset >= len(cue_samples) - fade_out_frames:
-                    remaining = max(0, len(cue_samples) - offset)
-                    envelope = min(envelope, remaining / fade_out_frames)
-                sound_stem[position] += sample * gain * envelope
-        stem_samples = [self._clip_sample(round(value)) for value in sound_stem]
-        mixed_samples = [
-            self._clip_sample(speech + stem) for speech, stem in zip(speech_samples, stem_samples)
-        ]
-        self._write_samples(stem_path, stem_samples)
-        self._write_samples(mixed_path, mixed_samples)
+            cue_samples = self._cue_samples(asset, target_length - start_frame, cue)
+            if cue_samples.size == 0:
+                continue
+            # Vectorised placement: gain x equal-power fade envelope x ramped duck curve,
+            # summed into the stem at the cue's start frame (no per-sample Python loop).
+            contribution = (
+                cue_samples
+                * self._cue_gain(cue, render_mode)
+                * self._cue_envelope(cue_samples.size, cue)
+                * self._duck_curve(cue_samples.size, cue)
+            )
+            end = min(target_length, start_frame + contribution.size)
+            stem[start_frame:end] += contribution[: end - start_frame]
+        self._write_array(stem_path, self._limit_to_pcm16(stem))
+        self._write_array(mixed_path, self._limit_to_pcm16(speech + stem))
         return warnings
 
     def _cue_samples(
-        self, asset_samples: list[int], max_frames: int, cue: SoundCueInput
-    ) -> list[int]:
+        self, asset: np.ndarray, max_frames: int, cue: SoundCueInput
+    ) -> np.ndarray:
+        if max_frames <= 0:
+            return asset[:0]
         if cue.asset_type in {"ambience", "music"} or cue.cue_type in {"ambience", "music"}:
-            repeated: list[int] = []
-            while len(repeated) < max_frames:
-                repeated.extend(asset_samples[: max_frames - len(repeated)])
-            return repeated[:max_frames]
-        return asset_samples[:max_frames]
+            xfade_frames = int(self.sample_rate * AMBIENCE_CROSSFADE_MS / 1000)
+            return self._tile_with_crossfade(asset, max_frames, xfade_frames)
+        return asset[:max_frames]
+
+    @staticmethod
+    def _tile_with_crossfade(asset: np.ndarray, total: int, xfade_frames: int) -> np.ndarray:
+        """Loop ``asset`` to ``total`` frames with a 250 ms equal-power crossfade per seam.
+
+        Each copy's leading/trailing ``xfade`` frames are windowed by ``sqrt`` ramps so
+        that a copy's fade-out overlaps the next copy's fade-in with unit power -- no
+        click, no level bump at the loop boundary. The very first head and very last tail
+        keep their full level (the cue's own fade in/out shapes those).
+        """
+        length = asset.size
+        if length == 0 or total <= 0:
+            return asset[:0]
+        xfade = int(min(xfade_frames, length // 2))
+        if xfade <= 0 or length >= total:
+            reps = int(np.ceil(total / length))
+            return np.tile(asset, reps)[:total]
+        hop = length - xfade
+        n_copies = int(np.ceil((total - length) / hop)) + 1
+        out = np.zeros(hop * (n_copies - 1) + length, dtype=np.float64)
+        fade_in = np.sqrt(np.linspace(0.0, 1.0, xfade, endpoint=False))
+        fade_out = np.sqrt(np.linspace(1.0, 0.0, xfade, endpoint=False))
+        for index in range(n_copies):
+            copy = asset.astype(np.float64).copy()
+            if index > 0:
+                copy[:xfade] *= fade_in
+            if index < n_copies - 1:
+                copy[-xfade:] *= fade_out
+            start = index * hop
+            out[start : start + length] += copy
+        return out[:total]
+
+    def _cue_envelope(self, count: int, cue: SoundCueInput) -> np.ndarray:
+        envelope = np.ones(count, dtype=np.float64)
+        fade_in = min(int(self.sample_rate * max(0, cue.fade_in_ms) / 1000), count)
+        fade_out = min(int(self.sample_rate * max(0, cue.fade_out_ms) / 1000), count)
+        if fade_in > 0:
+            envelope[:fade_in] = np.sqrt(np.linspace(0.0, 1.0, fade_in, endpoint=False))
+        if fade_out > 0:
+            envelope[count - fade_out :] = np.minimum(
+                envelope[count - fade_out :],
+                np.sqrt(np.linspace(1.0, 0.0, fade_out, endpoint=False)),
+            )
+        return envelope
+
+    def _duck_curve(self, count: int, cue: SoundCueInput) -> np.ndarray:
+        """Static -6 dB duck applied with 50 ms ramps so the level change never zips."""
+        if not cue.ducking or count == 0:
+            return np.ones(count, dtype=np.float64)
+        ducked = 10 ** (DUCK_ATTENUATION_DB / 20)
+        curve = np.full(count, ducked, dtype=np.float64)
+        ramp = min(int(self.sample_rate * DUCK_RAMP_MS / 1000), count // 2)
+        if ramp > 0:
+            curve[:ramp] = np.linspace(1.0, ducked, ramp, endpoint=False)
+            curve[count - ramp :] = np.linspace(ducked, 1.0, ramp)
+        return curve
 
     @staticmethod
     def _cue_gain(cue: SoundCueInput, render_mode: str) -> float:
@@ -476,24 +588,23 @@ class ChapterAssembler:
         else:
             maximum = -10.0 if cue.asset_type == "sfx" or cue.cue_type == "sfx" else -14.0
         gain_db = min(cue.gain_db, maximum)
-        if cue.ducking:
-            gain_db -= 6.0
         return 10 ** (gain_db / 20)
 
-    def _samples_from_wav(self, path: Path) -> list[int]:
-        frames = self._normalized_frames(path)
-        if not frames:
-            return []
-        return list(struct.unpack(f"<{len(frames) // self.sample_width}h", frames))
+    @staticmethod
+    def _limit_to_pcm16(samples: np.ndarray) -> np.ndarray:
+        """Fold a float mix bus down to PCM16, soft-limiting only when it would clip."""
+        if samples.size == 0:
+            return np.zeros(0, dtype=np.int16)
+        ceiling = mastering.FULL_SCALE - 1.0
+        peak = float(np.max(np.abs(samples)))
+        if peak > ceiling:
+            # tanh knee rounds transients over the ceiling instead of squaring them off;
+            # ffmpeg's alimiter does the real true-peak limiting at the mastering stage.
+            samples = np.tanh(samples / ceiling) * ceiling
+        return np.clip(np.round(samples), -32_768, 32_767).astype(np.int16)
 
-    def _write_samples(self, path: Path, samples: list[int]) -> None:
-        with wave.open(str(path), "wb") as target:
-            target.setnchannels(self.channels)
-            target.setsampwidth(self.sample_width)
-            target.setframerate(self.sample_rate)
-            target.writeframes(struct.pack(f"<{len(samples)}h", *samples))
-
-    def _normalized_frames(self, path: Path) -> bytes:
+    def _read_samples_array(self, path: Path) -> np.ndarray:
+        """Decode a WAV to mono int16 samples at the assembler's 44.1 kHz target rate."""
         with wave.open(str(path), "rb") as source:
             frames = source.readframes(source.getnframes())
             width = source.getsampwidth()
@@ -503,43 +614,76 @@ class ChapterAssembler:
             raise ValueError(f"Unsupported channel count in {path}: {channels}.")
         if width not in {1, 2, 3, 4}:
             raise ValueError(f"Unsupported sample width in {path}: {width}.")
-        samples = self._downmix_pcm(frames, width, channels)
+        if not frames:
+            return np.zeros(0, dtype=np.int16)
+        mono = self._decode_mono(frames, width, channels)
         if rate != self.sample_rate:
-            samples = self._resample(samples, rate)
-        return struct.pack(f"<{len(samples)}h", *samples)
-
-    def _downmix_pcm(self, frames: bytes, width: int, channels: int) -> list[int]:
-        frame_size = width * channels
-        samples: list[int] = []
-        for offset in range(0, len(frames), frame_size):
-            channel_values = [
-                self._read_pcm_sample(
-                    frames[offset + (channel * width) : offset + ((channel + 1) * width)], width
-                )
-                for channel in range(channels)
-            ]
-            samples.append(max(-32_768, min(32_767, round(sum(channel_values) / channels))))
-        return samples
+            mono = band_limited_resample(mono, rate, self.sample_rate)
+        return np.clip(np.round(mono), -32_768, 32_767).astype(np.int16)
 
     @staticmethod
-    def _read_pcm_sample(value: bytes, width: int) -> int:
-        if width == 1:
-            return (value[0] - 128) << 8
-        raw = int.from_bytes(value, byteorder="little", signed=True)
-        return raw >> (8 * (width - 2))
+    def _decode_mono(frames: bytes, width: int, channels: int) -> np.ndarray:
+        # Reuse audio_analysis's shared PCM decoder (1/2/3/4-byte widths -> 16-bit range).
+        flat = _decode_pcm(frames, width).astype(np.float64)
+        if channels > 1:
+            usable = (flat.size // channels) * channels
+            return flat[:usable].reshape(-1, channels).mean(axis=1)
+        return flat
 
-    def _resample(self, samples: list[int], source_rate: int) -> list[int]:
-        if not samples:
-            return []
-        target_count = max(1, round(len(samples) * self.sample_rate / source_rate))
-        converted: list[int] = []
-        for index in range(target_count):
-            position = index * source_rate / self.sample_rate
-            lower = min(int(position), len(samples) - 1)
-            upper = min(lower + 1, len(samples) - 1)
-            fraction = position - lower
-            converted.append(round(samples[lower] + ((samples[upper] - samples[lower]) * fraction)))
-        return converted
+    def _normalized_frames(self, path: Path) -> bytes:
+        return self._read_samples_array(path).tobytes()
+
+    def _write_array(self, path: Path, samples: np.ndarray) -> None:
+        with wave.open(str(path), "wb") as target:
+            target.setnchannels(self.channels)
+            target.setsampwidth(self.sample_width)
+            target.setframerate(self.sample_rate)
+            target.writeframes(np.ascontiguousarray(samples, dtype="<i2").tobytes())
+
+    def _apply_mastering(self, output_path: Path) -> tuple[bool, dict[str, str] | None]:
+        """Room-tone + master ``output_path`` in place; return (mastered, measured stats).
+
+        Room tone is always laid down (numpy, no ffmpeg). When ffmpeg is present the
+        room-toned bed is loudness-normalised (-19 LUFS, linear) and true-peak-limited
+        (-3 dBTP), and the final measured loudness is returned. When ffmpeg is missing --
+        or the master pass fails -- the un-mastered 44.1 kHz bed is written and
+        ``mastered`` is False so callers can degrade honestly.
+        """
+        core = self._read_samples_array(output_path)
+        head = mastering.room_tone(mastering.ROOM_TONE_HEAD_MS, self.sample_rate)
+        tail = mastering.room_tone(mastering.ROOM_TONE_TAIL_MS, self.sample_rate)
+        combined = np.concatenate([head, core, tail]).astype(np.int16)
+        if not mastering.ffmpeg_available():
+            self._write_array(output_path, combined)
+            return False, None
+        premaster = output_path.with_name(f"{output_path.stem}.premaster.wav")
+        try:
+            self._write_array(premaster, combined)
+            measured = mastering.measure_loudness(premaster)
+            mastering.master_wav(premaster, output_path, measured)
+            final = mastering.measure_loudness(output_path)
+            return True, final
+        except (ValueError, OSError, wave.Error):
+            self._write_array(output_path, combined)
+            return False, None
+        finally:
+            premaster.unlink(missing_ok=True)
+
+    @staticmethod
+    def _mastering_measurement(measured: dict[str, str] | None) -> dict[str, float]:
+        if not measured:
+            return {}
+        summary: dict[str, float] = {}
+        for source_key, target_key in (
+            ("input_i", "integratedLufs"),
+            ("input_tp", "truePeakDb"),
+            ("input_lra", "lra"),
+        ):
+            try:
+                summary[target_key] = float(measured[source_key])
+            except (KeyError, ValueError):
+                continue
+        return summary
 
     def _silence(self, duration_ms: int) -> bytes:
         frame_count = int(self.sample_rate * duration_ms / 1000)
@@ -557,10 +701,6 @@ class ChapterAssembler:
 
     def _frames_to_ms(self, frame_count: int) -> int:
         return int(frame_count / self.sample_rate * 1000)
-
-    @staticmethod
-    def _clip_sample(value: float | int) -> int:
-        return max(-32_768, min(32_767, round(value)))
 
     @staticmethod
     def _canonical_render_mode(render_mode: str) -> str:

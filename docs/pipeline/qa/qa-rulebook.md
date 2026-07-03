@@ -33,10 +33,22 @@ for the thresholds:
 - `dead_air` (new): any run ≥ 3000 ms where 500 ms-windowed RMS stays below -60 dBFS,
   excluding runs that touch the very start or end of the file (head/tail room tone is
   legitimate and is not "dead")
-- `low_loudness` / `high_loudness` (new): whole-file RMS outside `[-30, -14]` dBFS -- rough
-  segment-level bounds; exact -19 LUFS ±1 gating arrives with mastering in Phase 2 task B1
+- `low_loudness` / `high_loudness`: whole-file RMS outside `[-30, -14]` dBFS -- rough
+  segment-level bounds that stay the proxy for un-mastered *segment* renders
 - `truncation_suspected` (new): expected speech floor is `len(text) / 30 chars-per-sec`;
   flagged when actual duration is under half that floor and the text exceeds 40 characters
+
+**Chapter loudness bounds** (Phase 2 task B1/G5): once a chapter is mastered (ffmpeg present)
+its measured integrated loudness gates directly against the target:
+- `chapter_loudness_out_of_range` (review, `warning`): the mastered chapter's integrated
+  loudness is outside **-19 LUFS ±1**.
+- `chapter_loudness_{chapterId}` (readiness, stable-id pass/fail): passes only when the chapter
+  was actually mastered and lands within -19 LUFS ±1; otherwise a `warning` flags loudness as
+  unverified at target (`reason` = `out_of_range` when mastered, `unmastered` when ffmpeg was
+  missing).
+- `export_mastering` (readiness, `blocking`): honest degradation — when ffmpeg is missing,
+  chapters cannot be mastered to -19 LUFS / -3 dBTP, so export readiness is blocked
+  (`reason` = `ffmpeg_missing`), mirroring the export pipeline's ffmpeg gate.
 
 Rules:
 - missing segment render is `blocking`

@@ -4,7 +4,63 @@ import time
 import wave
 from pathlib import Path
 
+import numpy as np
+
 from audio_fixtures import wav_bytes
+from echodraft_api.assembly import ChapterAssembler, SoundCueInput
+
+
+def _ambience_cue(*, ducking: bool = False) -> SoundCueInput:
+    return SoundCueInput(
+        id="cue",
+        scene_id="scene",
+        asset_id="asset",
+        name="room",
+        asset_path="room.wav",
+        asset_type="ambience",
+        cue_type="ambience",
+        start_ms=0,
+        gain_db=-12.0,
+        fade_in_ms=0,
+        fade_out_ms=0,
+        ducking=ducking,
+        render_mode="light",
+        no_sfx=False,
+    )
+
+
+def test_ambience_loop_crossfade_leaves_no_seam_discontinuity() -> None:
+    # A short asset whose loop does NOT line up (3.3 cycles): a hard tile would jump ~0.96
+    # at each seam. The 250 ms equal-power crossfade must keep every step small.
+    length = 1_000
+    phase = np.arange(length)
+    asset = np.sin(2 * np.pi * 3.3 * phase / length)
+    xfade = 200
+
+    looped = ChapterAssembler._tile_with_crossfade(asset, 5_000, xfade)
+    assert looped.size == 5_000
+    assert float(np.max(np.abs(np.diff(looped)))) < 0.3
+
+    # A naive (crossfade-disabled) tile of the same asset would break that bound, proving
+    # the crossfade is what smooths the seam.
+    naive = np.tile(asset, 5)[:5_000]
+    assert float(np.max(np.abs(np.diff(naive)))) > 0.3
+
+
+def test_duck_curve_ramps_between_full_and_attenuated_levels() -> None:
+    assembler = ChapterAssembler.__new__(ChapterAssembler)
+    count = int(ChapterAssembler.sample_rate * 0.5)
+    curve = assembler._duck_curve(count, _ambience_cue(ducking=True))
+
+    ducked = 10 ** (-6.0 / 20)
+    # Body sits at the -6 dB duck; the transition passes through intermediate gains rather
+    # than stepping instantly (no zipper).
+    assert np.isclose(curve[count // 2], ducked, atol=1e-6)
+    intermediate = curve[(curve > ducked + 1e-3) & (curve < 1.0 - 1e-3)]
+    assert intermediate.size > 0
+    # A non-ducked cue keeps unity gain end to end.
+    flat = assembler._duck_curve(count, _ambience_cue(ducking=False))
+    assert np.allclose(flat, 1.0)
 
 
 def wait_for_job(client, job_id: str) -> dict:
