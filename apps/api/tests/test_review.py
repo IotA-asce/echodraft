@@ -177,6 +177,53 @@ def test_patch_auto_resolves_render_qa_issue_when_new_render_passes(client, app)
     assert resolved["metadata"]["newRenderId"] == new_render_id
 
 
+def test_create_issue_dedupe_hit_refreshes_fields_but_preserves_identity(client, app) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Dedupe Refresh", "rightsStatus": "declared"}
+    ).json()["id"]
+    review = app.state.container.review
+    key = "readiness:proj-1:chapter-1:structure_segments"
+
+    first = review.create_issue(
+        project_id=project,
+        category="readiness_structure",
+        severity="warning",
+        title="Empty segments",
+        description="1 segment has no renderable text.",
+        metadata={"reason": "empty"},
+        dedupe_key=key,
+    )
+    assert first.severity == "warning"
+    assert first.status == "open"
+
+    # Simulate an issue a reviewer has already triaged: its status must survive a
+    # dedupe-hit refresh even though the underlying check's failure mode changes.
+    review.update_issue(first.id, status="ignored", severity=None)
+    before = review.issue(first.id)
+    assert before is not None
+
+    second = review.create_issue(
+        project_id=project,
+        category="readiness_structure",
+        severity="blocking",
+        title="No renderable segments",
+        description="Chapters need scenes and segments before production.",
+        metadata={"reason": "missing"},
+        dedupe_key=key,
+    )
+
+    # Same row, same identity/creation time -- but the content now reflects the new
+    # (more severe) failure mode instead of staying frozen at first creation.
+    assert second.id == before.id
+    assert second.created_at == before.created_at
+    assert second.severity == "blocking"
+    assert second.title == "No renderable segments"
+    assert second.description == "Chapters need scenes and segments before production."
+    assert json.loads(second.metadata_json) == {"reason": "missing"}
+    # Status is a reviewer decision, not a check output -- it must not be reset to "open".
+    assert second.status == "ignored"
+
+
 def test_issue_comment_and_selective_patch_preserve_render_history(client) -> None:
     project, chapter, segment = prepared_segment(client)
     original = client.post(
@@ -433,6 +480,39 @@ def test_patch_without_voice_resolves_to_cast_voice_not_narrator(client) -> None
     assert render["id"] != original["id"]
     metadata = json.loads(Path(render["metadataPath"]).read_text(encoding="utf-8"))
     assert metadata["voiceProfileId"] == mara_voice["id"]
+
+
+def test_patch_with_only_voice_supplied_does_not_require_a_narrator(client) -> None:
+    """A half-supplied patch payload (voice given, direction omitted) must resolve each
+    field independently: supplying the voice explicitly should not force the direction
+    resolution path to also need a configured narrator voice. No narrator is ever
+    configured in this project.
+    """
+    project, _, segment = prepared_segment(client)
+    voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Narrator", "backend": "mock", "providerVoiceId": "mock-narrator"},
+    ).json()
+
+    patched = client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/patch",
+        json={"voiceProfileId": voice["id"]},
+    )
+    assert patched.status_code == 202, patched.text
+    render = patched.json()["render"]
+    metadata = json.loads(Path(render["metadataPath"]).read_text(encoding="utf-8"))
+    assert metadata["voiceProfileId"] == voice["id"]
+
+
+def test_patch_with_neither_voice_nor_direction_still_requires_a_narrator(client) -> None:
+    project, _, segment = prepared_segment(client)
+
+    patched = client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/patch",
+        json={},
+    )
+    assert patched.status_code == 422
+    assert "narrator voice" in patched.json()["detail"]
 
 
 def test_patch_without_direction_resolves_saved_segment_direction(client) -> None:

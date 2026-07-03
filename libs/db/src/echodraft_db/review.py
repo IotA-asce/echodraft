@@ -42,6 +42,18 @@ class ReviewRepository:
                     select(IssueRecord).where(IssueRecord.dedupe_key == dedupe_key)
                 )
                 if existing:
+                    # A dedupe hit means the same check fired again, possibly with a
+                    # different failure mode (e.g. severity escalated from warning to
+                    # blocking). Refresh the content fields so the persisted row reflects
+                    # the latest finding instead of freezing at first creation -- but leave
+                    # `status`/`id`/`created_*` alone since those track reviewer decisions
+                    # and identity, not the check's current output.
+                    existing.severity = severity
+                    existing.title = title
+                    existing.description = description
+                    existing.metadata_json = json.dumps(metadata or {}, sort_keys=True)
+                    existing.updated_at = now
+                    session.commit()
                     return existing
             record = IssueRecord(
                 id=f"issue_{uuid4().hex[:16]}",

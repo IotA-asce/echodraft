@@ -517,6 +517,15 @@ class ReadinessService:
                         },
                     )
                 )
+            else:
+                # Same check id whether it currently fails or passes (see the "passed"
+                # branch below and `_chapter_audio_hot_check`'s docstring convention) so a
+                # fixed stale-render finding auto-resolves instead of lingering open forever.
+                checks.append(
+                    self._passed(
+                        f"stale_render_{chapter.id}", "stale-render", "Segment renders are current."
+                    )
+                )
             render = session.scalar(
                 select(ChapterRenderRecord)
                 .where(
@@ -572,6 +581,14 @@ class ReadinessService:
                     "Segment render history is incomplete",
                     f"{missing_segment_renders} segments have no successful segment render.",
                     metadata={"missingSegmentRenders": missing_segment_renders},
+                )
+            )
+        else:
+            # Stable id across fail/pass (same convention as the stale-render and real-audio
+            # checks above) so a cleared finding auto-resolves instead of lingering open.
+            checks.append(
+                self._passed(
+                    "segment_audio_missing", "audio", "All segments have a successful render."
                 )
             )
         return checks
