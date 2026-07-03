@@ -67,6 +67,8 @@ class ReadinessService:
         for draft in drafts:
             issue_id = None
             resolution_status = None
+            metadata = dict(draft.metadata)
+            dedupe_key = f"readiness:{project_id}:{chapter_id or 'project'}:{draft.id}"
             if draft.status != "passed":
                 issue = self.container.review.create_issue(
                     project_id=project_id,
@@ -77,10 +79,24 @@ class ReadinessService:
                     title=draft.title,
                     description=draft.description,
                     metadata={**draft.metadata, "readinessCheckId": draft.id},
-                    dedupe_key=f"readiness:{project_id}:{chapter_id or 'project'}:{draft.id}",
+                    dedupe_key=dedupe_key,
                 )
                 issue_id = issue.id
                 resolution_status = issue.status
+                # A "resolved" mark is a claim, re-verified every run: a check that still
+                # fails can never hide behind a stale resolution, so reopen it.
+                if resolution_status == "resolved":
+                    self.container.review.update_issue(issue.id, status="open", severity=None)
+                    resolution_status = "open"
+                    metadata["reopened"] = True
+            else:
+                # The condition now passes: auto-resolve any lingering issue for this check so
+                # genuinely fixed findings (including previously accepted risks) clear themselves.
+                existing = self.container.review.issue_by_dedupe_key(dedupe_key)
+                if existing and existing.status != "resolved":
+                    self.container.review.update_issue(
+                        existing.id, status="resolved", severity=None
+                    )
             checks.append(
                 ReadinessCheck(
                     id=draft.id,
@@ -92,7 +108,7 @@ class ReadinessService:
                     description=draft.description,
                     issueId=issue_id,
                     resolutionStatus=resolution_status,
-                    metadata=draft.metadata,
+                    metadata=metadata,
                 )
             )
 
@@ -155,13 +171,13 @@ class ReadinessService:
             if open_cleaning:
                 checks.append(
                     self._issue(
-                        "text_cleaning_open",
+                        "text_cleaning",
                         "text",
                         "warning",
                         "readiness_text",
                         "Open Clean Text Review issues",
                         f"{open_cleaning} clean-text issues are still open.",
-                        {"openCleaningIssues": open_cleaning},
+                        {"openCleaningIssues": open_cleaning, "reason": "open_issues"},
                     )
                 )
             else:
@@ -169,24 +185,26 @@ class ReadinessService:
         else:
             checks.append(
                 self._issue(
-                    "text_source_missing",
+                    "text_source",
                     "text",
                     "blocking",
                     "readiness_text",
                     "No imported source",
                     "Import a rights-cleared manuscript before readiness review.",
+                    {"reason": "missing"},
                 )
             )
 
         if not chapters:
             checks.append(
                 self._issue(
-                    "structure_missing",
+                    "structure_chapters",
                     "structure",
                     "blocking",
                     "readiness_structure",
                     "No chapter structure",
                     "Extract structure before production readiness can pass.",
+                    metadata={"reason": "missing"},
                 )
             )
             return checks
@@ -194,13 +212,14 @@ class ReadinessService:
         if not segments:
             checks.append(
                 self._issue(
-                    "structure_segments_missing",
+                    "structure_segments",
                     "structure",
                     "blocking",
                     "readiness_structure",
                     "No renderable segments",
                     "Chapters need scenes and segments before production.",
                     chapter_id=chapter_id,
+                    metadata={"reason": "missing"},
                 )
             )
         else:
@@ -208,14 +227,14 @@ class ReadinessService:
             if empty_segments:
                 checks.append(
                     self._issue(
-                        "structure_empty_segments",
+                        "structure_segments",
                         "structure",
                         "warning",
                         "readiness_structure",
                         "Empty segments",
                         f"{len(empty_segments)} segments have no renderable text.",
                         chapter_id=chapter_id,
-                        metadata={"segmentIds": empty_segments[:20]},
+                        metadata={"segmentIds": empty_segments[:20], "reason": "empty"},
                     )
                 )
             else:
@@ -233,7 +252,7 @@ class ReadinessService:
         if parser_warnings:
             checks.append(
                 self._issue(
-                    "structure_parser_warnings",
+                    "structure_warnings",
                     "structure",
                     "warning",
                     "readiness_structure",
@@ -269,27 +288,32 @@ class ReadinessService:
         if review_count:
             return [
                 self._issue(
-                    "speaker_review_open",
+                    "speaker_attribution",
                     "speaker",
                     "warning",
                     "readiness_speaker",
                     "Speaker review queue is open",
                     f"{review_count} speaker attribution rows still need review.",
                     chapter_id=chapter_id,
-                    metadata={"openSpeakerAttributions": review_count, "unresolvedSpeakerRows": review_count},
+                    metadata={
+                        "openSpeakerAttributions": review_count,
+                        "unresolvedSpeakerRows": review_count,
+                        "reason": "review_open",
+                    },
                 )
             ]
         if rows:
             return [self._passed("speaker_attribution", "speaker", "Speaker attributions are approved.")]
         return [
             self._issue(
-                "speaker_attribution_missing",
+                "speaker_attribution",
                 "speaker",
                 "warning",
                 "readiness_speaker",
                 "Speaker attribution has not run",
                 "Run Cast Review before final export readiness.",
                 chapter_id=chapter_id,
+                metadata={"reason": "missing"},
             )
         ]
 
@@ -301,12 +325,13 @@ class ReadinessService:
         if not settings or not settings.narrator_voice_profile_id:
             checks.append(
                 self._issue(
-                    "voice_narrator_missing",
+                    "voice_narrator",
                     "voice",
                     "blocking",
                     "readiness_voice",
                     "Narrator voice missing",
                     "Choose a narrator voice before readiness can pass.",
+                    metadata={"reason": "missing"},
                 )
             )
         else:
@@ -314,12 +339,13 @@ class ReadinessService:
             if not voice or voice.project_id != project_id:
                 checks.append(
                     self._issue(
-                        "voice_narrator_invalid",
+                        "voice_narrator",
                         "voice",
                         "blocking",
                         "readiness_voice",
                         "Narrator voice is invalid",
                         "The selected narrator voice no longer exists in this project.",
+                        metadata={"reason": "invalid"},
                     )
                 )
             else:
@@ -362,6 +388,7 @@ class ReadinessService:
                         "charactersDetected": len(characters),
                         "charactersVoiced": len(characters) - len(unvoiced),
                         "unvoicedCharacterIds": unvoiced[:20],
+                        "reason": "partial",
                     },
                 )
             )
@@ -376,14 +403,14 @@ class ReadinessService:
         else:
             checks.append(
                 self._issue(
-                    "voice_no_characters_detected",
+                    "voice_character_coverage",
                     "voice",
                     "warning",
                     "readiness_voice",
                     "No cast has been detected",
                     "Run Structure & Cast Draft before chapter production review.",
                     chapter_id=chapter_id,
-                    metadata={"charactersDetected": 0, "charactersVoiced": 0},
+                    metadata={"charactersDetected": 0, "charactersVoiced": 0, "reason": "no_characters_detected"},
                 )
             )
 
@@ -443,7 +470,7 @@ class ReadinessService:
         if missing:
             return [
                 self._issue(
-                    "direction_missing",
+                    "direction_coverage",
                     "direction",
                     "warning",
                     "readiness_direction",
@@ -495,13 +522,14 @@ class ReadinessService:
             if not render:
                 checks.append(
                     self._issue(
-                        f"chapter_audio_missing_{chapter.id}",
+                        f"chapter_audio_{chapter.id}",
                         "audio",
                         "blocking",
                         "readiness_audio",
                         "Chapter audio is missing",
                         "Produce or assemble this chapter before export.",
                         chapter_id=chapter.id,
+                        metadata={"reason": "missing"},
                     )
                 )
                 continue
@@ -510,14 +538,14 @@ class ReadinessService:
             if audio_error:
                 checks.append(
                     self._issue(
-                        f"chapter_audio_invalid_{chapter.id}",
+                        f"chapter_audio_{chapter.id}",
                         "audio",
                         "blocking",
                         "readiness_audio",
                         "Chapter audio artifact is invalid",
                         audio_error,
                         chapter_id=chapter.id,
-                        metadata={"chapterRenderId": render.id},
+                        metadata={"chapterRenderId": render.id, "reason": "invalid"},
                     )
                 )
             else:
@@ -547,12 +575,13 @@ class ReadinessService:
         if not project or project.rights_status.value != "declared":
             checks.append(
                 self._issue(
-                    "export_rights_missing",
+                    "export_rights",
                     "export-blocker",
                     "blocking",
                     "readiness_export",
                     "Rights declaration missing",
                     "Declared rights are required before export.",
+                    metadata={"reason": "missing"},
                 )
             )
         elif has_chapters:
@@ -568,7 +597,7 @@ class ReadinessService:
         if open_blockers:
             checks.append(
                 self._issue(
-                    "export_open_blockers",
+                    "export_blockers",
                     "export-blocker",
                     "blocking",
                     "readiness_export",
@@ -589,15 +618,21 @@ class ReadinessService:
             for check in checks
             if check.status != "passed" and (check.resolution_status in {None, "open"})
         ]
+        accepted = [
+            check
+            for check in checks
+            if check.status != "passed" and check.resolution_status in {"ignored", "locked"}
+        ]
         blocking = len([check for check in active if check.severity == "blocking"])
         warnings = len([check for check in active if check.severity == "warning"])
-        passed = len(checks) - len(active)
+        passed = len(checks) - len(active) - len(accepted)
         status = "blocked" if blocking else "needs_review" if warnings else "ready"
         score = round((passed / len(checks)) * 100) if checks else 0
         summary = {
             "passed": passed,
             "warnings": warnings,
             "blocking": blocking,
+            "accepted": len(accepted),
             "total": len(checks),
         }
         record = ReadinessReportRecord(
