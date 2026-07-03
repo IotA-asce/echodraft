@@ -3,8 +3,8 @@
 This directory is the working documentation set for `echodraft`, a local-first AI audiobook production system. It translates the raw PRD and engineering source material into a repo-first document set for implementation.
 
 ## Source mapping
-- Product source: `../ai_audiobook_studio_prds.md`
-- Engineering source: `../ai_audiobook_studio_engineering_pack.md`
+- Product source: `sources/prds.md`
+- Engineering source: `sources/engineering-pack.md`
 - Repo operating constraints: `../AGENTS.md`
 
 The source files above remain raw reference inputs. The documents in this directory are the implementation-facing source of truth.
