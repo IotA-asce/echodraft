@@ -62,6 +62,16 @@ class ReviewRepository:
             session.commit()
             return record
 
+    def issue(self, issue_id: str) -> IssueRecord | None:
+        with self.database.session() as session:
+            return session.get(IssueRecord, issue_id)
+
+    def issue_by_dedupe_key(self, dedupe_key: str) -> IssueRecord | None:
+        with self.database.session() as session:
+            return session.scalar(
+                select(IssueRecord).where(IssueRecord.dedupe_key == dedupe_key)
+            )
+
     def update_issue(
         self, issue_id: str, status: str | None, severity: str | None
     ) -> IssueRecord | None:
@@ -73,6 +83,25 @@ class ReviewRepository:
                 record.status = status
             if severity:
                 record.severity = severity
+            record.updated_at = datetime.now(UTC)
+            session.commit()
+            return record
+
+    def merge_issue_metadata(
+        self,
+        issue_id: str,
+        metadata: dict[str, object],
+        status: str | None = None,
+    ) -> IssueRecord | None:
+        with self.database.session() as session:
+            record = session.get(IssueRecord, issue_id)
+            if not record:
+                return None
+            merged = json.loads(record.metadata_json)
+            merged.update(metadata)
+            record.metadata_json = json.dumps(merged, sort_keys=True)
+            if status:
+                record.status = status
             record.updated_at = datetime.now(UTC)
             session.commit()
             return record
