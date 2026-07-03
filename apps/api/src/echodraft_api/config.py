@@ -21,6 +21,7 @@ class AppSettings:
     local_ai_root: Path = Path(".echodraft/local-ai")
     ollama_base_url: str = "http://127.0.0.1:11434"
     tts_settings_path: Path = Path(".echodraft/tts-settings.json")
+    max_concurrent_jobs: int = 2
 
     @classmethod
     def from_environment(cls) -> "AppSettings":
@@ -76,4 +77,5 @@ class AppSettings:
             tts_settings_path=Path(
                 os.getenv("ECHODRAFT_TTS_SETTINGS_PATH", ".echodraft/tts-settings.json")
             ).expanduser().resolve(),
+            max_concurrent_jobs=int(os.getenv("ECHODRAFT_MAX_CONCURRENT_JOBS", "2")),
         )
