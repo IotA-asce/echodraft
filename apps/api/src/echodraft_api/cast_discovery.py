@@ -117,6 +117,7 @@ class CharacterCandidate:
     role_guess: str
     confidence: float
     source: str
+    mention_evidence: list[str] = field(default_factory=list)
 
     @property
     def key(self) -> str:
@@ -179,6 +180,7 @@ class CastDiscoveryService:
         if ready:
             candidates.extend(self._llm_candidates(project_id, segments, job_id))
         candidates = self._consolidate(candidates)
+        candidates = self._with_mention_evidence(candidates, segments)
         decisions = self._llm_merge_decisions(project_id, candidates, job_id) if ready else {}
         index = self._character_index(project_id)
         for candidate in candidates:
@@ -400,6 +402,7 @@ class CastDiscoveryService:
                         "source": candidate.source,
                         "evidenceGraph": evidence_graph,
                         "evidence": candidate.evidence,
+                        "mentionEvidence": candidate.mention_evidence,
                         "decision": decision.reason if decision else "deterministic_unique_candidate",
                     },
                     sort_keys=True,
@@ -465,6 +468,7 @@ class CastDiscoveryService:
                 "source": candidate.source,
                 "reason": reason,
                 "evidence": candidate.evidence,
+                "mentionEvidence": candidate.mention_evidence,
                 "evidenceGraph": _candidate_evidence_graph(candidate),
             },
             dedupe_key=(
@@ -495,6 +499,7 @@ class CastDiscoveryService:
                 "source": candidate.source,
                 "reason": "Candidate confidence was too low.",
                 "evidence": candidate.evidence,
+                "mentionEvidence": candidate.mention_evidence,
                 "evidenceGraph": _candidate_evidence_graph(candidate),
             },
             dedupe_key=(
@@ -599,10 +604,44 @@ class CastDiscoveryService:
                 continue
             existing.aliases = _clean_strings([*existing.aliases, *candidate.aliases])
             existing.evidence = _clean_strings([*existing.evidence, *candidate.evidence])[:5]
+            existing.mention_evidence = _clean_strings(
+                [*existing.mention_evidence, *candidate.mention_evidence]
+            )
             existing.confidence = max(existing.confidence, candidate.confidence)
             if existing.source != candidate.source:
                 existing.source = "deterministic_parser+llm_cast_discovery"
         return list(by_key.values())
+
+    @staticmethod
+    def _with_mention_evidence(
+        candidates: list[CharacterCandidate], segments: list[ObservedSegment]
+    ) -> list[CharacterCandidate]:
+        for candidate in candidates:
+            candidate_keys = _candidate_name_keys(candidate)
+            mention_evidence = list(candidate.mention_evidence)
+            for segment in segments:
+                if _name_key(segment.speaker_candidate) in candidate_keys:
+                    continue
+                for start, end, matched_text in _mention_spans(candidate, segment.text):
+                    absolute_start = segment.start_offset + start
+                    absolute_end = segment.start_offset + end
+                    mention_evidence.append(
+                        json.dumps(
+                            {
+                                "textPreview": segment.text[:220],
+                                "matchedText": matched_text,
+                                "sources": ["mention"],
+                                "confidence": min(candidate.confidence, 0.74),
+                                "segmentId": segment.id,
+                                "chapterId": segment.chapter_id,
+                                "startOffset": absolute_start,
+                                "endOffset": absolute_end,
+                            },
+                            sort_keys=True,
+                        )
+                    )
+            candidate.mention_evidence = _clean_strings(mention_evidence)
+        return candidates
 
 
 def _segment_batches(segments: list[ObservedSegment]) -> list[list[ObservedSegment]]:
@@ -632,8 +671,33 @@ def _character_names(character: CharacterRecord) -> list[str]:
     return names
 
 
+def _candidate_name_keys(candidate: CharacterCandidate) -> set[str]:
+    return {
+        key
+        for name in [candidate.display_name, candidate.canonical_name or "", *candidate.aliases]
+        if (key := _name_key(name))
+    }
+
+
+def _mention_spans(candidate: CharacterCandidate, text: str) -> list[tuple[int, int, str]]:
+    names = _clean_strings([candidate.display_name, candidate.canonical_name or "", *candidate.aliases])
+    spans: list[tuple[int, int, str]] = []
+    occupied: list[tuple[int, int]] = []
+    for name in sorted(names, key=len, reverse=True):
+        pattern = re.compile(rf"(?<![\w'-]){re.escape(name)}(?![\w'-])", re.IGNORECASE)
+        for match in pattern.finditer(text):
+            start, end = match.span()
+            if any(start < occupied_end and end > occupied_start for occupied_start, occupied_end in occupied):
+                continue
+            spans.append((start, end, text[start:end]))
+            occupied.append((start, end))
+    return sorted(spans)
+
+
 def _candidate_evidence_graph(candidate: CharacterCandidate) -> dict[str, object]:
-    evidence_items = [_evidence(item) for item in candidate.evidence]
+    speaker_items = [_evidence(item) for item in candidate.evidence]
+    mention_items = [_evidence(item) for item in candidate.mention_evidence]
+    evidence_items = [*speaker_items, *mention_items]
     offsets = [
         start
         for item in evidence_items
@@ -654,8 +718,8 @@ def _candidate_evidence_graph(candidate: CharacterCandidate) -> dict[str, object
     return {
         "canonicalName": candidate.canonical_name or candidate.display_name,
         "aliases": _clean_strings([candidate.display_name, candidate.canonical_name or "", *candidate.aliases]),
-        "speakerEvidenceCount": len(candidate.evidence),
-        "mentionEvidenceCount": 0,
+        "speakerEvidenceCount": len(speaker_items),
+        "mentionEvidenceCount": len(mention_items),
         "firstSeenOffset": min(offsets) if offsets else None,
         "lastSeenOffset": max(end_offsets) if end_offsets else None,
         "confidence": candidate.confidence,
