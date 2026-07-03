@@ -1,13 +1,13 @@
 import hashlib
 import json
 import threading
-import wave
 from pathlib import Path
 from uuid import uuid4
 from echodraft_domain import SegmentRender, SegmentRenderComparison, SegmentRenderRequest
 from echodraft_db.models import SegmentRenderRecord
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from .audio_analysis import analyze_wav
 from .container import AppContainer
 from .direction import apply_pronunciations
 from .review import ReviewService
@@ -88,9 +88,8 @@ class SegmentRenderer:
             provenance = self.adapter.preview(
                 synthesis_text, provider_voice_id, audio, request.direction
             )
-            with wave.open(str(audio)) as wav:
-                duration = int(wav.getnframes() / wav.getframerate() * 1000)
-                sample_rate = wav.getframerate()
+            analysis = analyze_wav(audio)
+            duration = analysis.duration_ms
             metadata.write_text(
                 json.dumps(
                     {
@@ -98,10 +97,10 @@ class SegmentRenderer:
                         "tts": provenance,
                         "renderKey": key,
                         "durationMs": duration,
-                        "sampleRate": sample_rate,
-                        "peak": 0,
-                        "silenceRanges": [[0, duration]],
-                        "waveform": [],
+                        "sampleRate": analysis.sample_rate,
+                        "peak": analysis.peak_dbfs,
+                        "silenceRanges": [list(pair) for pair in analysis.silence_ranges],
+                        "waveform": analysis.waveform_peaks,
                     },
                     indent=2,
                 )
@@ -122,7 +121,9 @@ class SegmentRenderer:
             with self.container.structure.database.session() as s:
                 s.add(record)
                 s.commit()
-        ReviewService(self.container).qa_segment(project_id, record)
+        # Reuse the analysis computed for metadata.json above: QA must not re-decode the
+        # same WAV a second time.
+        ReviewService(self.container).qa_segment(project_id, record, analysis=analysis)
         return SegmentRender(
             id=record.id,
             segmentId=segment_id,

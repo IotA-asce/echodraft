@@ -3,7 +3,9 @@ import threading
 import time
 from pathlib import Path
 
+from audio_fixtures import wav_bytes_from_segments
 from echodraft_api.rendering import SegmentRenderer
+from echodraft_api.review import ReviewService
 from echodraft_db.models import SegmentRenderRecord
 from echodraft_domain import SegmentRenderRequest
 from sqlalchemy import select
@@ -41,6 +43,21 @@ def render_payload(project: str) -> dict:
         "voiceProfileId": "voice_test",
         "direction": {"scopeType": "project", "scopeId": project},
     }
+
+
+def test_segment_render_metadata_carries_real_audio_telemetry(client) -> None:
+    project, _, segment = prepared_segment(client)
+    rendered = client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/generate", json=render_payload(project)
+    ).json()
+    metadata = json.loads(Path(rendered["metadataPath"]).read_text(encoding="utf-8"))
+
+    # The mock provider always writes pure digital silence, so an honest analysis floors
+    # peak at -120 dBFS -- a real float, never the old hardcoded literal `0`.
+    assert metadata["peak"] == -120.0
+    assert isinstance(metadata["peak"], float)
+    assert len(metadata["waveform"]) == 200
+    assert metadata["silenceRanges"] == [[0, rendered["durationMs"]]]
 
 
 def test_concurrent_forced_renders_keep_a_linear_chain(app, client) -> None:
@@ -95,8 +112,13 @@ def test_qa_issues_are_durable_and_deduplicated_per_render(client) -> None:
     )
     assert rendered.status_code == 202
     issues = client.get(f"/api/v1/projects/{project}/issues?segment_id={segment}").json()
-    silence = [item for item in issues if item["category"] == "excessive_silence"]
-    assert len(silence) == 1
+    # The mock provider's render is pure digital silence for its whole (short) duration, so
+    # the honest real-analysis finding is "too quiet" (rms floors at -120 dBFS). It is too
+    # short for any window to qualify as a >=3s interior dead-air run, so `excessive_silence`
+    # / `dead_air` do not fire here (covered separately below with fabricated WAVs long
+    # enough to contain a real interior dead-air stretch).
+    low_loudness = [item for item in issues if item["category"] == "low_loudness"]
+    assert len(low_loudness) == 1
 
     # Re-reading the queue never produces another QA finding for the same render revision.
     assert (
@@ -104,7 +126,7 @@ def test_qa_issues_are_durable_and_deduplicated_per_render(client) -> None:
             [
                 item
                 for item in client.get(f"/api/v1/projects/{project}/issues").json()
-                if item["id"] == silence[0]["id"]
+                if item["id"] == low_loudness[0]["id"]
             ]
         )
         == 1
@@ -118,9 +140,10 @@ def test_patch_auto_resolves_render_qa_issue_when_new_render_passes(client, app)
     ).json()
 
     # Model a render-QA finding that a re-render genuinely fixes. The mock TTS provider only
-    # ever emits `excessive_silence` (its audio is always pure silence), so it can never make
-    # a render-QA issue disappear; we therefore seed a `very_short_duration` finding with the
-    # exact shape `qa_segment` produces (a `segmentRenderId` in metadata) pinned to the render.
+    # ever emits `low_loudness` (its audio is always pure silence), so it can never make a
+    # render-QA issue of some other category disappear; we therefore seed a
+    # `very_short_duration` finding with the exact shape `qa_segment` produces (a
+    # `segmentRenderId` in metadata) pinned to the render.
     seeded = app.state.container.review.create_issue(
         project_id=project,
         segment_id=segment,
@@ -455,3 +478,98 @@ def test_patch_without_direction_resolves_saved_segment_direction(client) -> Non
     render = patched.json()["render"]
     metadata = json.loads(Path(render["metadataPath"]).read_text(encoding="utf-8"))
     assert metadata["direction"]["pace"] == 1.3
+
+
+# --- `ReviewService._audio_rules` unit coverage -----------------------------------------
+# These call the rule function directly against fabricated WAVs (no HTTP/DB round trip) so
+# each real metric can be isolated precisely, per docs/plans/2026-07-04-phase-2-publishable-
+# audio.md Task B2.
+
+
+def test_audio_rules_flags_clipping_above_threshold(tmp_path) -> None:
+    path = tmp_path / "clip.wav"
+    path.write_bytes(wav_bytes_from_segments([(32_760, 50)], sample_rate=16_000))
+    categories = {category for category, _, _ in ReviewService._audio_rules(path, 50)}
+    assert "clipping" in categories
+
+
+def test_audio_rules_does_not_flag_isolated_clipped_samples(tmp_path) -> None:
+    # A handful of near-full-scale samples (inter-sample rounding) must not trip clipping;
+    # only clipped_sample_count > 8 does. At 8000 Hz, 1 ms is exactly 8 frames -- right at
+    # (not over) the threshold.
+    path = tmp_path / "near-clip.wav"
+    path.write_bytes(wav_bytes_from_segments([(32_760, 1), (100, 200)], sample_rate=8_000))
+    categories = {category for category, _, _ in ReviewService._audio_rules(path, 201)}
+    assert "clipping" not in categories
+
+
+def test_audio_rules_flags_low_loudness_for_quiet_audio(tmp_path) -> None:
+    path = tmp_path / "quiet.wav"
+    path.write_bytes(wav_bytes_from_segments([(50, 1000)], sample_rate=16_000))
+    categories = {category for category, _, _ in ReviewService._audio_rules(path, 1000)}
+    assert "low_loudness" in categories
+    assert "excessive_silence" not in categories
+
+
+def test_audio_rules_flags_high_loudness_for_hot_audio(tmp_path) -> None:
+    path = tmp_path / "hot.wav"
+    path.write_bytes(wav_bytes_from_segments([(30_000, 1000)], sample_rate=16_000))
+    categories = {category for category, _, _ in ReviewService._audio_rules(path, 1000)}
+    assert "high_loudness" in categories
+
+
+def test_audio_rules_flags_dead_air_and_excessive_silence_for_long_interior_gap(
+    tmp_path,
+) -> None:
+    # A 6s interior gap (not touching either end) is both a `dead_air` finding and enough
+    # of the file (75%) to be `excessive_silence` too.
+    data = wav_bytes_from_segments(
+        [(16_000, 1000), (0, 6000), (16_000, 1000)], sample_rate=16_000
+    )
+    path = tmp_path / "deadair.wav"
+    path.write_bytes(data)
+    categories = {category for category, _, _ in ReviewService._audio_rules(path, 8000)}
+    assert "dead_air" in categories
+    assert "excessive_silence" in categories
+
+
+def test_audio_rules_does_not_flag_head_tail_room_tone_as_dead_air(tmp_path) -> None:
+    data = wav_bytes_from_segments(
+        [(0, 4000), (16_000, 1000), (0, 4000)], sample_rate=16_000
+    )
+    path = tmp_path / "roomtone.wav"
+    path.write_bytes(data)
+    categories = {category for category, _, _ in ReviewService._audio_rules(path, 9000)}
+    assert "dead_air" not in categories
+    assert "excessive_silence" not in categories
+
+
+def test_audio_rules_flags_truncation_suspected_for_long_text_short_audio(tmp_path) -> None:
+    long_text = "x" * 100  # > 40 chars; floor = 100/30*1000 ~= 3333ms, half ~= 1667ms
+    path = tmp_path / "short.wav"
+    path.write_bytes(wav_bytes_from_segments([(16_000, 300)], sample_rate=16_000))
+    categories = {
+        category for category, _, _ in ReviewService._audio_rules(path, 300, long_text)
+    }
+    assert "truncation_suspected" in categories
+
+
+def test_audio_rules_does_not_flag_truncation_for_normal_ratio(tmp_path) -> None:
+    long_text = "x" * 100
+    path = tmp_path / "normal.wav"
+    path.write_bytes(wav_bytes_from_segments([(16_000, 4000)], sample_rate=16_000))
+    categories = {
+        category for category, _, _ in ReviewService._audio_rules(path, 4000, long_text)
+    }
+    assert "truncation_suspected" not in categories
+
+
+def test_audio_rules_does_not_flag_truncation_for_short_text(tmp_path) -> None:
+    # Text at/under the 40-char floor never triggers truncation, however short the audio.
+    short_text = "x" * 30
+    path = tmp_path / "tiny.wav"
+    path.write_bytes(wav_bytes_from_segments([(16_000, 50)], sample_rate=16_000))
+    categories = {
+        category for category, _, _ in ReviewService._audio_rules(path, 50, short_text)
+    }
+    assert "truncation_suspected" not in categories
