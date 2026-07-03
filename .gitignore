@@ -12,3 +12,6 @@ playwright-report/
 test-results/
 test-assets/
 *.tsbuildinfo
+
+.claude/
+.superpowers/
