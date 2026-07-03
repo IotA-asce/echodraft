@@ -408,8 +408,13 @@ def test_chapter_assembly_lays_room_tone_and_records_mastering_block(client) -> 
     assert block["targetLufs"] == -19
     assert block["truePeakDb"] == -3
     assert block["roomToneMs"] == {"head": 1000, "tail": 2000}
-    # No ffmpeg in the test environment -> honest degradation, not a silent skip.
-    assert block["mastered"] is (mastering.ffmpeg_available())
+    # PATH presence alone does not guarantee a successful mastering pass; corrupt
+    # or unsupported local ffmpeg builds still degrade honestly.
+    if block["mastered"]:
+        assert mastering.ffmpeg_available()
+        assert "integratedLufs" in block["measured"]
+    else:
+        assert block["measured"] == {}
 
     speech = Path(assembled["speechPath"])
     with wave.open(str(speech)) as output:

@@ -4,6 +4,7 @@ from .llm_runs import LlmRunRepository
 from .local_ai import LocalAiRepository
 from .source_artifacts import SourceArtifactRepository
 from .repository import (
+    CastMergeDecisionRepository,
     CastingRepository,
     JobRepository,
     ProjectRepository,
@@ -19,6 +20,7 @@ from .review import ReviewRepository
 __all__ = [
     "AmbienceRepository",
     "Database",
+    "CastMergeDecisionRepository",
     "CastingRepository",
     "JobRepository",
     "LlmRunRepository",

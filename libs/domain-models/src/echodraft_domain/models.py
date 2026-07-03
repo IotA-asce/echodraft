@@ -357,6 +357,16 @@ class SpeakerAttributionUpdate(ApiModel):
     user_locked: bool | None = Field(default=None, alias="userLocked")
 
 
+class SpeakerAttributionUpdateResult(SpeakerAttribution):
+    """Attribution PATCH response.
+
+    Adds ``propagatedCount`` (how many sibling rows a confirmation taught) on top
+    of every existing SpeakerAttribution field, so older clients keep working.
+    """
+
+    propagated_count: int = Field(default=0, alias="propagatedCount")
+
+
 class SpeakerAttributionRunRequest(ApiModel):
     use_local_llm: bool = Field(default=False, alias="useLocalLlm")
     model: str = "qwen3:4b"
@@ -426,6 +436,11 @@ class CharacterSplitRequest(ApiModel):
     display_name: str = Field(min_length=1, alias="displayName")
     aliases: list[str] = Field(default_factory=list)
     traits: list[str] = Field(default_factory=list)
+    reason: str | None = None
+
+
+class CharacterRejectMergeRequest(ApiModel):
+    candidate_name: str = Field(alias="candidateName", min_length=1)
     reason: str | None = None
 
 

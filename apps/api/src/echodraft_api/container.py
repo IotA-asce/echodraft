@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from echodraft_db import (
     AmbienceRepository,
     CastingRepository,
+    CastMergeDecisionRepository,
     Database,
     JobRepository,
     LlmRunRepository,
@@ -38,6 +39,7 @@ class AppContainer:
     source_artifacts: SourceArtifactRepository
     structure: StructureRepository
     casting: CastingRepository
+    cast_merge_decisions: CastMergeDecisionRepository
     review: ReviewRepository
     speaker_attributions: SpeakerAttributionRepository
     ambience: AmbienceRepository
@@ -68,6 +70,7 @@ def build_container(settings: AppSettings) -> AppContainer:
         source_artifacts=SourceArtifactRepository(database),
         structure=StructureRepository(database),
         casting=CastingRepository(database),
+        cast_merge_decisions=CastMergeDecisionRepository(database),
         review=ReviewRepository(database),
         speaker_attributions=SpeakerAttributionRepository(database),
         ambience=AmbienceRepository(database),

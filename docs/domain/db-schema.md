@@ -228,6 +228,27 @@ Rules:
 - merge/split history is append-only JSON metadata
 - merged source records remain for traceability and point at `merged_into_character_id`
 - voice links live in `character_voice_assignments`
+- confirmed/rejected merge decisions are also remembered in `cast_merge_decisions`
+
+### `cast_merge_decisions`
+Purpose: project-local human rulings on whether two cast names refer to the same character.
+
+Key columns:
+- `id` TEXT PK
+- `project_id` FK
+- `name_a` TEXT NOT NULL
+- `name_b` TEXT NOT NULL
+- `decision` TEXT NOT NULL (`confirmed` or `rejected`)
+- `reason` TEXT nullable
+- `created_at` DATETIME NOT NULL
+
+Constraints:
+- unique `(project_id, name_a, name_b)` where `name_a`/`name_b` are normalized and sorted
+
+Rules:
+- confirmed decisions are recorded when characters are merged
+- rejected decisions suppress future duplicate-cast issues for that name pair
+- recent decisions are injected into cast-discovery prompts as project-local examples
 
 ### `voice_profiles`
 Purpose: reusable voice configurations.
@@ -275,6 +296,8 @@ Key columns:
 Rules:
 - one active attribution row per segment
 - deterministic reruns skip `user_locked` rows
+- approving a character match can propagate to unresolved sibling rows with the same speaker name
+- approved locked rows can seed local LLM speaker-attribution prompts as few-shot examples
 - approved rows with character voice assignments are used for production voice resolution
 - segment voice overrides still take precedence over speaker attribution voices
 

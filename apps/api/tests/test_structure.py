@@ -822,3 +822,103 @@ def test_cast_discovery_uses_aliases_without_creating_duplicates(client) -> None
     row = next(item for item in attributions if item["speakerName"] == "Captain Vale")
     assert row["status"] == "approved"
     assert row["characterId"] == character["id"]
+
+
+def _reparse(client, project: str) -> None:
+    job = client.post(f"/api/v1/projects/{project}/source/reparse", json={}).json()
+    assert wait_for_job(client, job["id"])["status"] == "succeeded"
+
+
+def test_reject_merge_suppresses_duplicate_reflagging(client) -> None:
+    project = project_with_source(client, "Chapter 1\n\nMary-Jane: Wait.")
+    existing = client.post(
+        f"/api/v1/projects/{project}/characters",
+        json={"displayName": "Mary"},
+    ).json()
+    extract(client, project)
+
+    issues = client.get(f"/api/v1/projects/{project}/issues").json()
+    issue = next(
+        issue for issue in issues if issue["metadata"].get("code") == "cast.possible_duplicate"
+    )
+    assert issue["metadata"]["candidateName"] == "Mary-Jane"
+
+    rejected = client.post(
+        f"/api/v1/characters/{existing['id']}/reject-merge",
+        json={"candidateName": "Mary-Jane", "reason": "Different people."},
+    )
+    assert rejected.status_code == 200
+
+    resolved = client.get(f"/api/v1/projects/{project}/issues").json()
+    resolved_issue = next(item for item in resolved if item["id"] == issue["id"])
+    assert resolved_issue["status"] == "resolved"
+
+    # Re-parse mints fresh segment ids (new dedupe keys); without the rejected
+    # decision this would re-flag the same pair as a brand-new open issue.
+    _reparse(client, project)
+    extract(client, project)
+
+    after = client.get(f"/api/v1/projects/{project}/issues").json()
+    open_duplicates = [
+        item
+        for item in after
+        if item["metadata"].get("code") == "cast.possible_duplicate"
+        and item["metadata"].get("candidateName") == "Mary-Jane"
+        and item["status"] == "open"
+    ]
+    assert open_duplicates == []
+
+
+def test_reject_merge_validates_character_exists(client) -> None:
+    missing = client.post(
+        "/api/v1/characters/char_does_not_exist/reject-merge",
+        json={"candidateName": "Mary-Jane"},
+    )
+    assert missing.status_code == 404
+
+
+def test_merge_decision_injected_into_merge_prompt(client, monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    monkeypatch.setattr(
+        structure_module.StructureService, "_local_llm_ready", lambda _self: (True, "ready")
+    )
+    monkeypatch.setattr(
+        cast_discovery_module.CastDiscoveryService, "_local_llm_ready", lambda _self: True
+    )
+
+    def fake_extract(_self, _project_id, request, _job_id=None):
+        if request.task == "cast_merge_verification":
+            captured["merge"] = request.prompt
+            return SimpleNamespace(
+                run=SimpleNamespace(id="llmrun_merge"),
+                result={"decisions": [], "warnings": []},
+            )
+        if request.task == "cast_discovery":
+            return SimpleNamespace(
+                run=SimpleNamespace(id="llmrun_cast"),
+                result={"characters": [], "warnings": []},
+            )
+        return SimpleNamespace(
+            run=SimpleNamespace(id="llmrun_empty"),
+            result={"segments": [], "attributions": [], "warnings": []},
+        )
+
+    monkeypatch.setattr(structure_module.LocalLlmService, "extract", fake_extract)
+
+    project = project_with_source(client, "Chapter 1\n\nBran: We leave now.\n\nBrandon: Hold.")
+    source = client.post(
+        f"/api/v1/projects/{project}/characters", json={"displayName": "Bran"}
+    ).json()
+    target = client.post(
+        f"/api/v1/projects/{project}/characters", json={"displayName": "Brandon"}
+    ).json()
+    client.post(
+        f"/api/v1/characters/{target['id']}/merge",
+        json={"sourceCharacterId": source["id"], "reason": "Same person."},
+    )
+
+    extract(client, project)
+
+    assert "merge" in captured
+    assert "confirmed same person" in captured["merge"]

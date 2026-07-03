@@ -11,12 +11,13 @@ Speaker attribution turns parser speaker candidates into reviewable, production-
 5. Rows with matched characters and sufficient confidence are approved automatically.
 6. Unmatched or low-confidence dialogue remains `needs_review`.
 7. Reviewers can assign a character, approve narrator delivery, or lock the row.
+8. A confirmed same-speaker assignment propagates to unresolved sibling rows with the same normalized speaker name when the chosen character matches that speaker name or alias.
 
 The manual Cast Review action can be rerun from the dashboard or by calling `POST /api/v1/projects/{projectId}/speaker-attributions/run`.
 
 ## Local LLM Fallback
 
-The run endpoint accepts `useLocalLlm=true`. When enabled, unresolved rows are sent to the local Ollama-backed LLM service in bounded segment batches with a schema-constrained prompt. Failures keep deterministic review rows and create a local review issue; there is no cloud fallback.
+The run endpoint accepts `useLocalLlm=true`. When enabled, unresolved rows are sent to the local Ollama-backed LLM service in bounded segment batches with a schema-constrained prompt. Up to five approved, user-locked speaker rows from the same project are included as reviewer-confirmed examples so corrections compound inside the book. Failures keep deterministic review rows and create a local review issue; there is no cloud fallback.
 
 ## Production Voice Resolution
 
@@ -33,3 +34,4 @@ This means character voice assignment changes can make affected segment renders 
 - `userLocked` rows are not overwritten by reruns.
 - Unknown dialogue stays visible until approved or assigned.
 - Evidence stores the source rule, parser candidate, segment type, and text preview.
+- Propagated rows record `evidence.method = "propagated_from_confirmation"` and the source attribution id.

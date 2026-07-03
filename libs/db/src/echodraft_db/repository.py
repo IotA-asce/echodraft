@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -19,11 +20,12 @@ from echodraft_domain import (
     SpeakerAttribution,
     StructureParserWarning,
 )
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from .database import Database
 from .models import (
+    CastMergeDecisionRecord,
     ChapterRecord,
     CharacterRecord,
     CharacterVoiceAssignmentRecord,
@@ -220,6 +222,69 @@ def _clean_strings(values: list[str]) -> list[str]:
             cleaned.append(normalized)
             seen.add(key)
     return cleaned
+
+
+def _normalized_name_key(value: str | None) -> str:
+    """Canonical name key.
+
+    Mirrors ``_name_key`` in cast_discovery.py / speaker_attribution.py so a name
+    normalized in the API layer matches the same name looked up here.
+    """
+    if not value:
+        return ""
+    return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+
+
+def _merge_decision_pair(name_a: str | None, name_b: str | None) -> tuple[str, str] | None:
+    """Normalize two names into a lexically sorted pair, or None if degenerate."""
+    keys = sorted({_normalized_name_key(name_a), _normalized_name_key(name_b)})
+    if len(keys) != 2 or not keys[0] or not keys[1]:
+        return None
+    return keys[0], keys[1]
+
+
+def _record_cast_merge_decision(
+    session: Session,
+    *,
+    project_id: str,
+    name_a: str | None,
+    name_b: str | None,
+    decision: str,
+    reason: str | None,
+) -> CastMergeDecisionRecord | None:
+    """Upsert a decision for a name pair inside the caller's session.
+
+    The pair is stored once (normalized + sorted); the latest ruling wins so a
+    later confirmation overrides an earlier rejection and vice versa.
+    """
+    pair = _merge_decision_pair(name_a, name_b)
+    if not pair:
+        return None
+    key_a, key_b = pair
+    now = datetime.now(UTC)
+    record = session.scalar(
+        select(CastMergeDecisionRecord).where(
+            CastMergeDecisionRecord.project_id == project_id,
+            CastMergeDecisionRecord.name_a == key_a,
+            CastMergeDecisionRecord.name_b == key_b,
+        )
+    )
+    if record:
+        record.decision = decision
+        record.reason = reason
+        record.created_at = now
+        return record
+    record = CastMergeDecisionRecord(
+        id=f"castmerge_{uuid4().hex[:16]}",
+        project_id=project_id,
+        name_a=key_a,
+        name_b=key_b,
+        decision=decision,
+        reason=reason,
+        created_at=now,
+    )
+    session.add(record)
+    return record
 
 
 class ProjectRepository:
@@ -959,6 +1024,84 @@ class SpeakerAttributionRepository:
             ) if record.character_id else None
             return _speaker_attribution(record, assignment)
 
+    def propagate_confirmation(
+        self,
+        project_id: str,
+        *,
+        source_attribution_id: str,
+        character_id: str,
+        speaker_name: str | None,
+    ) -> int:
+        """Teach a confirmation to every unresolved sibling with the same speaker.
+
+        Rows are eligible when they share the confirmed row's normalized speaker
+        name, are not ``user_locked``, and are either unlinked or still
+        pending/needs_review. Locked rows and rows already approved to a different
+        character are never touched. Returns how many rows were updated.
+        """
+        key = _normalized_name_key(speaker_name)
+        if not key:
+            return 0
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            rows = session.scalars(
+                select(SpeakerAttributionRecord).where(
+                    SpeakerAttributionRecord.project_id == project_id,
+                    SpeakerAttributionRecord.id != source_attribution_id,
+                    SpeakerAttributionRecord.user_locked.is_(False),
+                )
+            )
+            count = 0
+            for row in rows:
+                if _normalized_name_key(row.speaker_name) != key:
+                    continue
+                if row.character_id is not None and row.status not in {"pending", "needs_review"}:
+                    continue
+                evidence = json.loads(row.evidence_json or "{}")
+                if not isinstance(evidence, dict):
+                    evidence = {}
+                evidence["method"] = "propagated_from_confirmation"
+                evidence["sourceAttributionId"] = source_attribution_id
+                row.character_id = character_id
+                row.status = "approved"
+                row.confidence = max(row.confidence, 0.9)
+                row.evidence_json = json.dumps(evidence)
+                row.updated_at = now
+                count += 1
+            session.commit()
+            return count
+
+    def locked_exemplars(
+        self, project_id: str, limit: int = 5
+    ) -> list[tuple[str, str]]:
+        """(speaker_name, segment_text) for approved + user-locked rows.
+
+        These seed few-shot exemplars for the LLM attribution prompt. Ordered by
+        most recent decision for deterministic, capped output.
+        """
+        with self.database.session() as session:
+            rows = session.execute(
+                select(SpeakerAttributionRecord, SegmentRecord.text_content)
+                .join(SegmentRecord, SpeakerAttributionRecord.segment_id == SegmentRecord.id)
+                .where(
+                    SpeakerAttributionRecord.project_id == project_id,
+                    SpeakerAttributionRecord.status == "approved",
+                    SpeakerAttributionRecord.user_locked.is_(True),
+                    SpeakerAttributionRecord.speaker_name.is_not(None),
+                )
+                .order_by(
+                    SpeakerAttributionRecord.updated_at.desc(),
+                    SpeakerAttributionRecord.id.desc(),
+                )
+            )
+            exemplars: list[tuple[str, str]] = []
+            for record, text_content in rows:
+                if record.speaker_name and text_content:
+                    exemplars.append((record.speaker_name, text_content))
+                if len(exemplars) >= limit:
+                    break
+            return exemplars
+
     @staticmethod
     def _voice_assignments(session: Any, character_ids: list[str | None]) -> dict[str, str]:
         ids = [item for item in character_ids if item]
@@ -970,6 +1113,67 @@ class SpeakerAttributionRepository:
             )
         )
         return {row.character_id: row.voice_profile_id for row in rows}
+
+
+class CastMergeDecisionRepository:
+    """Persisted human rulings on whether two cast names are the same person."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def record(
+        self,
+        project_id: str,
+        name_a: str,
+        name_b: str,
+        decision: str,
+        reason: str | None = None,
+    ) -> CastMergeDecisionRecord | None:
+        with self.database.session() as session:
+            record = _record_cast_merge_decision(
+                session,
+                project_id=project_id,
+                name_a=name_a,
+                name_b=name_b,
+                decision=decision,
+                reason=reason,
+            )
+            session.commit()
+            return record
+
+    def decision_for(
+        self, project_id: str, name_a: str, name_b: str
+    ) -> CastMergeDecisionRecord | None:
+        pair = _merge_decision_pair(name_a, name_b)
+        if not pair:
+            return None
+        key_a, key_b = pair
+        with self.database.session() as session:
+            return session.scalar(
+                select(CastMergeDecisionRecord).where(
+                    CastMergeDecisionRecord.project_id == project_id,
+                    CastMergeDecisionRecord.name_a == key_a,
+                    CastMergeDecisionRecord.name_b == key_b,
+                )
+            )
+
+    def is_rejected(self, project_id: str, name_a: str, name_b: str) -> bool:
+        decision = self.decision_for(project_id, name_a, name_b)
+        return bool(decision and decision.decision == "rejected")
+
+    def recent(self, project_id: str, limit: int = 10) -> list[CastMergeDecisionRecord]:
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(CastMergeDecisionRecord)
+                    .where(CastMergeDecisionRecord.project_id == project_id)
+                    .order_by(
+                        CastMergeDecisionRecord.created_at.desc(),
+                        CastMergeDecisionRecord.id.desc(),
+                    )
+                    .limit(limit)
+                )
+            )
 
 
 class CastingRepository:
@@ -1137,6 +1341,21 @@ class CastingRepository:
             source.user_locked = True
             source.lock_reason = reason or f"Merged into {target.display_name}."
             self._transfer_or_clear_assignment(s, source.id, target.id)
+            # Re-point the merged-away character's speaker attributions to the
+            # surviving record so every confirmed line follows the merge.
+            s.execute(
+                update(SpeakerAttributionRecord)
+                .where(SpeakerAttributionRecord.character_id == source.id)
+                .values(character_id=target.id)
+            )
+            _record_cast_merge_decision(
+                s,
+                project_id=target.project_id,
+                name_a=target.display_name,
+                name_b=source.display_name,
+                decision="confirmed",
+                reason=reason,
+            )
             s.commit()
             return target
 
