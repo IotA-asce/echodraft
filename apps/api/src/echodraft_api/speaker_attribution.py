@@ -6,10 +6,15 @@ from dataclasses import dataclass
 from typing import cast
 
 from echodraft_db.models import ChapterRecord, CharacterRecord, SceneRecord, SegmentRecord
-from echodraft_domain import LlmExtractionRequest, SpeakerAttribution
+from echodraft_domain import (
+    LlmExtractionRequest,
+    SpeakerAttribution,
+    SpeakerAttributionUpdateResult,
+)
 from sqlalchemy import select
 
 from .container import AppContainer
+from .local_llm import LocalLlmService
 
 SPEAKER_ATTRIBUTION_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -94,7 +99,7 @@ class SpeakerAttributionService:
         speaker_name: str | None,
         status: str | None,
         user_locked: bool | None,
-    ) -> SpeakerAttribution:
+    ) -> SpeakerAttributionUpdateResult:
         record = self.container.speaker_attributions.update(
             attribution_id,
             character_id=character_id,
@@ -105,7 +110,24 @@ class SpeakerAttributionService:
         )
         if not record:
             raise ValueError("Speaker attribution not found.")
-        return record
+        propagated = 0
+        # A confirmation that links a character teaches every unresolved sibling
+        # line with the same speaker hint -- one click, many rows.
+        if (
+            update_character
+            and record.character_id
+            and record.status == "approved"
+            and self._speaker_matches_character(record.speaker_name, record.character_id)
+        ):
+            propagated = self.container.speaker_attributions.propagate_confirmation(
+                record.project_id,
+                source_attribution_id=record.id,
+                character_id=record.character_id,
+                speaker_name=record.speaker_name,
+            )
+        return SpeakerAttributionUpdateResult.model_validate(
+            {**record.model_dump(), "propagatedCount": propagated}
+        )
 
     def _upsert_deterministic(
         self, project_id: str, segment: SegmentRecord, character_index: CharacterIndex
@@ -167,8 +189,8 @@ class SpeakerAttributionService:
         if not unresolved:
             return
         segment_map = {segment.id: segment for segment in segments}
-        from .local_llm import LocalLlmService
 
+        exemplars = self.container.speaker_attributions.locked_exemplars(project_id, limit=5)
         unresolved_segments = [
             segment_map[item.segment_id]
             for item in unresolved
@@ -192,7 +214,7 @@ class SpeakerAttributionService:
                         model=model,
                         task="speaker_attribution",
                         schema=SPEAKER_ATTRIBUTION_SCHEMA,
-                        prompt=self._llm_prompt(batch, character_index),
+                        prompt=self._llm_prompt(batch, character_index, exemplars),
                     ),
                     job_id,
                 )
@@ -267,8 +289,23 @@ class SpeakerAttributionService:
                     by_name[key] = character
         return CharacterIndex(by_name=by_name)
 
+    def _speaker_matches_character(self, speaker_name: str | None, character_id: str) -> bool:
+        key = _name_key(speaker_name)
+        if not key:
+            return False
+        character = self.container.casting.character(character_id)
+        if not character:
+            return False
+        names = [character.display_name, character.canonical_name or ""]
+        names.extend(_aliases(character))
+        return key in {_name_key(name) for name in names}
+
     @staticmethod
-    def _llm_prompt(segments: list[SegmentRecord], character_index: CharacterIndex) -> str:
+    def _llm_prompt(
+        segments: list[SegmentRecord],
+        character_index: CharacterIndex,
+        exemplars: list[tuple[str, str]] | None = None,
+    ) -> str:
         characters = sorted(
             {character.id: character for character in character_index.by_name.values()}.values(),
             key=lambda item: item.display_name,
@@ -282,10 +319,21 @@ class SpeakerAttributionService:
             f"- {segment.id}: {segment.text_content[:500].replace(chr(10), ' ')}"
             for segment in segments
         )
+        exemplar_block = ""
+        if exemplars:
+            exemplar_lines = "\n".join(
+                f'Text: "{text[:120].replace(chr(10), " ")}" → Speaker: {name}'
+                for name, text in exemplars[:5]
+            )
+            exemplar_block = (
+                "Reviewer-confirmed examples from this book (follow this style):\n"
+                f"{exemplar_lines}\n\n"
+            )
         return (
             "Assign likely speakers for this bounded audiobook segment window. Use only the supplied "
             "Character Bible cast when linking a character. Leave uncertain speakers in review by "
             "returning low confidence. Return JSON that matches the supplied schema.\n\n"
+            f"{exemplar_block}"
             f"Cast: {'; '.join(character_lines) if character_lines else 'No cast records yet'}\n\n"
             f"Segments:\n{segment_lines}"
         )
