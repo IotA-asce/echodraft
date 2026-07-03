@@ -109,11 +109,7 @@ class ProductionService:
         settings = self.settings(project_id)
         override = self.container.production.override(segment_id)
         speaker_voices = self.container.speaker_attributions.resolved_voice_profiles([segment_id])
-        voice = (
-            override.voice_profile_id
-            if override and override.voice_profile_id
-            else speaker_voices.get(segment_id, settings.narrator_voice_profile_id)
-        )
+        voice = self._voice_for(segment_id, override, speaker_voices, settings.narrator_voice_profile_id)
         if not voice:
             raise ValueError("Set a narrator voice before patching.")
         segment_directions = self.container.segment_directions.records([segment_id])
@@ -144,10 +140,8 @@ class ProductionService:
         with self.container.structure.database.session() as session:
             for segment in segments:
                 override = overrides.get(segment.id)
-                requested_voice = (
-                    override.voice_profile_id
-                    if override and override.voice_profile_id
-                    else speaker_voices.get(segment.id, settings.narrator_voice_profile_id)
+                requested_voice = self._voice_for(
+                    segment.id, override, speaker_voices, settings.narrator_voice_profile_id
                 )
                 requested_direction = self._direction_for(
                     segment.id, override, segment_directions, settings.default_direction
@@ -193,11 +187,8 @@ class ProductionService:
         renderer = SegmentRenderer(self.container)
         for index, segment in enumerate(segments, 1):
             override = overrides.get(segment.id)
-            voice = (
-                override.voice_profile_id
-                if override and override.voice_profile_id
-                else speaker_voices.get(segment.id, settings.narrator_voice_profile_id)
-            )
+            voice = self._voice_for(segment.id, override, speaker_voices, settings.narrator_voice_profile_id)
+            assert voice
             direction = self._direction_for(
                 segment.id, override, segment_directions, settings.default_direction
             )
@@ -243,6 +234,22 @@ class ProductionService:
                     )
                 )
             return result
+
+    @staticmethod
+    def _voice_for(
+        segment_id: str,
+        override: SegmentProductionOverrideRecord | None,
+        speaker_voices: dict[str, str],
+        narrator_voice_profile_id: str | None,
+    ) -> str | None:
+        """Resolve the voice a segment should render with.
+
+        Layering: segment production override wins, then the cast-resolved voice for
+        approved speaker attributions, then the project narrator voice.
+        """
+        if override and override.voice_profile_id:
+            return override.voice_profile_id
+        return speaker_voices.get(segment_id, narrator_voice_profile_id)
 
     @staticmethod
     def _direction_for(
