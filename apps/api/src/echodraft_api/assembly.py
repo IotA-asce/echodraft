@@ -18,6 +18,7 @@ from echodraft_db.models import (
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .audio_analysis import analyze_wav
 from .container import AppContainer
 from .review import ReviewService
 
@@ -157,14 +158,27 @@ class ChapterAssembler:
                     sort_keys=True,
                 )
             )
-            waveform_path.write_text(json.dumps({"durationMs": duration_ms, "peaks": []}))
+            output_path = mixed_path or speech_path
+            analysis = analyze_wav(output_path)
+            findings = ReviewService._audio_rules(output_path, duration_ms)
+            waveform_path.write_text(
+                json.dumps({"durationMs": duration_ms, "peaks": analysis.waveform_peaks})
+            )
             validation_path.write_text(
                 json.dumps(
                     {
-                        "status": "passed",
+                        "status": (
+                            "failed"
+                            if any(severity == "blocking" for _, severity, _ in findings)
+                            else "passed"
+                        ),
                         "inputCount": len(inputs),
                         "warnings": mix_warnings,
-                        "output": str(mixed_path or speech_path),
+                        "findings": [
+                            {"category": category, "severity": severity, "description": description}
+                            for category, severity, description in findings
+                        ],
+                        "output": str(output_path),
                     },
                     indent=2,
                     sort_keys=True,

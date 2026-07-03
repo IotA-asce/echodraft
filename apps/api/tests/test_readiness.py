@@ -1,4 +1,8 @@
 import time
+from pathlib import Path
+
+from audio_fixtures import wav_bytes_from_segments
+from echodraft_db.models import ChapterRenderRecord
 
 
 def wait_for_job(client, job_id: str) -> dict:
@@ -23,6 +27,22 @@ def structured_project(client) -> tuple[str, str]:
     structured = client.post(f"/api/v1/projects/{project}/structure/extract", json={}).json()
     assert wait_for_job(client, structured["id"])["status"] == "succeeded"
     chapter = client.get(f"/api/v1/projects/{project}/chapters").json()[0]["id"]
+    return project, chapter
+
+
+def produced_chapter(client) -> tuple[str, str]:
+    """A structured project with a real (mock-provider) chapter audio render."""
+    project, chapter = structured_project(client)
+    voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Narrator", "backend": "mock", "providerVoiceId": "mock-narrator"},
+    ).json()
+    client.put(
+        f"/api/v1/projects/{project}/production-settings",
+        json={"narratorVoiceProfileId": voice["id"]},
+    )
+    produced = client.post(f"/api/v1/projects/{project}/chapters/{chapter}/produce").json()
+    assert wait_for_job(client, produced["id"])["status"] == "succeeded"
     return project, chapter
 
 
@@ -241,3 +261,49 @@ def test_readiness_reports_cast_voice_coverage_and_narrator_fallback(client) -> 
     assert character_check["metadata"]["charactersDetected"] == 1
     assert character_check["metadata"]["charactersVoiced"] == 0
     assert fallback_check["metadata"]["narratorFallbackRows"] == 1
+
+
+def test_readiness_reports_chapter_audio_hot_and_dead_air_with_stable_ids(client, app) -> None:
+    project, chapter = produced_chapter(client)
+    active = client.get(f"/api/v1/projects/{project}/chapters/{chapter}/active-render").json()
+    render_id = active["id"]
+    speech_path = Path(active["speechPath"])
+
+    # Overwrite the real chapter audio with a fabricated signal that is both too hot (near
+    # 0 dBFS, above the -3 dBFS mastering ceiling) and contains a genuine 4s interior dead-air
+    # stretch, then keep the DB's declared duration honest for the swap.
+    fabricated = wav_bytes_from_segments(
+        [(30_000, 2000), (0, 4000), (30_000, 2000)], sample_rate=16_000
+    )
+    speech_path.write_bytes(fabricated)
+    with app.state.container.structure.database.session() as session:
+        record = session.get(ChapterRenderRecord, render_id)
+        assert record is not None
+        record.duration_ms = 8000
+        session.commit()
+
+    report = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+    hot_id = f"chapter_audio_hot_{chapter}"
+    dead_air_id = f"chapter_audio_dead_air_{chapter}"
+    hot_check = next(check for check in report["checks"] if check["id"] == hot_id)
+    dead_air_check = next(check for check in report["checks"] if check["id"] == dead_air_id)
+    assert hot_check["status"] == "failed"
+    assert hot_check["severity"] == "warning"
+    assert hot_check["metadata"]["reason"] == "hot"
+    assert dead_air_check["status"] == "failed"
+    assert dead_air_check["metadata"]["reason"] == "dead_air_detected"
+    assert dead_air_check["metadata"]["deadAirRangeCount"] == 1
+
+    # Same stable check ids across pass/fail (Task 3's convention): swap in quiet, gapless
+    # audio of the same declared duration and confirm the identical ids now report "passed".
+    quiet = wav_bytes_from_segments([(3_000, 8000)], sample_rate=16_000)
+    speech_path.write_bytes(quiet)
+    rerun = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+    rerun_hot = next(check for check in rerun["checks"] if check["id"] == hot_id)
+    rerun_dead_air = next(check for check in rerun["checks"] if check["id"] == dead_air_id)
+    assert rerun_hot["status"] == "passed"
+    assert rerun_dead_air["status"] == "passed"

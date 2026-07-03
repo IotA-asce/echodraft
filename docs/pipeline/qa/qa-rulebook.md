@@ -22,10 +22,27 @@ Required checks:
 - chapter loudness bounds
 - corrupted export detection
 
+**Implemented** (Phase 2 task B1/G11, `echodraft_api.audio_analysis`): every check below is
+computed from real PCM analysis (numpy, no ffmpeg) instead of hardcoded placeholders. See
+`AudioAnalysis` for the exact metrics (`peak_dbfs`, `rms_dbfs`, `dead_air_ranges`,
+`silence_ranges`, `waveform_peaks`, `clipped_sample_count`) and `ReviewService._audio_rules`
+for the thresholds:
+- `clipping`: `clipped_sample_count > 8` (isolated inter-sample rounding is ignored)
+- `excessive_silence`: total dead-air time > 20% of duration, or any single dead-air run
+  ≥ 5000 ms
+- `dead_air` (new): any run ≥ 3000 ms where 500 ms-windowed RMS stays below -60 dBFS,
+  excluding runs that touch the very start or end of the file (head/tail room tone is
+  legitimate and is not "dead")
+- `low_loudness` / `high_loudness` (new): whole-file RMS outside `[-30, -14]` dBFS -- rough
+  segment-level bounds; exact -19 LUFS ±1 gating arrives with mastering in Phase 2 task B1
+- `truncation_suspected` (new): expected speech floor is `len(text) / 30 chars-per-sec`;
+  flagged when actual duration is under half that floor and the text exceeds 40 characters
+
 Rules:
 - missing segment render is `blocking`
 - unreadable audio file is `blocking`
-- suspected truncation is `blocking`
+- suspected truncation is `warning` (escalates to `blocking` once chapter-level truncation
+  gating lands with export QA in task B3)
 - clipping above threshold is at least `warning`
 - severe ambience masking may escalate to `error`
 
@@ -83,7 +100,13 @@ Rate each 1 to 5:
 - `attribution`
 - `clipping`
 - `loudness`
+- `low_loudness`
+- `high_loudness`
+- `dead_air`
+- `excessive_silence`
+- `truncation_suspected`
 - `missing_audio`
+- `corrupt_audio`
 - `voice_drift`
 - `timing`
 - `ambience_masking`
