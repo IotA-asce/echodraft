@@ -1,6 +1,6 @@
 # Phase Roadmap
 
-See also: [mvp-execution-plan.md](mvp-execution-plan.md), [../docs/platform-evolution.md](../docs/platform-evolution.md)
+See also: [mvp-execution-plan.md](mvp-execution-plan.md), [../docs/platform-evolution.md](../docs/product/platform-evolution.md)
 
 ## MVP phases
 ### Phase 0: Foundations

@@ -1,6 +1,6 @@
 # Voice Bible Spec
 
-See also: [domain-model.md](domain-model.md), [pipeline-manifest-spec.md](pipeline-manifest-spec.md), [qa-rulebook.md](qa-rulebook.md)
+See also: [domain-model.md](../../domain/domain-model.md), [pipeline-manifest-spec.md](../../architecture/pipeline-manifest-spec.md), [qa-rulebook.md](../qa/qa-rulebook.md)
 
 ## Purpose
 The voice bible is the project-level source of truth for narrator identity, character casting, pronunciation behavior, and moderation rules. It exists to preserve long-form consistency across renders and patch cycles.

@@ -1,6 +1,6 @@
 # Initial Backlog Seed
 
-See also: [foundation-sprint-plan.md](foundation-sprint-plan.md), [mvp-execution-plan.md](mvp-execution-plan.md), [../docs/api-spec.yaml](../docs/api-spec.yaml)
+See also: [foundation-sprint-plan.md](foundation-sprint-plan.md), [mvp-execution-plan.md](mvp-execution-plan.md), [../docs/api-spec.yaml](../docs/api/api-spec.yaml)
 
 ## Priority model
 - `P0`: blocks the MVP foundation or next sprint

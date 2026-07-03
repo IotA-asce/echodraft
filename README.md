@@ -823,10 +823,10 @@ ECHODRAFT_DATABASE_URL=sqlite:///./.tmp/echodraft-migration.db \
 Start here:
 
 1. [`docs/README.md`](docs/README.md)
-2. [`docs/project-overview.md`](docs/project-overview.md)
-3. [`docs/mvp-product-spec.md`](docs/mvp-product-spec.md)
-4. [`docs/architecture.md`](docs/architecture.md)
-5. [`docs/api-spec.yaml`](docs/api-spec.yaml)
+2. [`docs/product/project-overview.md`](docs/product/project-overview.md)
+3. [`docs/product/mvp-product-spec.md`](docs/product/mvp-product-spec.md)
+4. [`docs/architecture/architecture.md`](docs/architecture/architecture.md)
+5. [`docs/api/api-spec.yaml`](docs/api/api-spec.yaml)
 
 ---
 
