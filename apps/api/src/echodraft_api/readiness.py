@@ -67,6 +67,8 @@ class ReadinessService:
         for draft in drafts:
             issue_id = None
             resolution_status = None
+            metadata = dict(draft.metadata)
+            dedupe_key = f"readiness:{project_id}:{chapter_id or 'project'}:{draft.id}"
             if draft.status != "passed":
                 issue = self.container.review.create_issue(
                     project_id=project_id,
@@ -77,10 +79,24 @@ class ReadinessService:
                     title=draft.title,
                     description=draft.description,
                     metadata={**draft.metadata, "readinessCheckId": draft.id},
-                    dedupe_key=f"readiness:{project_id}:{chapter_id or 'project'}:{draft.id}",
+                    dedupe_key=dedupe_key,
                 )
                 issue_id = issue.id
                 resolution_status = issue.status
+                # A "resolved" mark is a claim, re-verified every run: a check that still
+                # fails can never hide behind a stale resolution, so reopen it.
+                if resolution_status == "resolved":
+                    self.container.review.update_issue(issue.id, status="open", severity=None)
+                    resolution_status = "open"
+                    metadata["reopened"] = True
+            else:
+                # The condition now passes: auto-resolve any lingering issue for this check so
+                # genuinely fixed findings (including previously accepted risks) clear themselves.
+                existing = self.container.review.issue_by_dedupe_key(dedupe_key)
+                if existing and existing.status != "resolved":
+                    self.container.review.update_issue(
+                        existing.id, status="resolved", severity=None
+                    )
             checks.append(
                 ReadinessCheck(
                     id=draft.id,
@@ -92,7 +108,7 @@ class ReadinessService:
                     description=draft.description,
                     issueId=issue_id,
                     resolutionStatus=resolution_status,
-                    metadata=draft.metadata,
+                    metadata=metadata,
                 )
             )
 
@@ -589,15 +605,21 @@ class ReadinessService:
             for check in checks
             if check.status != "passed" and (check.resolution_status in {None, "open"})
         ]
+        accepted = [
+            check
+            for check in checks
+            if check.status != "passed" and check.resolution_status in {"ignored", "locked"}
+        ]
         blocking = len([check for check in active if check.severity == "blocking"])
         warnings = len([check for check in active if check.severity == "warning"])
-        passed = len(checks) - len(active)
+        passed = len(checks) - len(active) - len(accepted)
         status = "blocked" if blocking else "needs_review" if warnings else "ready"
         score = round((passed / len(checks)) * 100) if checks else 0
         summary = {
             "passed": passed,
             "warnings": warnings,
             "blocking": blocking,
+            "accepted": len(accepted),
             "total": len(checks),
         }
         record = ReadinessReportRecord(
