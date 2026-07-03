@@ -344,6 +344,7 @@ Key columns:
 - `duration_ms` INTEGER NOT NULL
 - `parent_render_id` TEXT nullable
 - `request_json` TEXT NOT NULL
+- `created_at` DATETIME nullable (NULL only on legacy rows; latest-render selection orders by `created_at DESC, id DESC`)
 
 Indexes:
 - `segment_id`
@@ -420,7 +421,7 @@ Key columns:
 - `manifest_path` TEXT
 - `duration_ms` INTEGER
 - `status` TEXT NOT NULL
-- `created_at` DATETIME
+- `created_at` DATETIME nullable (NULL only on legacy rows; latest-render selection orders by `created_at DESC, id DESC`)
 
 Indexes:
 - `(chapter_id, created_at)`
@@ -486,6 +487,7 @@ Key columns:
 - `output_path` TEXT NOT NULL
 - `manifest_path` TEXT NOT NULL
 - `archive_path` TEXT
+- `created_at` DATETIME nullable (NULL only on legacy rows; package listing orders by `created_at DESC, id DESC`)
 
 ### `jobs`
 Purpose: long-running async operations.

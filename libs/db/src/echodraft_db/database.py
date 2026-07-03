@@ -55,6 +55,12 @@ class Database:
             columns = {column["name"] for column in inspector.get_columns("export_packages")}
             if "archive_path" not in columns:
                 repairs.append("ALTER TABLE export_packages ADD COLUMN archive_path TEXT")
+            if "created_at" not in columns:
+                repairs.append("ALTER TABLE export_packages ADD COLUMN created_at TIMESTAMP")
+        if "segment_renders" in tables:
+            columns = {column["name"] for column in inspector.get_columns("segment_renders")}
+            if "created_at" not in columns:
+                repairs.append("ALTER TABLE segment_renders ADD COLUMN created_at TIMESTAMP")
         if "chapter_renders" in tables:
             columns = {column["name"] for column in inspector.get_columns("chapter_renders")}
             if "render_mode" not in columns:
@@ -66,6 +72,8 @@ class Database:
                 repairs.append("ALTER TABLE chapter_renders ADD COLUMN ambience_stem_path TEXT")
             if "mixed_audio_path" not in columns:
                 repairs.append("ALTER TABLE chapter_renders ADD COLUMN mixed_audio_path TEXT")
+            if "created_at" not in columns:
+                repairs.append("ALTER TABLE chapter_renders ADD COLUMN created_at TIMESTAMP")
         if "ambience_assets" in tables:
             columns = {column["name"] for column in inspector.get_columns("ambience_assets")}
             if "asset_type" not in columns:

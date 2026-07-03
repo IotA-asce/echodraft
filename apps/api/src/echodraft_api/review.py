@@ -87,7 +87,7 @@ class ReviewService:
                     SegmentRenderRecord.segment_id == segment_id,
                     SegmentRenderRecord.status == "succeeded",
                 )
-                .order_by(SegmentRenderRecord.id.desc())
+                .order_by(SegmentRenderRecord.created_at.desc(), SegmentRenderRecord.id.desc())
             )
         if not chapter or chapter.project_id != project_id:
             raise ValueError("Segment or project not found.")

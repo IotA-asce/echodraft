@@ -182,7 +182,9 @@ class ChapterAssembler:
                 session.scalars(
                     select(ChapterRenderRecord)
                     .where(ChapterRenderRecord.chapter_id == chapter_id)
-                    .order_by(ChapterRenderRecord.id.desc())
+                    .order_by(
+                        ChapterRenderRecord.created_at.desc(), ChapterRenderRecord.id.desc()
+                    )
                 )
             )
         return [self._model(record) for record in records]
@@ -218,10 +220,22 @@ class ChapterAssembler:
                         SegmentRenderRecord.segment_id == segment.id,
                         SegmentRenderRecord.status == "succeeded",
                     )
-                    .order_by(SegmentRenderRecord.id.desc())
+                    .order_by(
+                        SegmentRenderRecord.created_at.desc(), SegmentRenderRecord.id.desc()
+                    )
                 )
                 if not render:
                     raise ValueError(f"Missing successful render for segment {segment.id}.")
+                try:
+                    render_revision = json.loads(render.request_json).get("revision")
+                except json.JSONDecodeError:
+                    render_revision = None
+                if render_revision != segment.revision:
+                    raise ValueError(
+                        f"Stale render for segment {segment.id}: render revision "
+                        f"{render_revision} does not match segment revision "
+                        f"{segment.revision}. Re-render before assembling."
+                    )
                 if not Path(render.audio_path).is_file():
                     raise ValueError(f"Audio artifact is missing for render {render.id}.")
                 inputs.append(AssemblyInput(scene_id=scene.id, segment=segment, render=render))
@@ -511,4 +525,5 @@ class ChapterAssembler:
             renderMode=record.render_mode,
             ambienceStemPath=record.ambience_stem_path,
             mixedAudioPath=record.mixed_audio_path,
+            createdAt=record.created_at,
         )

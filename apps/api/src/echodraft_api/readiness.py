@@ -490,7 +490,7 @@ class ReadinessService:
                     ChapterRenderRecord.chapter_id == chapter.id,
                     ChapterRenderRecord.status == "succeeded",
                 )
-                .order_by(ChapterRenderRecord.id.desc())
+                .order_by(ChapterRenderRecord.created_at.desc(), ChapterRenderRecord.id.desc())
             )
             if not render:
                 checks.append(
