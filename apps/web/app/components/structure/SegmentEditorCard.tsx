@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Direction, Segment, SegmentDirection, VoiceProfile } from "../../api";
 import { DirectionControls } from "./DirectionControls";
 
@@ -39,11 +40,15 @@ export function SegmentEditorCard({
   onSaveDirection: (segmentId: string, direction: Direction) => Promise<void>;
 }) {
   const isEditing = editing?.id === segment.id;
+  const [showWhy, setShowWhy] = useState(false);
   const evidence = segment.parserEvidence ?? {};
   const productionType = String(evidence.productionType ?? segment.segmentType ?? "narration");
   const speakerRule = typeof evidence.speakerRule === "string" ? evidence.speakerRule : null;
   const reviewAction = typeof evidence.reviewAction === "string" ? evidence.reviewAction : segment.status !== "ready" ? "review" : null;
   const sources = Array.isArray(evidence.sources) ? evidence.sources.map(String).slice(0, 2).join(" + ") : "structure";
+  const atomIds = Array.isArray(evidence.atomIds) ? evidence.atomIds.map(String) : [];
+  const sourceSpan = typeof evidence.sourceSpanId === "string" ? evidence.sourceSpanId : "";
+  const readableEvidence = readableEvidenceText(evidence);
   return (
     <div className="segment-entry">
       <button
@@ -65,6 +70,9 @@ export function SegmentEditorCard({
         {reviewAction ? <span className="review-action">{reviewAction.replaceAll("_", " ")}</span> : null}
       </div>
       <div className="segment-tools">
+        <button type="button" className="small-button" onClick={() => setShowWhy((current) => !current)}>
+          Why?
+        </button>
         <button type="button" className="small-button" onClick={() => onToggleLock(segment)}>
           {segment.userLocked ? "Unlock" : "Lock"}
         </button>
@@ -78,6 +86,27 @@ export function SegmentEditorCard({
           Inspect
         </button>
       </div>
+      {showWhy ? (
+        <div className="segment-why-panel">
+          <dl>
+            <div><dt>Production type</dt><dd>{formatToken(productionType)}</dd></div>
+            <div><dt>Stored type</dt><dd>{formatToken(segment.segmentType)}</dd></div>
+            <div><dt>Speaker</dt><dd>{segment.speakerCandidate || "unresolved"}</dd></div>
+            <div><dt>Speaker confidence</dt><dd>{Math.round(Number(segment.speakerConfidence ?? 0) * 100)}%</dd></div>
+            <div><dt>Speaker rule</dt><dd>{speakerRule ? formatToken(speakerRule) : "none"}</dd></div>
+            <div><dt>Status</dt><dd>{formatToken(segment.status)}</dd></div>
+            <div><dt>Source</dt><dd>{sources.replaceAll("_", " ")}</dd></div>
+            <div><dt>Atom IDs</dt><dd>{atomIds.length ? atomIds.join(", ") : "none"}</dd></div>
+            <div><dt>Source span</dt><dd>{sourceSpan || "none"}</dd></div>
+            <div><dt>Review action</dt><dd>{reviewAction ? formatToken(reviewAction) : "none"}</dd></div>
+            <div><dt>Evidence</dt><dd>{readableEvidence}</dd></div>
+          </dl>
+          <details>
+            <summary>Raw parser evidence</summary>
+            <pre>{JSON.stringify(evidence, null, 2)}</pre>
+          </details>
+        </div>
+      ) : null}
       {isEditing ? (
         <div className="segment-editor">
           <textarea aria-label="Narration text" value={draft} onChange={(event) => onDraftChange(event.target.value)} rows={6} />
@@ -106,4 +135,19 @@ export function SegmentEditorCard({
       <DirectionControls segment={segment} saved={savedDirection} onSave={onSaveDirection} />
     </div>
   );
+}
+
+function readableEvidenceText(evidence: Record<string, unknown>) {
+  if (typeof evidence.speakerEvidence === "string" && evidence.speakerEvidence.trim()) return evidence.speakerEvidence;
+  if (typeof evidence.llmEvidence === "string" && evidence.llmEvidence.trim()) return evidence.llmEvidence;
+  const speakerEvidence = evidence.speakerEvidence;
+  if (speakerEvidence && typeof speakerEvidence === "object" && "reason" in speakerEvidence) {
+    return formatToken(String((speakerEvidence as { reason?: unknown }).reason ?? "parser evidence"));
+  }
+  if (typeof evidence.reason === "string" && evidence.reason.trim()) return formatToken(evidence.reason);
+  return "Parser evidence was stored for this source span.";
+}
+
+function formatToken(value: string) {
+  return value.replaceAll("_", " ");
 }

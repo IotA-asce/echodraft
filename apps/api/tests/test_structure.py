@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import echodraft_api.cast_discovery as cast_discovery_module
 import echodraft_api.structure as structure_module
 import pytest
+from echodraft_api.structure_parsing import StructureCompiler, validate_atom_offsets
 
 
 def wait_for_job(client, job_id: str) -> dict:
@@ -48,6 +49,15 @@ def all_segments(client, project: str) -> list[dict]:
 def warning_codes(client, project: str) -> set[str]:
     warnings = client.get(f"/api/v1/projects/{project}/structure-warnings").json()
     return {str(warning["evidence"].get("code") or "") for warning in warnings}
+
+
+def structure_warnings(client, project: str) -> list[dict]:
+    return client.get(f"/api/v1/projects/{project}/structure-warnings").json()
+
+
+def issue_codes(client, project: str) -> set[str]:
+    issues = client.get(f"/api/v1/projects/{project}/issues").json()
+    return {str(issue["metadata"].get("code") or "") for issue in issues}
 
 
 def test_heading_scene_and_sentence_safe_segments(client) -> None:
@@ -160,6 +170,87 @@ def test_quote_tags_apostrophes_and_mixed_paragraphs(client) -> None:
     assert segments[1]["textContent"] == "I'm ready."
     assert segments[2]["speakerCandidate"] == "Dr. Sen"
     assert segments[0]["parserEvidence"]["productionType"] == "dialogue_with_tag"
+
+
+def test_unclosed_quote_warns_without_dropping_text(client) -> None:
+    source = 'Chapter 1\n\n"I don\'t know what happened.'
+    project = project_with_source(client, source)
+    extract(client, project)
+
+    segments = all_segments(client, project)
+    assert "".join(segment["textContent"] for segment in segments)
+    assert "I don't know what happened." in " ".join(segment["textContent"] for segment in segments)
+    warning = next(
+        warning
+        for warning in structure_warnings(client, project)
+        if warning["evidence"].get("code") == "segment.quote_unclosed"
+    )
+    assert warning["evidence"]["reviewAction"] == "inspect_segment"
+    assert warning["evidence"]["textPreview"] == '"I don\'t know what happened.'
+    quality = client.get(f"/api/v1/projects/{project}/structure/quality").json()
+    assert quality["quoteUnclosedCount"] == 1
+
+
+def test_multiple_speaker_segment_is_split_or_marked_for_review(client) -> None:
+    project = project_with_source(
+        client,
+        'Chapter 1\n\n"Come here," Priya said. "No," Rahul said.',
+    )
+    extract(client, project)
+
+    dialogue = [
+        segment for segment in all_segments(client, project)
+        if segment["segmentType"] == "dialogue"
+    ]
+    clean_single_speaker_segments = [
+        segment
+        for segment in dialogue
+        if segment["status"] == "ready" and segment["speakerCandidate"] in {"Priya", "Rahul"}
+    ]
+    assert len(clean_single_speaker_segments) != 1
+    assert len(dialogue) == 2 or "segment.multiple_speakers" in warning_codes(client, project)
+
+
+def test_mixed_narration_dialogue_splits_into_renderable_segments(client) -> None:
+    project = project_with_source(
+        client,
+        "Chapter 1\n\n"
+        'Rahul looked away. "I don\'t believe you," Priya whispered. '
+        "The rain kept falling.",
+    )
+    extract(client, project)
+
+    segments = all_segments(client, project)
+    assert [segment["segmentType"] for segment in segments] == [
+        "narration",
+        "dialogue",
+        "narration",
+    ]
+    assert segments[1]["speakerCandidate"] == "Priya"
+    assert "segment.mixed_dialogue_and_narration" not in warning_codes(client, project)
+
+
+def test_ambiguous_alternating_dialogue_warns_and_stays_reviewable(client) -> None:
+    project = project_with_source(
+        client,
+        'Chapter 1\n\n"Where were you?"\n\n"Outside."\n\n"With whom?"\n\n"No one."',
+    )
+    extract(client, project)
+
+    dialogue = [
+        segment for segment in all_segments(client, project)
+        if segment["segmentType"] == "dialogue"
+    ]
+    assert len(dialogue) == 4
+    assert all(segment["status"] == "needs_review" for segment in dialogue)
+    assert "speaker.ambiguous_two_person_exchange" in warning_codes(client, project)
+
+
+def test_atom_offset_validation_direct_handles_apostrophe_dialogue() -> None:
+    compiler = StructureCompiler("project", "source", "structure-parser-0.4.0")
+    text = 'Rahul said, "I\'m here."'
+    atoms = compiler.atoms_for_scene(text, 0)
+    assert validate_atom_offsets(text, 0, atoms)
 
 
 def test_alternating_unattributed_dialogue_remains_reviewable(client) -> None:
@@ -449,7 +540,52 @@ def test_possible_duplicate_cast_name_creates_review_issue(client) -> None:
     characters = client.get(f"/api/v1/projects/{project}/characters").json()
     assert [character["displayName"] for character in characters] == [existing["displayName"]]
     issues = client.get(f"/api/v1/projects/{project}/issues").json()
-    assert any(issue["title"] == "Ambiguous cast candidate" for issue in issues)
+    issue = next(issue for issue in issues if issue["title"] == "Possible duplicate cast candidate")
+    assert issue["metadata"]["code"] == "cast.possible_duplicate"
+    assert issue["metadata"]["reviewAction"] == "merge_cast"
+    assert issue["metadata"]["candidateName"] == "Mary-Jane"
+    assert issue["metadata"]["possibleMatches"] == ["Mary"]
+
+
+def test_cast_duplicate_metadata_for_honorific_alias(client) -> None:
+    project = project_with_source(
+        client,
+        "Chapter 1\n\nDr. Priya Sen: Sit down.\n\nDr. Sen: Please listen.",
+    )
+
+    extract(client, project)
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    active_names = {character["displayName"] for character in characters}
+    assert "Dr. Priya Sen" in active_names
+    assert "Dr. Sen" not in active_names
+    issues = client.get(f"/api/v1/projects/{project}/issues").json()
+    issue = next(
+        issue
+        for issue in issues
+        if issue["metadata"].get("code") == "cast.possible_duplicate"
+    )
+    assert issue["metadata"]["candidateName"] == "Dr. Sen"
+    assert issue["metadata"]["reviewAction"] == "merge_cast"
+    assert issue["metadata"]["possibleMatches"] == ["Dr. Priya Sen"]
+    assert issue["metadata"]["evidenceGraph"]["canonicalName"] == "Dr. Sen"
+
+
+def test_low_confidence_cast_candidate_issue_metadata(client) -> None:
+    project = project_with_source(client, 'Chapter 1\n\nRahul looked away. "Hello."')
+
+    extract(client, project)
+
+    assert "cast.low_confidence_candidate" in issue_codes(client, project)
+    issues = client.get(f"/api/v1/projects/{project}/issues").json()
+    issue = next(
+        issue
+        for issue in issues
+        if issue["metadata"].get("code") == "cast.low_confidence_candidate"
+    )
+    assert issue["metadata"]["candidateName"] == "Rahul"
+    assert issue["metadata"]["reviewAction"] == "confirm_cast"
+    assert issue["metadata"]["confidence"] < 0.72
 
 
 def test_cast_discovery_uses_aliases_without_creating_duplicates(client) -> None:

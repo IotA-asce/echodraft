@@ -99,6 +99,8 @@ class ObservedSegment:
     chapter_id: str
     text: str
     segment_type: str
+    start_offset: int
+    end_offset: int
     speaker_candidate: str | None
     speaker_confidence: float
     parser_evidence: dict[str, object]
@@ -208,12 +210,16 @@ class CastDiscoveryService:
                                 "productionType": production_type,
                                 "sources": sources or ["structure_parser"],
                                 "confidence": segment.speaker_confidence,
+                                "segmentId": segment.id,
+                                "chapterId": segment.chapter_id,
+                                "startOffset": segment.start_offset,
+                                "endOffset": segment.end_offset,
                             },
                             sort_keys=True,
                         )
                     ],
                     role_guess="supporting",
-                    confidence=max(segment.speaker_confidence, 0.74),
+                    confidence=segment.speaker_confidence,
                     source="+".join(sources) if sources else "structure_parser",
                 )
             )
@@ -364,7 +370,7 @@ class CastDiscoveryService:
                 if len(possible) > 1
                 else "A similar existing character may already represent this candidate."
             )
-            self._create_ambiguous_issue(project_id, candidate, reason)
+            self._create_ambiguous_issue(project_id, candidate, reason, possible)
             return
         if decision and decision.action == "match_existing" and decision.target_name:
             target = index.by_name.get(_name_key(decision.target_name))
@@ -382,6 +388,7 @@ class CastDiscoveryService:
             )
             return
         if candidate.confidence >= AUTO_CREATE_CONFIDENCE:
+            evidence_graph = _candidate_evidence_graph(candidate)
             record = self.container.casting.create_character(
                 project_id=project_id,
                 name=candidate.display_name,
@@ -391,6 +398,7 @@ class CastDiscoveryService:
                 notes=json.dumps(
                     {
                         "source": candidate.source,
+                        "evidenceGraph": evidence_graph,
                         "evidence": candidate.evidence,
                         "decision": decision.reason if decision else "deterministic_unique_candidate",
                     },
@@ -407,7 +415,7 @@ class CastDiscoveryService:
                 if key:
                     index.by_name[key] = record
             return
-        self._create_ambiguous_issue(project_id, candidate, "Candidate confidence was too low.")
+        self._create_low_confidence_issue(project_id, candidate)
 
     def _merge_aliases(
         self,
@@ -428,13 +436,18 @@ class CastDiscoveryService:
             self.container.casting.update_character(character.id, aliases=merged)
 
     def _create_ambiguous_issue(
-        self, project_id: str, candidate: CharacterCandidate, reason: str
+        self,
+        project_id: str,
+        candidate: CharacterCandidate,
+        reason: str,
+        possible_matches: list[CharacterRecord] | None = None,
     ) -> None:
+        matches = possible_matches or []
         self.container.review.create_issue(
             project_id=project_id,
             category="cast_discovery",
             severity="warning",
-            title="Ambiguous cast candidate",
+            title="Possible duplicate cast candidate",
             description=(
                 f"{candidate.display_name} was observed in the manuscript but was not "
                 "confidently safe to create or merge automatically."
@@ -442,15 +455,50 @@ class CastDiscoveryService:
             chapter_id=candidate.first_seen_chapter_id,
             segment_id=candidate.first_seen_segment_id,
             metadata={
+                "code": "cast.possible_duplicate",
+                "reviewAction": "merge_cast",
+                "candidateName": candidate.display_name,
+                "possibleMatches": [match.display_name for match in matches],
                 "displayName": candidate.display_name,
                 "aliases": candidate.aliases,
                 "confidence": candidate.confidence,
                 "source": candidate.source,
                 "reason": reason,
                 "evidence": candidate.evidence,
+                "evidenceGraph": _candidate_evidence_graph(candidate),
             },
             dedupe_key=(
                 f"cast-candidate:{project_id}:{candidate.key}:"
+                f"{candidate.first_seen_segment_id or 'project'}"
+            ),
+        )
+
+    def _create_low_confidence_issue(
+        self, project_id: str, candidate: CharacterCandidate
+    ) -> None:
+        self.container.review.create_issue(
+            project_id=project_id,
+            category="cast_discovery",
+            severity="warning",
+            title="Low-confidence cast candidate",
+            description=(
+                f"{candidate.display_name} was observed in the manuscript but needs "
+                "confirmation before creating a Character Bible record."
+            ),
+            chapter_id=candidate.first_seen_chapter_id,
+            segment_id=candidate.first_seen_segment_id,
+            metadata={
+                "code": "cast.low_confidence_candidate",
+                "reviewAction": "confirm_cast",
+                "candidateName": candidate.display_name,
+                "confidence": candidate.confidence,
+                "source": candidate.source,
+                "reason": "Candidate confidence was too low.",
+                "evidence": candidate.evidence,
+                "evidenceGraph": _candidate_evidence_graph(candidate),
+            },
+            dedupe_key=(
+                f"cast-candidate-low-confidence:{project_id}:{candidate.key}:"
                 f"{candidate.first_seen_segment_id or 'project'}"
             ),
         )
@@ -470,6 +518,8 @@ class CastDiscoveryService:
                     chapter_id=chapter_id,
                     text=segment.text_content,
                     segment_type=segment.segment_type,
+                    start_offset=segment.start_offset,
+                    end_offset=segment.end_offset,
                     speaker_candidate=segment.speaker_candidate,
                     speaker_confidence=segment.speaker_confidence,
                     parser_evidence=_evidence(segment.parser_evidence_json),
@@ -582,6 +632,37 @@ def _character_names(character: CharacterRecord) -> list[str]:
     return names
 
 
+def _candidate_evidence_graph(candidate: CharacterCandidate) -> dict[str, object]:
+    evidence_items = [_evidence(item) for item in candidate.evidence]
+    offsets = [
+        start
+        for item in evidence_items
+        if isinstance((start := item.get("startOffset")), int)
+    ]
+    end_offsets = [
+        end
+        for item in evidence_items
+        if isinstance((end := item.get("endOffset")), int)
+    ]
+    sources = sorted(
+        {
+            source
+            for item in evidence_items
+            for source in _clean_strings(item.get("sources"))
+        }
+    )
+    return {
+        "canonicalName": candidate.canonical_name or candidate.display_name,
+        "aliases": _clean_strings([candidate.display_name, candidate.canonical_name or "", *candidate.aliases]),
+        "speakerEvidenceCount": len(candidate.evidence),
+        "mentionEvidenceCount": 0,
+        "firstSeenOffset": min(offsets) if offsets else None,
+        "lastSeenOffset": max(end_offsets) if end_offsets else None,
+        "confidence": candidate.confidence,
+        "sources": sources or [candidate.source],
+    }
+
+
 def _clean_strings(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -616,7 +697,13 @@ def _ignored_name(value: str | None) -> bool:
 def _soft_name_match(left: str, right: str) -> bool:
     if len(left) < 4 or len(right) < 4:
         return False
-    return left in right or right in left
+    if left in right or right in left:
+        return True
+    left_tokens = left.split()
+    right_tokens = right.split()
+    if len(left_tokens) >= 2 and len(right_tokens) >= 2 and left_tokens[-1] == right_tokens[-1]:
+        return left_tokens[0] == right_tokens[0] and left_tokens[0] in {"dr", "captain", "capt", "prof"}
+    return False
 
 
 def _evidence(payload: str | None) -> dict[str, object]:
