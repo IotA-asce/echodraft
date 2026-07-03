@@ -1,12 +1,15 @@
 import hashlib
 import json
+import os
 import threading
+import wave
 from pathlib import Path
 from uuid import uuid4
 from echodraft_domain import SegmentRender, SegmentRenderComparison, SegmentRenderRequest
 from echodraft_db.models import SegmentRenderRecord
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from . import mastering
 from .audio_analysis import analyze_wav
 from .container import AppContainer
 from .direction import apply_pronunciations
@@ -88,6 +91,7 @@ class SegmentRenderer:
             provenance = self.adapter.preview(
                 synthesis_text, provider_voice_id, audio, request.direction
             )
+            resampled = self._resample_to_target(audio)
             analysis = analyze_wav(audio)
             duration = analysis.duration_ms
             metadata.write_text(
@@ -98,6 +102,7 @@ class SegmentRenderer:
                         "renderKey": key,
                         "durationMs": duration,
                         "sampleRate": analysis.sample_rate,
+                        "resampled": resampled,
                         "peak": analysis.peak_dbfs,
                         "silenceRanges": [list(pair) for pair in analysis.silence_ranges],
                         "waveform": analysis.waveform_peaks,
@@ -190,6 +195,33 @@ class SegmentRenderer:
     def _resolve_voice(self, requested_voice: str) -> str:
         profile = self.container.casting.voice(requested_voice)
         return profile.provider_voice_id if profile and profile.provider_voice_id else requested_voice
+
+    @staticmethod
+    def _resample_to_target(audio: Path) -> bool:
+        """Bring a freshly synthesised WAV up to the 44.1 kHz pipeline rate when possible.
+
+        Returns whether the on-disk file is now at the target rate. When ffmpeg is
+        available the file is resampled in place with its soxr resampler; when it is not,
+        the native rate is kept and ``False`` is recorded -- chapter assembly's numpy
+        band-limited fallback resamples it later, so nothing is lost, only deferred.
+        """
+        try:
+            with wave.open(str(audio), "rb") as source:
+                rate = source.getframerate()
+        except (wave.Error, EOFError, OSError):
+            return False
+        if rate == mastering.SAMPLE_RATE:
+            return True
+        if not mastering.ffmpeg_available():
+            return False
+        temporary = audio.with_name(f"{audio.stem}.resampled.wav")
+        try:
+            mastering.resample_wav(audio, temporary, mastering.SAMPLE_RATE)
+            os.replace(temporary, audio)
+            return True
+        except (ValueError, OSError):
+            temporary.unlink(missing_ok=True)
+            return False
 
     @staticmethod
     def _changed_fields(

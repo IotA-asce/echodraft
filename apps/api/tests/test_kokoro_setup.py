@@ -205,6 +205,12 @@ def test_managed_wrapper_source_transmits_speed() -> None:
     assert "speed=1.0)" not in WRAPPER_SOURCE
 
 
+def test_managed_wrapper_source_writes_pcm16() -> None:
+    # The managed wrapper must write signed 16-bit PCM; a float WAV (soundfile's default)
+    # is unreadable by the stdlib ``wave`` decoder used across rendering/assembly.
+    assert 'subtype="PCM_16"' in WRAPPER_SOURCE
+
+
 def _ready_managed_adapter(tmp_path: Path, stale_wrapper: bool):
     from echodraft_api.tts_providers import ManagedKokoroOnnxAdapter
 

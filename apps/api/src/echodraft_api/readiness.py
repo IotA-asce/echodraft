@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import wave
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -38,6 +39,11 @@ from .production import ProductionService
 # audio.md). Peaks hotter than this leave no room for the loudness-normalization/limiting
 # pass that Phase 2 task B1 adds.
 CHAPTER_PEAK_CEILING_DBFS = -3.0
+# Mastered integrated-loudness target and QA tolerance (Phase 2 task B1). A chapter's
+# loudness is only "verified" when it was actually mastered (ffmpeg present) and its
+# measured integrated loudness lands within tolerance of the target.
+MASTER_TARGET_LUFS = -19.0
+MASTER_LUFS_TOLERANCE = 1.0
 
 
 @dataclass(frozen=True)
@@ -570,6 +576,7 @@ class ReadinessService:
             if analysis is not None:
                 checks.append(self._chapter_audio_hot_check(chapter.id, analysis))
                 checks.append(self._chapter_audio_dead_air_check(chapter.id, analysis))
+                checks.append(self._chapter_loudness_check(chapter.id, render.manifest_path))
         missing_segment_renders = self._missing_segment_renders(session, segments)
         if missing_segment_renders:
             checks.append(
@@ -612,6 +619,29 @@ class ReadinessService:
             )
         elif has_chapters:
             checks.append(self._passed("export_rights", "export-blocker", "Rights declaration is present."))
+        # Honest degradation, mirroring exporting.py's ffmpeg gate: without ffmpeg chapters
+        # cannot be mastered to the -19 LUFS / -3 dBTP export targets, so block export
+        # readiness rather than silently ship an un-mastered package.
+        if shutil.which("ffmpeg") is None:
+            checks.append(
+                self._issue(
+                    "export_mastering",
+                    "export-blocker",
+                    "blocking",
+                    "readiness_export",
+                    "Audio mastering toolchain missing",
+                    "FFmpeg is required to master chapters to -19 LUFS and -3 dBTP for export.",
+                    {"reason": "ffmpeg_missing"},
+                )
+            )
+        elif has_chapters:
+            checks.append(
+                self._passed(
+                    "export_mastering",
+                    "export-blocker",
+                    "FFmpeg mastering toolchain is available.",
+                )
+            )
         open_blockers = self._count(
             session,
             select(func.count()).select_from(IssueRecord).where(
@@ -752,6 +782,60 @@ class ReadinessService:
             check_id,
             "audio",
             f"Chapter audio peak is within headroom ({analysis.peak_dbfs:.1f} dBFS).",
+        )
+
+    @staticmethod
+    def _chapter_loudness_check(chapter_id: str, manifest_path: str) -> CheckDraft:
+        """Gate chapter loudness on the mastered integrated-loudness measurement.
+
+        Passes only when the chapter was actually mastered (ffmpeg present) and its
+        measured integrated loudness is within ±1 LUFS of -19; otherwise a warning (the
+        same stable id) flags that loudness is unverified at target.
+        """
+        check_id = f"chapter_loudness_{chapter_id}"
+        mastered = False
+        measured_lufs: float | None = None
+        try:
+            manifest = json.loads(Path(manifest_path).read_text())
+            block = manifest.get("mastering") or {}
+            mastered = bool(block.get("mastered"))
+            candidate = (block.get("measured") or {}).get("integratedLufs")
+            if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
+                measured_lufs = float(candidate)
+        except (OSError, json.JSONDecodeError):
+            pass
+        if (
+            mastered
+            and measured_lufs is not None
+            and abs(measured_lufs - MASTER_TARGET_LUFS) <= MASTER_LUFS_TOLERANCE
+        ):
+            return ReadinessService._passed(
+                check_id,
+                "audio",
+                f"Integrated loudness {measured_lufs:.1f} LUFS is within "
+                f"±{MASTER_LUFS_TOLERANCE:.0f} of {MASTER_TARGET_LUFS:.0f} LUFS.",
+            )
+        reason = "out_of_range" if mastered else "unmastered"
+        detail = (
+            f"Measured {measured_lufs:.1f} LUFS, outside ±{MASTER_LUFS_TOLERANCE:.0f} of "
+            f"{MASTER_TARGET_LUFS:.0f} LUFS."
+            if measured_lufs is not None
+            else f"Chapter was not mastered to {MASTER_TARGET_LUFS:.0f} LUFS (ffmpeg missing)."
+        )
+        return ReadinessService._issue(
+            check_id,
+            "audio",
+            "warning",
+            "readiness_audio",
+            "Chapter loudness is not verified at target",
+            detail,
+            chapter_id=chapter_id,
+            metadata={
+                "reason": reason,
+                "integratedLufs": measured_lufs,
+                "targetLufs": MASTER_TARGET_LUFS,
+                "mastered": mastered,
+            },
         )
 
     @staticmethod

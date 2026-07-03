@@ -3,10 +3,33 @@ import time
 import wave
 from pathlib import Path
 
+import numpy as np
 import pytest
 from sqlalchemy import text
 
-from echodraft_api.assembly import ChapterAssembler
+from echodraft_api import mastering
+from echodraft_api.assembly import ChapterAssembler, band_limited_resample
+from echodraft_api.audio_analysis import analyze_wav
+
+
+def test_band_limited_resample_preserves_duration_and_suppresses_alias_images() -> None:
+    source_rate, target_rate, freq = 16_000, 44_100, 7_000
+    count = int(source_rate * 0.5)
+    t = np.arange(count) / source_rate
+    signal = (np.sin(2 * np.pi * freq * t) * 10_000).astype(np.float64)
+
+    resampled = band_limited_resample(signal, source_rate, target_rate)
+
+    # Duration is preserved to within 2% (resampling correctness).
+    expected = round(count * target_rate / source_rate)
+    assert abs(resampled.size - expected) / expected < 0.02
+
+    # A 7 kHz tone (near the 8 kHz source Nyquist) must not spawn alias images above
+    # 8 kHz after upsampling; linear interpolation would mirror one to ~9 kHz.
+    spectrum = np.abs(np.fft.rfft(resampled))
+    freqs = np.fft.rfftfreq(resampled.size, d=1.0 / target_rate)
+    energy_above = float(spectrum[freqs > 8_500].sum())
+    assert energy_above / float(spectrum.sum()) < 0.02
 
 
 def wait_for_job(client, job_id: str) -> dict:
@@ -70,7 +93,7 @@ def test_chapter_assembly_pins_ordered_renders_and_emits_stem(client) -> None:
     ]
     assert Path(assembled["speechPath"]).is_file()
     with wave.open(assembled["speechPath"]) as output:
-        assert output.getframerate() == 16_000
+        assert output.getframerate() == 44_100
         assert output.getnchannels() == 1
     assert assembled["durationMs"] >= sum(item["durationMs"] for item in rendered) + 350
     assert (
@@ -349,3 +372,65 @@ def test_chapter_assembly_rejects_missing_segment_render(client) -> None:
     response = client.post(f"/api/v1/projects/{project}/chapters/{chapter_id}/assemble")
     assert response.status_code == 422
     assert "Missing successful render" in response.json()["detail"]
+
+
+def test_chapter_assembly_lays_room_tone_and_records_mastering_block(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Room Tone", "rightsStatus": "declared"}
+    ).json()["id"]
+    import_job = client.post(
+        f"/api/v1/projects/{project}/source/import",
+        files={"file": ("book.txt", b"A sentence to assemble for room tone.", "text/plain")},
+        data={"rightsAcknowledged": "true"},
+    ).json()
+    assert wait_for_job(client, import_job["id"])["status"] == "succeeded"
+    structure_job = client.post(f"/api/v1/projects/{project}/structure/extract", json={}).json()
+    assert wait_for_job(client, structure_job["id"])["status"] == "succeeded"
+    chapter_id = client.get(f"/api/v1/projects/{project}/chapters").json()[0]["id"]
+    scene_id = client.get(f"/api/v1/chapters/{chapter_id}/scenes").json()[0]["id"]
+    segment_id = client.get(f"/api/v1/scenes/{scene_id}/segments").json()[0]["id"]
+    assert (
+        client.post(
+            f"/api/v1/projects/{project}/segments/{segment_id}/generate",
+            json={
+                "voiceProfileId": "voice_test",
+                "direction": {"scopeType": "project", "scopeId": project},
+            },
+        ).status_code
+        == 202
+    )
+
+    assembled = client.post(
+        f"/api/v1/projects/{project}/chapters/{chapter_id}/assemble"
+    ).json()
+    manifest = json.loads(Path(assembled["manifestPath"]).read_text())
+    block = manifest["mastering"]
+    assert block["targetLufs"] == -19
+    assert block["truePeakDb"] == -3
+    assert block["roomToneMs"] == {"head": 1000, "tail": 2000}
+    # No ffmpeg in the test environment -> honest degradation, not a silent skip.
+    assert block["mastered"] is (mastering.ffmpeg_available())
+
+    speech = Path(assembled["speechPath"])
+    with wave.open(str(speech)) as output:
+        rate = output.getframerate()
+        assert rate == 44_100
+        frames = output.readframes(output.getnframes())
+    samples = np.frombuffer(frames, dtype="<i2").astype(np.float64)
+
+    def rms_dbfs(chunk: np.ndarray) -> float:
+        if chunk.size == 0:
+            return -120.0
+        rms = float(np.sqrt(np.mean(np.square(chunk))))
+        return 20 * np.log10(rms / 32768.0) if rms > 0 else -120.0
+
+    head = samples[: int(rate * 0.5)]
+    tail = samples[-int(rate * 0.5) :]
+    # Head/tail are faint room tone (~ -70 dBFS), never digital silence.
+    assert int(np.count_nonzero(head)) > 0
+    assert int(np.count_nonzero(tail)) > 0
+    assert -85.0 < rms_dbfs(head) < -55.0
+    assert -85.0 < rms_dbfs(tail) < -55.0
+
+    # The head/tail room tone must not register as dead air (boundary-excluded).
+    assert analyze_wav(speech).dead_air_ranges == []

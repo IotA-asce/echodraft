@@ -440,7 +440,10 @@ def main() -> int:
     samples, sample_rate = kokoro.create(args.text, voice=args.voice, speed=args.speed)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(output), samples, sample_rate)
+    # Force signed 16-bit PCM: kokoro_onnx yields float32 samples and soundfile's default
+    # subtype writes a float WAV that stdlib ``wave`` (used everywhere downstream for
+    # decode/analysis/assembly) cannot parse.
+    sf.write(str(output), samples, sample_rate, subtype="PCM_16")
     return 0
 
 
