@@ -1,6 +1,6 @@
 # Foundation Sprint Plan
 
-See also: [mvp-execution-plan.md](mvp-execution-plan.md), [backlog-seed.md](backlog-seed.md), [../docs/repository-blueprint.md](../docs/repository-blueprint.md)
+See also: [mvp-execution-plan.md](mvp-execution-plan.md), [backlog-seed.md](backlog-seed.md), [../docs/repository-blueprint.md](../docs/architecture/repository-blueprint.md)
 
 ## Sprint goal
 Establish the minimum repo, runtime, and persistence skeleton needed to support project creation and local artifact management.
@@ -33,7 +33,7 @@ By the end of Sprint 0:
 
 ### Domain models
 - Define shared enums and entity schemas for `Project`, `Chapter`, `Scene`, `Segment`, `Character`, `VoiceProfile`, `Issue`, `ExportPackage`, and `RightsDeclaration`.
-- Keep field names aligned with [../docs/domain-model.md](../docs/domain-model.md) and [../docs/api-spec.yaml](../docs/api-spec.yaml).
+- Keep field names aligned with [../docs/domain-model.md](../docs/domain/domain-model.md) and [../docs/api-spec.yaml](../docs/api/api-spec.yaml).
 
 ### Database and migrations
 - Bootstrap SQLite connection and Alembic in `libs/db`.

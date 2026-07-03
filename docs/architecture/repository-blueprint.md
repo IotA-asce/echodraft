@@ -1,6 +1,6 @@
 # Repository Blueprint
 
-See also: [architecture.md](architecture.md), [domain-model.md](domain-model.md), [../AGENTS.md](../AGENTS.md), [../plans/foundation-sprint-plan.md](../plans/foundation-sprint-plan.md)
+See also: [architecture.md](architecture.md), [domain-model.md](../domain/domain-model.md), [AGENTS.md](../../AGENTS.md), [foundation-sprint-plan.md](../../plans/foundation-sprint-plan.md)
 
 ## Purpose
 This blueprint defines the intended monorepo structure for `echodraft` and maps the product architecture onto repo ownership boundaries. It is aligned with the repo layout already declared in `AGENTS.md`.
@@ -39,7 +39,7 @@ plans/                  Sequenced execution plans and backlog seeds
 
 ### `apps/web`
 - own user flows, editor screens, and async job polling UX
-- consume API contracts from [api-spec.yaml](api-spec.yaml)
+- consume API contracts from [api-spec.yaml](../api/api-spec.yaml)
 
 ### `services/*`
 - own domain behavior for each processing stage

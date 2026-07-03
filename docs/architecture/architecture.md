@@ -1,6 +1,6 @@
 # Architecture
 
-See also: [domain-model.md](domain-model.md), [db-schema.md](db-schema.md), [pipeline-manifest-spec.md](pipeline-manifest-spec.md), [repository-blueprint.md](repository-blueprint.md)
+See also: [domain-model.md](../domain/domain-model.md), [db-schema.md](../domain/db-schema.md), [pipeline-manifest-spec.md](pipeline-manifest-spec.md), [repository-blueprint.md](repository-blueprint.md)
 
 ## Architectural goal
 Build a local-first audiobook production system that can turn long-form manuscripts into patchable, multi-voice chapter drafts while remaining:

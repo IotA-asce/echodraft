@@ -1,6 +1,6 @@
 # Platform Evolution
 
-See also: [project-overview.md](project-overview.md), [architecture.md](architecture.md), [repository-blueprint.md](repository-blueprint.md), [plans/phase-roadmap.md](../plans/phase-roadmap.md)
+See also: [project-overview.md](project-overview.md), [architecture.md](../architecture/architecture.md), [repository-blueprint.md](../architecture/repository-blueprint.md), [plans/phase-roadmap.md](../../plans/phase-roadmap.md)
 
 ## Purpose
 This document defines the post-MVP evolution path from a local-first creator tool into a broader audiobook production platform for publishers, studios, and enterprise teams.

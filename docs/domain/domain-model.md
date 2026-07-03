@@ -1,6 +1,6 @@
 # Domain Model
 
-See also: [architecture.md](architecture.md), [db-schema.md](db-schema.md), [pipeline-manifest-spec.md](pipeline-manifest-spec.md), [voice-bible-spec.md](voice-bible-spec.md)
+See also: [architecture.md](../architecture/architecture.md), [db-schema.md](db-schema.md), [pipeline-manifest-spec.md](../architecture/pipeline-manifest-spec.md), [voice-bible-spec.md](../pipeline/casting/voice-bible-spec.md)
 
 ## Core hierarchy
 ```text

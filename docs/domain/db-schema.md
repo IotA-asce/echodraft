@@ -1,6 +1,6 @@
 # Database Schema
 
-See also: [domain-model.md](domain-model.md), [pipeline-manifest-spec.md](pipeline-manifest-spec.md), [api-spec.yaml](api-spec.yaml)
+See also: [domain-model.md](domain-model.md), [pipeline-manifest-spec.md](../architecture/pipeline-manifest-spec.md), [api-spec.yaml](../api/api-spec.yaml)
 
 ## Database strategy
 ### MVP

@@ -179,4 +179,4 @@ The recurring lesson across all six capabilities: **Echodraft already thinks har
 
 ---
 
-*Companion document: `DEEP-ANALYSIS-REPORT.md` covers the code-correctness and engineering findings (render-ordering bug, concurrency, CI). This document is the product/algorithm/workflow lens; where they overlap (render ordering, direction transmission, stubbed QA), the two reach the same conclusions from different angles.*
+*Companion document: [`deep-analysis-report.md`](deep-analysis-report.md) covers the code-correctness and engineering findings (render-ordering bug, concurrency, CI). This document is the product/algorithm/workflow lens; where they overlap (render ordering, direction transmission, stubbed QA), the two reach the same conclusions from different angles.*
