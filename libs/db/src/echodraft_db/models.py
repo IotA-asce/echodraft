@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -305,6 +305,15 @@ class SegmentRevisionRecord(Base):
 
 class SegmentRenderRecord(Base):
     __tablename__ = "segment_renders"
+    __table_args__ = (
+        Index(
+            "uq_segment_renders_succeeded_key",
+            "segment_id",
+            "render_key",
+            unique=True,
+            sqlite_where=text("status = 'succeeded'"),
+        ),
+    )
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     segment_id: Mapped[str] = mapped_column(ForeignKey("segments.id"), index=True)
     render_key: Mapped[str] = mapped_column(String(128), nullable=False)

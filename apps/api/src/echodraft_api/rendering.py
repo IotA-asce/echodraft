@@ -1,5 +1,6 @@
 import hashlib
 import json
+import threading
 import wave
 from pathlib import Path
 from uuid import uuid4
@@ -10,6 +11,22 @@ from sqlalchemy.orm import Session
 from .container import AppContainer
 from .direction import apply_pronunciations
 from .review import ReviewService
+
+# Serialize renders per segment so the cache-check -> parent-selection -> insert path is
+# atomic within a process. Two concurrent renders of the same segment would otherwise read
+# the same "latest" parent and fork the append-only chain (TOCTOU). Keyed by segment_id;
+# _render_locks_guard protects the registry itself.
+_render_locks: dict[str, threading.Lock] = {}
+_render_locks_guard = threading.Lock()
+
+
+def _segment_render_lock(segment_id: str) -> threading.Lock:
+    with _render_locks_guard:
+        lock = _render_locks.get(segment_id)
+        if lock is None:
+            lock = threading.Lock()
+            _render_locks[segment_id] = lock
+        return lock
 
 
 class SegmentRenderer:
@@ -47,63 +64,64 @@ class SegmentRenderer:
             # uniqueness index stays safe.
             payload["forceNonce"] = uuid4().hex
         key = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-        if not request.force:
-            with self.container.structure.database.session() as session:
-                cached = session.scalar(
-                    select(SegmentRenderRecord)
-                    .where(
-                        SegmentRenderRecord.segment_id == segment_id,
-                        SegmentRenderRecord.render_key == key,
-                        SegmentRenderRecord.status == "succeeded",
+        with _segment_render_lock(segment_id):
+            if not request.force:
+                with self.container.structure.database.session() as session:
+                    cached = session.scalar(
+                        select(SegmentRenderRecord)
+                        .where(
+                            SegmentRenderRecord.segment_id == segment_id,
+                            SegmentRenderRecord.render_key == key,
+                            SegmentRenderRecord.status == "succeeded",
+                        )
+                        .order_by(
+                            SegmentRenderRecord.created_at.desc(), SegmentRenderRecord.id.desc()
+                        )
                     )
-                    .order_by(
-                        SegmentRenderRecord.created_at.desc(), SegmentRenderRecord.id.desc()
-                    )
-                )
-            if cached:
-                return self._model(cached)
-        render_id = f"rend_{uuid4().hex[:16]}"
-        root = Path(project.artifact_path) / "audio" / "segments" / segment_id / key / render_id
-        root.mkdir(parents=True, exist_ok=True)
-        audio = root / "speech.wav"
-        metadata = root / "metadata.json"
-        provenance = self.adapter.preview(
-            synthesis_text, provider_voice_id, audio, request.direction
-        )
-        with wave.open(str(audio)) as wav:
-            duration = int(wav.getnframes() / wav.getframerate() * 1000)
-            sample_rate = wav.getframerate()
-        metadata.write_text(
-            json.dumps(
-                {
-                    **payload,
-                    "tts": provenance,
-                    "renderKey": key,
-                    "durationMs": duration,
-                    "sampleRate": sample_rate,
-                    "peak": 0,
-                    "silenceRanges": [[0, duration]],
-                    "waveform": [],
-                },
-                indent=2,
+                if cached:
+                    return self._model(cached)
+            render_id = f"rend_{uuid4().hex[:16]}"
+            root = Path(project.artifact_path) / "audio" / "segments" / segment_id / key / render_id
+            root.mkdir(parents=True, exist_ok=True)
+            audio = root / "speech.wav"
+            metadata = root / "metadata.json"
+            provenance = self.adapter.preview(
+                synthesis_text, provider_voice_id, audio, request.direction
             )
-        )
-        with self.container.structure.database.session() as session:
-            previous = self._latest_successful(session, segment_id)
-        record = SegmentRenderRecord(
-            id=render_id,
-            segment_id=segment_id,
-            render_key=key,
-            status="succeeded",
-            audio_path=str(audio),
-            metadata_path=str(metadata),
-            duration_ms=duration,
-            parent_render_id=previous.id if previous else None,
-            request_json=json.dumps(payload),
-        )
-        with self.container.structure.database.session() as s:
-            s.add(record)
-            s.commit()
+            with wave.open(str(audio)) as wav:
+                duration = int(wav.getnframes() / wav.getframerate() * 1000)
+                sample_rate = wav.getframerate()
+            metadata.write_text(
+                json.dumps(
+                    {
+                        **payload,
+                        "tts": provenance,
+                        "renderKey": key,
+                        "durationMs": duration,
+                        "sampleRate": sample_rate,
+                        "peak": 0,
+                        "silenceRanges": [[0, duration]],
+                        "waveform": [],
+                    },
+                    indent=2,
+                )
+            )
+            with self.container.structure.database.session() as session:
+                previous = self._latest_successful(session, segment_id)
+            record = SegmentRenderRecord(
+                id=render_id,
+                segment_id=segment_id,
+                render_key=key,
+                status="succeeded",
+                audio_path=str(audio),
+                metadata_path=str(metadata),
+                duration_ms=duration,
+                parent_render_id=previous.id if previous else None,
+                request_json=json.dumps(payload),
+            )
+            with self.container.structure.database.session() as s:
+                s.add(record)
+                s.commit()
         ReviewService(self.container).qa_segment(project_id, record)
         return SegmentRender(
             id=record.id,

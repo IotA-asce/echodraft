@@ -20,13 +20,17 @@ from echodraft_domain import (
     StructureParserWarning,
 )
 from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
 
 from .database import Database
 from .models import (
     ChapterRecord,
     CharacterRecord,
     CharacterVoiceAssignmentRecord,
+    CommentRecord,
+    IssueRecord,
     JobRecord,
+    PatchAttemptRecord,
     ProjectProductionSettingsRecord,
     PronunciationEntryRecord,
     ProjectRecord,
@@ -35,6 +39,7 @@ from .models import (
     SceneRecord,
     SegmentDirectionRecord,
     SegmentRecord,
+    SegmentRenderRecord,
     SpeakerAttributionRecord,
     StructureLockRecord,
     StructureParserWarningRecord,
@@ -43,6 +48,48 @@ from .models import (
     SourceDocumentRecord,
     VoiceProfileRecord,
 )
+
+
+def _delete_segment_dependents(session: Session, segment_ids: list[str]) -> None:
+    """Remove every row that references the given segments before the segments are deleted.
+
+    Foreign keys are enforced (PRAGMA foreign_keys=ON), so a wholesale structure replace
+    must delete dependents first. Ordered children-before-parents: patch attempts and
+    comments reference issues and renders, which in turn reference the segment.
+    """
+    if not segment_ids:
+        return
+    issue_ids = list(
+        session.scalars(select(IssueRecord.id).where(IssueRecord.segment_id.in_(segment_ids)))
+    )
+    session.execute(
+        delete(PatchAttemptRecord).where(PatchAttemptRecord.segment_id.in_(segment_ids))
+    )
+    if issue_ids:
+        session.execute(delete(CommentRecord).where(CommentRecord.issue_id.in_(issue_ids)))
+        session.execute(delete(IssueRecord).where(IssueRecord.id.in_(issue_ids)))
+    session.execute(
+        delete(RenderQueueItemRecord).where(RenderQueueItemRecord.segment_id.in_(segment_ids))
+    )
+    session.execute(
+        delete(SegmentRenderRecord).where(SegmentRenderRecord.segment_id.in_(segment_ids))
+    )
+    session.execute(
+        delete(SegmentProductionOverrideRecord).where(
+            SegmentProductionOverrideRecord.segment_id.in_(segment_ids)
+        )
+    )
+    session.execute(
+        delete(SegmentDirectionRecord).where(SegmentDirectionRecord.segment_id.in_(segment_ids))
+    )
+    session.execute(
+        delete(SpeakerAttributionRecord).where(
+            SpeakerAttributionRecord.segment_id.in_(segment_ids)
+        )
+    )
+    session.execute(
+        delete(SegmentRevisionRecord).where(SegmentRevisionRecord.segment_id.in_(segment_ids))
+    )
 
 
 def _structure_warning(record: StructureParserWarningRecord) -> StructureParserWarning:
@@ -372,6 +419,12 @@ class StructureRepository:
         warnings: list[dict[str, Any]] | None = None,
     ) -> None:
         with self.database.session() as session:
+            new_segment_ids = {
+                str(segment["id"])
+                for chapter in hierarchy
+                for scene in chapter["scenes"]
+                for segment in scene["segments"]
+            }
             old_chapter_ids = list(
                 session.scalars(select(ChapterRecord.id).where(ChapterRecord.project_id == project_id))
             )
@@ -389,21 +442,23 @@ class StructureRepository:
                 )
             ) if old_scene_ids else []
             locked_by_id = {segment.id: segment for segment in locked_segments}
-            unlocked_segment_ids = list(
-                session.scalars(
-                    select(SegmentRecord.id).where(
-                        SegmentRecord.scene_id.in_(old_scene_ids),
-                        SegmentRecord.user_locked.is_(False),
+            # Unlocked segments are upserted in place when they reappear under the same
+            # (deterministic) id and deleted only when genuinely removed. Foreign keys are
+            # enforced, so deleting a segment out from under its renders/issues/directions would
+            # fail; updating the reused rows in place keeps those references valid.
+            unlocked_by_id = {
+                segment.id: segment
+                for segment in (
+                    session.scalars(
+                        select(SegmentRecord).where(
+                            SegmentRecord.scene_id.in_(old_scene_ids),
+                            SegmentRecord.user_locked.is_(False),
+                        )
                     )
+                    if old_scene_ids
+                    else []
                 )
-            ) if old_scene_ids else []
-            if unlocked_segment_ids:
-                session.execute(
-                    delete(SegmentRevisionRecord).where(
-                        SegmentRevisionRecord.segment_id.in_(unlocked_segment_ids)
-                    )
-                )
-                session.execute(delete(SegmentRecord).where(SegmentRecord.id.in_(unlocked_segment_ids)))
+            }
             session.execute(
                 delete(StructureParserWarningRecord).where(
                     StructureParserWarningRecord.project_id == project_id
@@ -453,10 +508,14 @@ class StructureRepository:
                     for segment in scene["segments"]:
                         segment_id = str(segment["id"])
                         locked_segment = locked_by_id.get(segment_id)
+                        existing_unlocked = unlocked_by_id.get(segment_id)
                         if locked_segment:
                             locked_segment.scene_id = scene_id
                             locked_segment.order_index = order_counts[scene_id]
                             placed_locked_segment_ids.add(segment_id)
+                        elif existing_unlocked:
+                            for key, value in segment.items():
+                                setattr(existing_unlocked, key, value)
                         else:
                             session.add(SegmentRecord(**segment))
                         order_counts[scene_id] += 1
@@ -476,6 +535,14 @@ class StructureRepository:
                     segment.scene_id = target_scene_id
                     segment.order_index = order_counts[target_scene_id]
                     order_counts[target_scene_id] += 1
+            removed_segment_ids = [
+                segment_id for segment_id in unlocked_by_id if segment_id not in new_segment_ids
+            ]
+            if removed_segment_ids:
+                _delete_segment_dependents(session, removed_segment_ids)
+                session.execute(
+                    delete(SegmentRecord).where(SegmentRecord.id.in_(removed_segment_ids))
+                )
             stale_scene_ids = [scene_id for scene_id in old_scene_ids if scene_id not in new_scene_ids]
             if stale_scene_ids:
                 session.execute(delete(SceneRecord).where(SceneRecord.id.in_(stale_scene_ids)))

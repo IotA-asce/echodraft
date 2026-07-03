@@ -78,5 +78,5 @@ def build_container(settings: AppSettings) -> AppContainer:
         llm_runs=LlmRunRepository(database),
         tts_settings=tts_settings,
         tts_adapter=adapter,
-        jobs=InProcessJobRunner(jobs_repository),
+        jobs=InProcessJobRunner(jobs_repository, settings.max_concurrent_jobs),
     )

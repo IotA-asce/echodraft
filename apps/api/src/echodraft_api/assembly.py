@@ -1,5 +1,6 @@
 import json
 import struct
+import threading
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,21 @@ from sqlalchemy.orm import Session
 
 from .container import AppContainer
 from .review import ReviewService
+
+# Serialize assembly per chapter so concurrent assemble() calls cannot interleave their
+# input resolution and record insert, forking the append-only chapter render history.
+# Keyed by chapter_id; _assemble_locks_guard protects the registry itself.
+_assemble_locks: dict[str, threading.Lock] = {}
+_assemble_locks_guard = threading.Lock()
+
+
+def _chapter_assemble_lock(chapter_id: str) -> threading.Lock:
+    with _assemble_locks_guard:
+        lock = _assemble_locks.get(chapter_id)
+        if lock is None:
+            lock = threading.Lock()
+            _assemble_locks[chapter_id] = lock
+        return lock
 
 
 @dataclass(frozen=True)
@@ -69,7 +85,10 @@ class ChapterAssembler:
         if not project or not chapter or chapter.project_id != project_id:
             raise ValueError("Chapter or project not found.")
 
-        with self.container.structure.database.session() as session:
+        with (
+            _chapter_assemble_lock(chapter_id),
+            self.container.structure.database.session() as session,
+        ):
             inputs = self._resolve_inputs(session, chapter_id)
             render_id = f"chaprend_{uuid4().hex[:16]}"
             root = Path(project.artifact_path) / "audio" / "chapters" / chapter_id / render_id
