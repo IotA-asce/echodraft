@@ -77,6 +77,8 @@ Current QA is deterministic and technical.
 
 - Segment and chapter QA can create durable issues for missing/corrupt audio, very short duration, duration mismatch, clipping, excessive silence, and render source mismatch.
 - Chapter assembly orders successful segment renders by scene and segment order, writes a speech WAV, and records an immutable chapter render.
+- Every "latest render/export" lookup selects by `created_at DESC, id DESC` (time-ordered, with the id as a tiebreaker); legacy rows without `created_at` sort oldest.
+- Assembly refuses to stitch a segment render whose recorded request `revision` does not match the segment's current revision; the segment must be re-rendered first.
 - Review patching can update segment text, render the affected segment, assemble a new chapter render, and record patch lineage.
 - Export supports WAV and MP3 ZIP packages with a manifest and checksums.
 - Open blocking issues prevent export.

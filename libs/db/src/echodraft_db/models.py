@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -314,6 +314,9 @@ class SegmentRenderRecord(Base):
     duration_ms: Mapped[int] = mapped_column(nullable=False)
     parent_render_id: Mapped[str | None] = mapped_column(String(64))
     request_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=lambda: datetime.now(UTC)
+    )
 
 
 class RenderQueueItemRecord(Base):
@@ -345,6 +348,9 @@ class ChapterRenderRecord(Base):
     render_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="speech_only")
     ambience_stem_path: Mapped[str | None] = mapped_column(Text)
     mixed_audio_path: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=lambda: datetime.now(UTC)
+    )
 
 
 class AmbienceAssetRecord(Base):
@@ -444,6 +450,9 @@ class ExportPackageRecord(Base):
     output_path: Mapped[str] = mapped_column(Text, nullable=False)
     manifest_path: Mapped[str] = mapped_column(Text, nullable=False)
     archive_path: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=lambda: datetime.now(UTC)
+    )
 
 
 class CharacterRecord(Base):
