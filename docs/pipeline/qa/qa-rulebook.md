@@ -22,7 +22,7 @@ Required checks:
 - chapter loudness bounds
 - corrupted export detection
 
-**Implemented** (Phase 2 task B1/G11, `echodraft_api.audio_analysis`): every check below is
+**Implemented** (Phase 2 task B2/G11, `echodraft_api.audio_analysis`): every check below is
 computed from real PCM analysis (numpy, no ffmpeg) instead of hardcoded placeholders. See
 `AudioAnalysis` for the exact metrics (`peak_dbfs`, `rms_dbfs`, `dead_air_ranges`,
 `silence_ranges`, `waveform_peaks`, `clipped_sample_count`) and `ReviewService._audio_rules`

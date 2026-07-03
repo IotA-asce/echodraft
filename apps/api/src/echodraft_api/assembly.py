@@ -18,7 +18,7 @@ from echodraft_db.models import (
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .audio_analysis import analyze_wav
+from .audio_analysis import AudioAnalysis, analyze_wav
 from .container import AppContainer
 from .review import ReviewService
 
@@ -159,10 +159,28 @@ class ChapterAssembler:
                 )
             )
             output_path = mixed_path or speech_path
-            analysis = analyze_wav(output_path)
-            findings = ReviewService._audio_rules(output_path, duration_ms)
+            # Decode the assembled output exactly once; the waveform, the validation
+            # report, and chapter QA (below) all consume this same analysis. A WAV we just
+            # wrote but cannot re-read is reported honestly as a failed validation, never
+            # an unhandled crash after the audio work already succeeded.
+            analysis: AudioAnalysis | None
+            try:
+                analysis = analyze_wav(output_path)
+            except (EOFError, wave.Error, ValueError):
+                analysis = None
+            if analysis is None:
+                findings = [
+                    ("corrupt_audio", "blocking", "Audio artifact cannot be decoded as WAV.")
+                ]
+            else:
+                findings = ReviewService._audio_rules(output_path, duration_ms, analysis=analysis)
             waveform_path.write_text(
-                json.dumps({"durationMs": duration_ms, "peaks": analysis.waveform_peaks})
+                json.dumps(
+                    {
+                        "durationMs": duration_ms,
+                        "peaks": analysis.waveform_peaks if analysis else [],
+                    }
+                )
             )
             validation_path.write_text(
                 json.dumps(
@@ -203,6 +221,7 @@ class ChapterAssembler:
             record.id,
             record.mixed_audio_path or record.speech_path,
             record.duration_ms,
+            analysis=analysis,
         )
         return self._model(record)
 
