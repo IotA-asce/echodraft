@@ -37,7 +37,7 @@ def test_readiness_report_persists_checks_and_accepted_risk_is_counted(client) -
     categories = {check["category"] for check in report["checks"]}
     assert "readiness_voice" in categories
     assert "readiness_audio" in categories
-    voice_check = next(check for check in report["checks"] if check["id"] == "voice_narrator_missing")
+    voice_check = next(check for check in report["checks"] if check["id"] == "voice_narrator")
     assert voice_check["issueId"]
     assert voice_check["resolutionStatus"] == "open"
 
@@ -47,7 +47,7 @@ def test_readiness_report_persists_checks_and_accepted_risk_is_counted(client) -
     rerun = client.post(
         f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
     ).json()
-    rerun_voice = next(check for check in rerun["checks"] if check["id"] == "voice_narrator_missing")
+    rerun_voice = next(check for check in rerun["checks"] if check["id"] == "voice_narrator")
     assert rerun_voice["issueId"] == voice_check["issueId"]
     assert rerun_voice["resolutionStatus"] == "ignored"
 
@@ -60,7 +60,7 @@ def test_readiness_report_persists_checks_and_accepted_risk_is_counted(client) -
         and check["resolutionStatus"] in (None, "open")
     ]
     assert rerun["summary"]["blocking"] == len(active_blocking)
-    assert all(check["id"] != "voice_narrator_missing" for check in active_blocking)
+    assert all(check["id"] != "voice_narrator" for check in active_blocking)
 
     latest = client.get(
         f"/api/v1/projects/{project}/readiness/latest?chapter_id={chapter}"
@@ -76,7 +76,7 @@ def test_readiness_reopens_resolved_but_still_failing_check(client) -> None:
     report = client.post(
         f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
     ).json()
-    voice_check = next(check for check in report["checks"] if check["id"] == "voice_narrator_missing")
+    voice_check = next(check for check in report["checks"] if check["id"] == "voice_narrator")
     issue_id = voice_check["issueId"]
 
     # A "resolved" mark is only a claim. The narrator voice is still missing, so the next
@@ -89,7 +89,7 @@ def test_readiness_reopens_resolved_but_still_failing_check(client) -> None:
         f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
     ).json()
 
-    rerun_voice = next(check for check in rerun["checks"] if check["id"] == "voice_narrator_missing")
+    rerun_voice = next(check for check in rerun["checks"] if check["id"] == "voice_narrator")
     assert rerun_voice["issueId"] == issue_id
     assert rerun_voice["resolutionStatus"] == "open"
     assert rerun_voice["metadata"]["reopened"] is True
@@ -154,6 +154,49 @@ def test_readiness_auto_resolves_a_check_that_now_passes(client) -> None:
         check for check in rerun["checks"] if check["id"] == "voice_character_coverage"
     )
     assert rerun_coverage["status"] == "passed"
+
+    issue = next(
+        item
+        for item in client.get(f"/api/v1/projects/{project}/issues").json()
+        if item["id"] == issue_id
+    )
+    assert issue["status"] == "resolved"
+
+
+def test_readiness_auto_resolves_narrator_check_across_fail_reasons(client) -> None:
+    """Regression test: the narrator check used to emit "voice_narrator_missing"
+    while failing but "voice_narrator" while passing, so the auto-resolve-on-pass
+    lookup (keyed on the passing draft's id) could never find the failing issue and
+    it lingered "open" forever. The id must stay stable across the fail -> pass
+    transition so the SAME issue row is auto-resolved once the narrator voice is set.
+    """
+    project, chapter = structured_project(client)
+
+    report = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+    voice_check = next(check for check in report["checks"] if check["id"] == "voice_narrator")
+    assert voice_check["status"] == "failed"
+    assert voice_check["metadata"]["reason"] == "missing"
+    assert voice_check["resolutionStatus"] == "open"
+    issue_id = voice_check["issueId"]
+    assert issue_id
+
+    # Fix the underlying condition via the API: configure a narrator voice.
+    narrator_voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Narrator", "backend": "mock", "providerVoiceId": "mock-narrator"},
+    ).json()
+    client.put(
+        f"/api/v1/projects/{project}/production-settings",
+        json={"narratorVoiceProfileId": narrator_voice["id"]},
+    )
+
+    rerun = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+    rerun_voice = next(check for check in rerun["checks"] if check["id"] == "voice_narrator")
+    assert rerun_voice["status"] == "passed"
 
     issue = next(
         item
