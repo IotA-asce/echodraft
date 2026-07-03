@@ -425,7 +425,9 @@ Key columns:
 - `created_at` DATETIME nullable (NULL only on legacy rows; latest-render selection orders by `created_at DESC, id DESC`)
 
 Indexes:
-- `(chapter_id, created_at)`
+- `chapter_id` (single-column; there is no composite `(chapter_id, created_at)` index in
+  any migration — latest-render lookups order by `created_at DESC, id DESC` in an
+  application-level query, not via a composite index)
 
 ### `issues`
 Purpose: QA and editorial findings.

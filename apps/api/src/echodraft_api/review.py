@@ -131,14 +131,12 @@ class ReviewService:
         if request.text_content and request.text_content.strip() != segment.text_content:
             segment = self.container.structure.update_segment(segment_id, request.text_content)
             assert segment
-        if request.voice_profile_id and request.direction:
-            voice, direction = request.voice_profile_id, request.direction
-        else:
-            resolved_voice, resolved_direction = ProductionService(
-                self.container
-            ).resolve_voice_and_direction(project_id, segment_id)
-            voice = request.voice_profile_id or resolved_voice
-            direction = request.direction or resolved_direction
+        # Resolve each field independently: a caller who supplies one half (e.g. a voice
+        # but no direction) must not force resolution of the other half to also require a
+        # narrator voice. Only the field that is actually missing gets resolved server-side.
+        production = ProductionService(self.container)
+        voice = request.voice_profile_id or production.resolve_voice(project_id, segment_id)
+        direction = request.direction or production.resolve_direction(project_id, segment_id)
         render_request = SegmentRenderRequest(
             voiceProfileId=voice,
             direction=direction,
