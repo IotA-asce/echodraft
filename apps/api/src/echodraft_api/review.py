@@ -37,6 +37,11 @@ HIGH_LOUDNESS_DBFS = -14.0
 # probably truncated, not just terse.
 TRUNCATION_CHARS_PER_SECOND = 30
 TRUNCATION_MIN_TEXT_CHARS = 40
+# Mastered chapter loudness target and QA tolerance (Phase 2 task B1). Only meaningful for
+# chapter-level audio that has actually been mastered (ffmpeg present); segment RMS bounds
+# above stay the rough proxy for un-mastered segment renders.
+MASTER_TARGET_LUFS = -19.0
+MASTER_LUFS_TOLERANCE = 1.0
 
 
 class ReviewService:
@@ -89,10 +94,25 @@ class ReviewService:
         path: str,
         duration: int,
         analysis: AudioAnalysis | None = None,
+        mastered_lufs: float | None = None,
     ) -> None:
-        for category, severity, description in self._audio_rules(
-            Path(path), duration, analysis=analysis
+        findings = list(self._audio_rules(Path(path), duration, analysis=analysis))
+        # When the chapter was mastered (ffmpeg present) its measured integrated loudness
+        # gates against the -19 LUFS target directly, tightening the rough RMS bounds that
+        # apply to un-mastered segment audio.
+        if (
+            mastered_lufs is not None
+            and abs(mastered_lufs - MASTER_TARGET_LUFS) > MASTER_LUFS_TOLERANCE
         ):
+            findings.append(
+                (
+                    "chapter_loudness_out_of_range",
+                    "warning",
+                    f"Mastered integrated loudness {mastered_lufs:.1f} LUFS is outside "
+                    f"±{MASTER_LUFS_TOLERANCE:.0f} of {MASTER_TARGET_LUFS:.0f} LUFS.",
+                )
+            )
+        for category, severity, description in findings:
             self.container.review.create_issue(
                 project_id=project_id,
                 chapter_id=chapter_id,
