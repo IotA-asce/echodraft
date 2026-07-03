@@ -121,6 +121,7 @@ class SourceDocumentRecord(Base):
     original_path: Mapped[str] = mapped_column(Text, nullable=False)
     canonical_path: Mapped[str | None] = mapped_column(Text)
     manifest_path: Mapped[str | None] = mapped_column(Text)
+    structure_signals_path: Mapped[str | None] = mapped_column(Text)
     warnings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text)

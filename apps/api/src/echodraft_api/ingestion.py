@@ -8,9 +8,10 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from docx import Document
 from ebooklib import ITEM_DOCUMENT, epub  # type: ignore[import-untyped]
 from pypdf import PdfReader
@@ -28,6 +29,7 @@ from echodraft_domain import ParserWarning, RightsStatus, WarningSeverity
 
 from .cleaning import CleaningPipeline, CleaningResult
 from .container import AppContainer
+from .structure_parsing import ChapterSignal, normalize_anchor
 from .system_tools import resolve_system_tool
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -111,7 +113,7 @@ class IngestionService:
 
     def process(self, source_id: str, project_id: str, filename: str, mime_type: str, parser_version: str, original_path: Path) -> None:
         try:
-            text, warnings = self._extract(original_path, filename, source_id, project_id)
+            text, warnings, signals = self._extract(original_path, filename, source_id, project_id)
             cleaning = CleaningPipeline().clean(text)
             text = cleaning.text
             warnings.extend(cleaning.warnings)
@@ -128,21 +130,38 @@ class IngestionService:
             canonical_version.write_text(canonical, encoding="utf-8")
             current_canonical = root / "source" / "canonical.md"
             shutil.copyfile(canonical_version, current_canonical)
+            structure_signals_path = self._persist_structure_signals(root, source_id, signals)
             manifest = {
-                "manifestType": "source_manifest", "schemaVersion": "0.1.0", "projectId": project_id,
+                "manifestType": "source_manifest", "schemaVersion": "0.2.0", "projectId": project_id,
                 "generatedAt": datetime.now(UTC).isoformat(), "status": "completed", "diagnostics": [w.model_dump(by_alias=True) for w in warnings],
                 "payload": {"sourceDocumentId": source_id, "originalFilename": filename, "mimeType": mime_type,
                             "originalPath": str(original_path), "normalizedTextPath": str(current_canonical),
+                            "structureSignalsPath": str(structure_signals_path) if structure_signals_path else None,
                             "checksum": hashlib.sha256(original_path.read_bytes()).hexdigest(), "canonicalChecksum": hashlib.sha256(canonical.encode()).hexdigest(),
                             "parserVersion": parser_version, "warnings": [w.model_dump(by_alias=True) for w in warnings]},
             }
             manifest_version = root / "manifests" / f"source_manifest.{source_id}.json"
             manifest_version.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
             shutil.copyfile(manifest_version, root / "manifests" / "source_manifest.json")
-            self.container.sources.update(source_id, canonical_path=str(current_canonical), manifest_path=str(manifest_version), warnings_json=json.dumps([w.model_dump(by_alias=True) for w in warnings]), status="succeeded")
+            self.container.sources.update(source_id, canonical_path=str(current_canonical), manifest_path=str(manifest_version), structure_signals_path=str(structure_signals_path) if structure_signals_path else None, warnings_json=json.dumps([w.model_dump(by_alias=True) for w in warnings]), status="succeeded")
         except Exception as error:
             self.container.sources.update(source_id, status="failed", error_message=str(error))
             raise
+
+    @staticmethod
+    def _persist_structure_signals(
+        root: Path, source_id: str, signals: list[ChapterSignal]
+    ) -> Path | None:
+        if not signals:
+            return None
+        signals_root = root / "sources" / source_id / "structure_signals"
+        signals_root.mkdir(parents=True, exist_ok=True)
+        signals_path = signals_root / "chapter_signals.json"
+        signals_path.write_text(
+            json.dumps([signal.to_payload() for signal in signals], indent=2),
+            encoding="utf-8",
+        )
+        return signals_path
 
     def _persist_cleaning(
         self, project_id: str, source_id: str, cleaning: CleaningResult
@@ -229,34 +248,95 @@ class IngestionService:
 
     def _extract(
         self, path: Path, filename: str, source_id: str | None = None, project_id: str | None = None
-    ) -> tuple[str, list[ParserWarning]]:
+    ) -> tuple[str, list[ParserWarning], list[ChapterSignal]]:
         suffix = Path(filename).suffix.lower()
         warnings: list[ParserWarning] = []
         if suffix in {".txt", ".md", ".markdown"}:
-            return path.read_bytes().decode("utf-8-sig", errors="replace"), warnings
+            return path.read_bytes().decode("utf-8-sig", errors="replace"), warnings, []
         if suffix == ".docx":
-            try:
-                return "\n\n".join(p.text for p in Document(str(path)).paragraphs), warnings
-            except Exception as error:
-                raise IngestionError(f"Unreadable DOCX: {error}") from error
+            return self._extract_docx(path)
         if suffix == ".epub":
-            try:
-                book = epub.read_epub(str(path))
-                sections = []
-                for item in book.get_items_of_type(ITEM_DOCUMENT):
-                    text = BeautifulSoup(item.get_content(), "html.parser").get_text("\n", strip=True)
-                    if text:
-                        sections.append(text)
-                if not sections:
-                    raise IngestionError("Unreadable EPUB: no readable document sections.")
-                return "\n\n".join(sections), warnings
-            except IngestionError:
-                raise
-            except Exception as error:
-                raise IngestionError(f"Unreadable EPUB: {error}") from error
+            return self._extract_epub(path)
         if suffix == ".pdf":
-            return self._extract_pdf(path, source_id, project_id)
+            text, pdf_warnings = self._extract_pdf(path, source_id, project_id)
+            return text, pdf_warnings, []
         raise IngestionError("Unsupported file type.")
+
+    @staticmethod
+    def _extract_docx(path: Path) -> tuple[str, list[ParserWarning], list[ChapterSignal]]:
+        warnings: list[ParserWarning] = []
+        signals: list[ChapterSignal] = []
+        try:
+            document = Document(str(path))
+        except Exception as error:
+            raise IngestionError(f"Unreadable DOCX: {error}") from error
+        lines: list[str] = []
+        for paragraph in document.paragraphs:
+            line = paragraph.text
+            lines.append(line)
+            heading = _docx_heading_signal(paragraph.style.name if paragraph.style else "")
+            if heading and line.strip():
+                level, confidence = heading
+                anchor = line.strip()[:120]
+                signals.append(
+                    ChapterSignal(
+                        title=anchor,
+                        source_kind="docx_heading",
+                        level=level,
+                        anchor_text=anchor,
+                        confidence=confidence,
+                    )
+                )
+        return "\n\n".join(lines), warnings, signals
+
+    @staticmethod
+    def _extract_epub(path: Path) -> tuple[str, list[ParserWarning], list[ChapterSignal]]:
+        warnings: list[ParserWarning] = []
+        signals: list[ChapterSignal] = []
+        try:
+            book = epub.read_epub(str(path))
+            covered_anchors: set[str] = set()
+            for title in _flatten_epub_toc(book.toc):
+                anchor = title.strip()[:120]
+                if not anchor:
+                    continue
+                signals.append(
+                    ChapterSignal(
+                        title=anchor,
+                        source_kind="epub_toc",
+                        level=1,
+                        anchor_text=anchor,
+                        confidence=0.95,
+                    )
+                )
+                covered_anchors.add(normalize_anchor(anchor))
+            sections: list[str] = []
+            for item in _spine_documents(book):
+                soup = BeautifulSoup(item.get_content(), "html.parser")
+                heading = soup.find("h1")
+                if isinstance(heading, Tag):
+                    anchor = heading.get_text(" ", strip=True)[:120].strip()
+                    if anchor and normalize_anchor(anchor) not in covered_anchors:
+                        signals.append(
+                            ChapterSignal(
+                                title=anchor,
+                                source_kind="epub_spine",
+                                level=1,
+                                anchor_text=anchor,
+                                confidence=0.8,
+                            )
+                        )
+                        covered_anchors.add(normalize_anchor(anchor))
+                text = _epub_section_text(soup)
+                if text:
+                    sections.append(text)
+            if not sections:
+                raise IngestionError("Unreadable EPUB: no readable document sections.")
+            return "\n\n".join(sections), warnings, signals
+        except IngestionError:
+            raise
+        except Exception as error:
+            raise IngestionError(f"Unreadable EPUB: {error}") from error
 
     def _extract_pdf(
         self, path: Path, source_id: str | None = None, project_id: str | None = None
@@ -757,3 +837,85 @@ class IngestionService:
             if paragraph:
                 cleaned.append(paragraph)
         return "\n\n".join(cleaned).strip() + "\n", warnings
+
+
+def _docx_heading_signal(style_name: str | None) -> tuple[int, float] | None:
+    """Map a DOCX paragraph style to a chapter-signal (level, confidence).
+
+    Only ``Title`` (level 0), ``Heading 1`` (level 1), and ``Heading 2``
+    (level 2) yield signals. Level 2 is a scene-break hint, not a chapter.
+    """
+    name = re.sub(r"\s+", " ", style_name or "").strip().casefold()
+    if name == "title":
+        return 0, 0.9
+    if name == "heading 1":
+        return 1, 0.95
+    if name == "heading 2":
+        return 2, 0.75
+    return None
+
+
+_EPUB_BLOCK_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "blockquote")
+
+
+def _epub_section_text(soup: BeautifulSoup) -> str:
+    """Serialize an EPUB document to text with a blank line between block elements.
+
+    Headings and paragraphs must stay on separate paragraphs so downstream
+    cleaning (line-wrap merge) does not fold a heading into the following body,
+    which would erase the chapter-signal anchor.
+    """
+    blocks = [
+        element.get_text(" ", strip=True)
+        for element in soup.find_all(_EPUB_BLOCK_TAGS)
+        if isinstance(element, Tag)
+    ]
+    blocks = [block for block in blocks if block]
+    if blocks:
+        return "\n\n".join(blocks)
+    return soup.get_text("\n", strip=True)
+
+
+def _flatten_epub_toc(toc: Any) -> list[str]:
+    """Depth-first titles from an EPUB TOC, descending into nested sections."""
+    titles: list[str] = []
+
+    def walk(entries: Any) -> None:
+        for entry in entries:
+            if isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[1], (list, tuple)):
+                section, children = entry
+                section_title = getattr(section, "title", None)
+                if section_title:
+                    titles.append(str(section_title))
+                walk(children)
+            elif isinstance(entry, (list, tuple)):
+                walk(entry)
+            else:
+                entry_title = getattr(entry, "title", None)
+                if entry_title:
+                    titles.append(str(entry_title))
+
+    walk(toc if isinstance(toc, (list, tuple)) else [toc])
+    return titles
+
+
+def _spine_documents(book: Any) -> list[Any]:
+    """Return EPUB document items in spine (reading) order, skipping nav."""
+    documents: list[Any] = []
+    seen: set[str] = set()
+    for entry in getattr(book, "spine", None) or []:
+        idref = entry[0] if isinstance(entry, (list, tuple)) else entry
+        item = book.get_item_with_id(idref) if idref is not None else None
+        if item is None or isinstance(item, epub.EpubNav) or item.get_type() != ITEM_DOCUMENT:
+            continue
+        if item.id in seen:
+            continue
+        seen.add(item.id)
+        documents.append(item)
+    if not documents:
+        documents = [
+            item
+            for item in book.get_items_of_type(ITEM_DOCUMENT)
+            if not isinstance(item, epub.EpubNav)
+        ]
+    return documents

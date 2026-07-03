@@ -27,6 +27,8 @@ from .container import AppContainer
 from .local_llm import LocalLlmService
 from .structure_parsing import (
     ALLOWED_PRODUCTION_TYPES,
+    CONTAINER_SIGNAL_KINDS,
+    ChapterSignal,
     SegmentDraft,
     StructureCompiler,
     TextAtom,
@@ -87,7 +89,8 @@ class StructureService:
                 },
             )
         compiler = StructureCompiler(project_id, source.id, STRUCTURE_PARSER_VERSION)
-        compiled = compiler.compile(text, max_chars)
+        chapter_signals = self._load_chapter_signals(source.structure_signals_path)
+        compiled = compiler.compile(text, max_chars, chapter_signals=chapter_signals)
         hierarchy = compiled.hierarchy
         warnings = compiled.warnings
         llm_used, accepted, rejected = self._refine_hierarchy(
@@ -108,6 +111,23 @@ class StructureService:
             llm_rejected=rejected,
         )
         self._write_manifest(project_id, source.id, max_chars, hierarchy, warnings, quality)
+
+    @staticmethod
+    def _load_chapter_signals(path: str | None) -> list[ChapterSignal] | None:
+        if not path:
+            return None
+        file = Path(path)
+        if not file.exists():
+            return None
+        try:
+            payload = json.loads(file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, list):
+            return None
+        return [
+            ChapterSignal.from_payload(item) for item in payload if isinstance(item, dict)
+        ]
 
     def quality(
         self,
@@ -517,6 +537,7 @@ class StructureService:
                 "parserVersion": STRUCTURE_PARSER_VERSION,
                 "pipeline": [
                     "block_map",
+                    "container_chapter_signals",
                     "chapter_candidate_scoring",
                     "scene_candidate_scoring",
                     "quote_aware_atomization",
@@ -606,8 +627,14 @@ class StructureService:
         issue_codes = [_issue_record_code(issue) for issue in issues]
         total_chars = sum(len(segment.text_content) for segment in segments)
         attributed_dialogue = len(dialogue) - len(unresolved)
+        container_chapters = sum(
+            1
+            for chapter in chapters
+            if str(_evidence(chapter.parser_evidence_json).get("reason")) in CONTAINER_SIGNAL_KINDS
+        )
         return {
             "chapterCount": len(chapters),
+            "chaptersFromContainerSignals": container_chapters,
             "sceneCount": len(scenes),
             "segmentCount": len(segments),
             "dialogueSegmentCount": len(dialogue),
