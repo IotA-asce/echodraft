@@ -40,6 +40,12 @@ class SegmentRenderer:
             "ttsProvider": provider_identity,
             "pronunciationsApplied": pronunciations,
         }
+        if request.force:
+            # Guarantee a distinct render_key for every forced render, even when nothing
+            # about the effective inputs changed, so the render cache never silently
+            # returns stale audio and (later) a succeeded (segment_id, render_key)
+            # uniqueness index stays safe.
+            payload["forceNonce"] = uuid4().hex
         key = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
         if not request.force:
             with self.container.structure.database.session() as session:
