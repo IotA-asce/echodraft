@@ -151,6 +151,6 @@ export const listIssues = (projectId: string) => request<Issue[]>(`/api/v1/proje
 export const updateIssue = (issueId: string, payload: { status?: string; severity?: string }) => request<Issue>(`/api/v1/issues/${issueId}`, json("PATCH", payload));
 export const listComments = (issueId: string) => request<Comment[]>(`/api/v1/issues/${issueId}/comments`);
 export const addComment = (issueId: string, body: string) => request<Comment>(`/api/v1/issues/${issueId}/comments`, json("POST", { body }));
-export const patchSegment = (projectId: string, segmentId: string, payload: { textContent?: string; issueId?: string; voiceProfileId: string; direction: Direction }) => request<unknown>(`/api/v1/projects/${projectId}/segments/${segmentId}/patch`, json("POST", payload));
+export const patchSegment = (projectId: string, segmentId: string, payload: { textContent?: string; issueId?: string; voiceProfileId?: string; direction?: Direction }) => request<unknown>(`/api/v1/projects/${projectId}/segments/${segmentId}/patch`, json("POST", payload));
 export const createExport = (projectId: string, format: "wav" | "mp3", chapterIds: string[], payload: { audioVariant?: "active" | "clean" | "mixed"; title?: string; author?: string; album?: string; publisher?: string; language?: string; coverImagePath?: string } = {}) => request<ExportPackage>(`/api/v1/projects/${projectId}/exports`, json("POST", { format, chapterIds, ...payload }));
 export const listExports = (projectId: string) => request<ExportPackage[]>(`/api/v1/projects/${projectId}/exports`);

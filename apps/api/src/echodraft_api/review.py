@@ -7,6 +7,7 @@ from echodraft_domain import (
     Issue,
     SegmentPatchRequest,
     SegmentPatchResult,
+    SegmentRenderRequest,
 )
 from echodraft_db.models import (
     ChapterRecord,
@@ -72,6 +73,7 @@ class ReviewService:
         self, project_id: str, segment_id: str, request: SegmentPatchRequest
     ) -> SegmentPatchResult:
         from .assembly import ChapterAssembler
+        from .production import ProductionService
         from .rendering import SegmentRenderer
         from .structure import segment_model
 
@@ -94,7 +96,21 @@ class ReviewService:
         if request.text_content and request.text_content.strip() != segment.text_content:
             segment = self.container.structure.update_segment(segment_id, request.text_content)
             assert segment
-        render = SegmentRenderer(self.container).render(project_id, segment_id, request)
+        if request.voice_profile_id and request.direction:
+            voice, direction = request.voice_profile_id, request.direction
+        else:
+            resolved_voice, resolved_direction = ProductionService(
+                self.container
+            ).resolve_voice_and_direction(project_id, segment_id)
+            voice = request.voice_profile_id or resolved_voice
+            direction = request.direction or resolved_direction
+        render_request = SegmentRenderRequest(
+            voiceProfileId=voice,
+            direction=direction,
+            outputFormat=request.output_format,
+            force=True,
+        )
+        render = SegmentRenderer(self.container).render(project_id, segment_id, render_request)
         chapter_render = ChapterAssembler(self.container).assemble(project_id, chapter.id)
         self.container.review.add_patch_attempt(
             request.issue_id,

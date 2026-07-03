@@ -191,3 +191,173 @@ def test_segment_revision_stales_only_the_edited_render(client) -> None:
     after = client.get(f"/api/v1/projects/{project}/chapters/{chapter}/production-status").json()
     assert after["totalSegments"] == 2
     assert after["currentSegments"] == 1
+
+
+def test_patch_with_only_issue_id_resolves_voice_and_forces_fresh_render(client) -> None:
+    project, _, segment = prepared_segment(client)
+    voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Narrator", "backend": "mock", "providerVoiceId": "mock-narrator"},
+    ).json()
+    client.put(
+        f"/api/v1/projects/{project}/production-settings",
+        json={"narratorVoiceProfileId": voice["id"]},
+    )
+    # Same voice and blank direction the server will resolve to on patch: this isolates the
+    # "force" behaviour, since nothing about the effective render inputs actually changes.
+    original = client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/generate",
+        json={
+            "voiceProfileId": voice["id"],
+            "direction": {"scopeType": "segment", "scopeId": segment},
+        },
+    ).json()
+    issue = client.post(
+        f"/api/v1/projects/{project}/issues",
+        json={
+            "segmentId": segment,
+            "category": "editorial",
+            "severity": "warning",
+            "title": "Pacing",
+            "description": "Needs another pass.",
+        },
+    ).json()
+
+    patched = client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/patch",
+        json={"issueId": issue["id"]},
+    )
+    assert patched.status_code == 202, patched.text
+    result = patched.json()
+    assert result["render"]["id"] != original["id"]
+    assert result["render"]["parentRenderId"] == original["id"]
+
+
+def test_patch_without_voice_resolves_to_cast_voice_not_narrator(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Cast Patch", "rightsStatus": "declared"}
+    ).json()["id"]
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    narrator_voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Narrator", "backend": "mock", "providerVoiceId": "mock-narrator"},
+    ).json()
+    mara_voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Mara", "backend": "mock", "providerVoiceId": "mock-mara"},
+    ).json()
+    character = client.post(
+        f"/api/v1/projects/{project}/characters",
+        json={"displayName": "Mara", "aliases": ["Captain Vale"]},
+    ).json()
+    client.patch(
+        f"/api/v1/characters/{character['id']}",
+        json={"voiceProfileId": mara_voice["id"]},
+    )
+    client.put(
+        f"/api/v1/projects/{project}/production-settings",
+        json={"narratorVoiceProfileId": narrator_voice["id"]},
+    )
+    imported = client.post(
+        f"/api/v1/projects/{project}/source/import",
+        files={
+            "file": (
+                "cast.txt",
+                b"Chapter 1\n\nMara: We leave now.\n\n\"Who is there?\"\n\nThe rain answered.",
+                "text/plain",
+            )
+        },
+        data={"rightsAcknowledged": "true"},
+    ).json()
+    assert wait_for_job(client, imported["id"])["status"] == "succeeded"
+    structured = client.post(f"/api/v1/projects/{project}/structure/extract", json={}).json()
+    assert wait_for_job(client, structured["id"])["status"] == "succeeded"
+
+    attribution_job = client.post(
+        f"/api/v1/projects/{project}/speaker-attributions/run", json={}
+    ).json()
+    assert wait_for_job(client, attribution_job["id"])["status"] == "succeeded"
+
+    chapter = client.get(f"/api/v1/projects/{project}/chapters").json()[0]
+    scene = client.get(f"/api/v1/chapters/{chapter['id']}/scenes").json()[0]
+    segments = client.get(f"/api/v1/scenes/{scene['id']}/segments").json()
+    dialogue_segment = next(item for item in segments if item["speakerCandidate"] == "Mara")
+
+    # Give every segment a successful render (so chapter assembly has inputs), then
+    # deliberately re-render the dialogue segment with the wrong (narrator) voice to
+    # simulate a stale/incorrect render that the patch should correct.
+    produced = client.post(f"/api/v1/projects/{project}/chapters/{chapter['id']}/produce").json()
+    assert wait_for_job(client, produced["id"])["status"] == "succeeded"
+    original = client.post(
+        f"/api/v1/projects/{project}/segments/{dialogue_segment['id']}/generate",
+        json={
+            "voiceProfileId": narrator_voice["id"],
+            "direction": {"scopeType": "segment", "scopeId": dialogue_segment["id"]},
+            "force": True,
+        },
+    ).json()
+    issue = client.post(
+        f"/api/v1/projects/{project}/issues",
+        json={
+            "segmentId": dialogue_segment["id"],
+            "category": "editorial",
+            "severity": "warning",
+            "title": "Cast check",
+            "description": "Confirm cast voice on patch.",
+        },
+    ).json()
+
+    patched = client.post(
+        f"/api/v1/projects/{project}/segments/{dialogue_segment['id']}/patch",
+        json={"issueId": issue["id"]},
+    )
+    assert patched.status_code == 202, patched.text
+    render = patched.json()["render"]
+    assert render["id"] != original["id"]
+    metadata = json.loads(Path(render["metadataPath"]).read_text(encoding="utf-8"))
+    assert metadata["voiceProfileId"] == mara_voice["id"]
+
+
+def test_patch_without_direction_resolves_saved_segment_direction(client) -> None:
+    project, _, segment = prepared_segment(client)
+    voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Narrator", "backend": "mock", "providerVoiceId": "mock-narrator"},
+    ).json()
+    client.put(
+        f"/api/v1/projects/{project}/production-settings",
+        json={"narratorVoiceProfileId": voice["id"]},
+    )
+    client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/generate",
+        json={
+            "voiceProfileId": voice["id"],
+            "direction": {"scopeType": "segment", "scopeId": segment},
+        },
+    )
+    client.put(
+        f"/api/v1/projects/{project}/segments/{segment}/direction",
+        json={
+            "direction": {"scopeType": "segment", "scopeId": segment, "pace": 1.3},
+            "userLocked": True,
+        },
+    )
+    issue = client.post(
+        f"/api/v1/projects/{project}/issues",
+        json={
+            "segmentId": segment,
+            "category": "editorial",
+            "severity": "warning",
+            "title": "Pacing note",
+            "description": "Apply the saved direction on patch.",
+        },
+    ).json()
+
+    patched = client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/patch",
+        json={"issueId": issue["id"]},
+    )
+    assert patched.status_code == 202, patched.text
+    render = patched.json()["render"]
+    metadata = json.loads(Path(render["metadataPath"]).read_text(encoding="utf-8"))
+    assert metadata["direction"]["pace"] == 1.3

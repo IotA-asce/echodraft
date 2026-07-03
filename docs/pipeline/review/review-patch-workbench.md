@@ -31,6 +31,8 @@ The dashboard’s segment action is now `Inspect`. It loads the existing render 
 
 Patch attempts remain append-only. A patch creates a new segment render, records the previous render as the parent, reassembles the owning chapter, and adds a `patch_attempts` row. Segment text edits continue to create revisions and stale only the affected segment render fingerprint.
 
+`POST /api/v1/projects/{projectId}/segments/{segmentId}/patch` accepts an optional `voiceProfileId` and `direction`; omitted fields are resolved server-side using the same layering as production (segment override → cast-resolved voice for approved speaker attributions → project narrator voice; direction override → saved segment direction → project default → a blank profile). Any voice/direction the caller does supply is honored as a manual override for that field. Patch always renders with `force=true`: it re-renders with the segment's resolved voice and direction and always produces fresh audio, so the render cache can never silently return stale audio for a patch.
+
 ## Validation
 
 Stage 12 tests cover:

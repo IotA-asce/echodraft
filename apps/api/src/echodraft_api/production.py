@@ -95,6 +95,33 @@ class ProductionService:
             direction=json.loads(record.direction_json) if record.direction_json else None,
         )
 
+    def resolve_voice_and_direction(
+        self, project_id: str, segment_id: str
+    ) -> tuple[str, DirectionProfile]:
+        """Resolve the voice/direction a fresh render should use for one segment.
+
+        Layering mirrors `status`/`produce`: segment production override wins, then the
+        cast-resolved voice for approved speaker attributions, then the project narrator
+        voice. Direction falls back through override -> saved segment direction -> project
+        default -> a blank profile. Reuses `_direction_for` rather than duplicating it.
+        """
+        self._validate_segment_project(project_id, segment_id)
+        settings = self.settings(project_id)
+        override = self.container.production.override(segment_id)
+        speaker_voices = self.container.speaker_attributions.resolved_voice_profiles([segment_id])
+        voice = (
+            override.voice_profile_id
+            if override and override.voice_profile_id
+            else speaker_voices.get(segment_id, settings.narrator_voice_profile_id)
+        )
+        if not voice:
+            raise ValueError("Set a narrator voice before patching.")
+        segment_directions = self.container.segment_directions.records([segment_id])
+        direction = self._direction_for(
+            segment_id, override, segment_directions, settings.default_direction
+        )
+        return voice, direction
+
     def status(self, project_id: str, chapter_id: str) -> ChapterProductionStatus:
         chapter = self.container.structure.chapter(chapter_id)
         if not chapter or chapter.project_id != project_id:
