@@ -1,13 +1,19 @@
 from collections.abc import Callable
-from threading import Thread
+from concurrent.futures import ThreadPoolExecutor
 
 from echodraft_db import JobRepository
 from echodraft_domain import Job, JobState
 
 
 class InProcessJobRunner:
-    def __init__(self, repository: JobRepository) -> None:
+    def __init__(self, repository: JobRepository, max_workers: int = 2) -> None:
         self.repository = repository
+        # A single bounded pool backs every submission site so concurrent jobs never
+        # exceed max_workers OS threads; jobs beyond the limit stay queued (JobState.QUEUED)
+        # until a worker is free and run_inline transitions them to RUNNING.
+        self._executor = ThreadPoolExecutor(
+            max_workers=max(1, max_workers), thread_name_prefix="echodraft-job"
+        )
 
     def enqueue(
         self, job_type: str, project_id: str | None = None, target_id: str | None = None
@@ -28,7 +34,7 @@ class InProcessJobRunner:
         self, job_type: str, operation: Callable[[], None], project_id: str | None = None
     ) -> Job:
         job = self.enqueue(job_type, project_id)
-        Thread(target=self.run_inline, args=(job.id, operation), daemon=True).start()
+        self._executor.submit(self.run_inline, job.id, operation)
         return job
 
     def submit_with_job(
@@ -39,7 +45,7 @@ class InProcessJobRunner:
         target_id: str | None = None,
     ) -> Job:
         job = self.enqueue(job_type, project_id, target_id)
-        Thread(target=self.run_inline, args=(job.id, lambda: operation(job.id)), daemon=True).start()
+        self._executor.submit(self.run_inline, job.id, lambda: operation(job.id))
         return job
 
     @staticmethod

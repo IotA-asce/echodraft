@@ -1,6 +1,12 @@
 import json
+import threading
 import time
 from pathlib import Path
+
+from echodraft_api.rendering import SegmentRenderer
+from echodraft_db.models import SegmentRenderRecord
+from echodraft_domain import SegmentRenderRequest
+from sqlalchemy import select
 
 
 def wait_for_job(client, job_id: str) -> dict:
@@ -35,6 +41,51 @@ def render_payload(project: str) -> dict:
         "voiceProfileId": "voice_test",
         "direction": {"scopeType": "project", "scopeId": project},
     }
+
+
+def test_concurrent_forced_renders_keep_a_linear_chain(app, client) -> None:
+    project, _, segment = prepared_segment(client)
+    renderer = SegmentRenderer(app.state.container)
+    request = SegmentRenderRequest.model_validate(
+        {
+            "voiceProfileId": "voice_test",
+            "direction": {"scopeType": "project", "scopeId": project},
+            "force": True,
+        }
+    )
+    errors: list[Exception] = []
+    barrier = threading.Barrier(2)
+
+    def run() -> None:
+        try:
+            barrier.wait()
+            renderer.render(project, segment, request)
+        except Exception as exc:  # noqa: BLE001 - test captures any failure for assertion
+            errors.append(exc)
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors, errors
+    assert not any("database is locked" in str(error).lower() for error in errors)
+
+    with app.state.container.structure.database.session() as session:
+        records = list(
+            session.scalars(
+                select(SegmentRenderRecord).where(
+                    SegmentRenderRecord.segment_id == segment,
+                    SegmentRenderRecord.status == "succeeded",
+                )
+            )
+        )
+    assert len(records) == 2
+    roots = [record for record in records if record.parent_render_id is None]
+    assert len(roots) == 1, "forked append-only chain: expected exactly one root render"
+    parents = [record.parent_render_id for record in records if record.parent_render_id]
+    assert len(parents) == len(set(parents)), "forked chain: two renders share a parent"
 
 
 def test_qa_issues_are_durable_and_deduplicated_per_render(client) -> None:

@@ -348,6 +348,7 @@ Key columns:
 
 Indexes:
 - `segment_id`
+- `uq_segment_renders_succeeded_key` — partial UNIQUE on (`segment_id`, `render_key`) `WHERE status = 'succeeded'`. Guarantees at most one succeeded render per render key; forced re-renders fold a nonce into `render_key`, so they never collide. Enforced by migration `0024_segment_render_uniqueness` (which first marks pre-existing duplicates `superseded`, never deleting history) and mirrored idempotently in the SQLite schema repair.
 
 ### `render_queue_items`
 Purpose: per-segment production queue status for chapter render jobs.
