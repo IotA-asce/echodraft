@@ -1,11 +1,16 @@
 import json
 import time
+from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import echodraft_api.cast_discovery as cast_discovery_module
 import echodraft_api.structure as structure_module
 import pytest
+from docx import Document
+from ebooklib import epub
 from echodraft_api.structure_parsing import (
+    ChapterSignal,
     StructureCompiler,
     TextAtom,
     validate_atom_offsets,
@@ -711,6 +716,94 @@ def test_cast_evidence_graph_counts_mentions(client) -> None:
     assert graph["lastSeenOffset"] is not None
     assert "mention" in graph["sources"]
     assert notes["mentionEvidence"]
+
+
+def _docx_heading_bytes() -> bytes:
+    document = Document()
+    document.add_heading("The Arrival", level=1)
+    document.add_paragraph("Mara stepped off the train into the cold morning air.")
+    document.add_paragraph("She had never seen the city before that day.")
+    document.add_heading("The Departure", level=1)
+    document.add_paragraph("The whistle blew and the crowded platform slowly emptied.")
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _epub_heading_bytes(tmp_path: Path) -> bytes:
+    book = epub.EpubBook()
+    book.set_identifier("container-signals")
+    book.set_title("Container Signals")
+    book.set_language("en")
+    first = epub.EpubHtml(title="The Arrival", file_name="c1.xhtml", lang="en", uid="arrival")
+    first.content = (
+        "<h1>The Arrival</h1><p>Mara stepped off the train into the cold morning air.</p>"
+        "<p>She had never seen the city before that day.</p>"
+    )
+    second = epub.EpubHtml(title="The Departure", file_name="c2.xhtml", lang="en", uid="departure")
+    second.content = (
+        "<h1>The Departure</h1><p>The whistle blew and the crowded platform slowly emptied.</p>"
+    )
+    book.add_item(first)
+    book.add_item(second)
+    book.toc = (first, second)
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = ["nav", first, second]
+    target = tmp_path / "container.epub"
+    epub.write_epub(str(target), book)
+    return target.read_bytes()
+
+
+def _import_document(client, name: str, data: bytes) -> str:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Container", "rightsStatus": "declared"}
+    ).json()["id"]
+    job = client.post(
+        f"/api/v1/projects/{project}/source/import",
+        files={"file": (name, data, "application/octet-stream")},
+        data={"rightsAcknowledged": "true"},
+    ).json()
+    assert wait_for_job(client, job["id"])["status"] == "succeeded"
+    return project
+
+
+def test_docx_heading_styles_become_chapters(client) -> None:
+    project = _import_document(client, "book.docx", _docx_heading_bytes())
+    extract(client, project)
+    chapters = client.get(f"/api/v1/projects/{project}/chapters").json()
+    assert [chapter["title"] for chapter in chapters] == ["The Arrival", "The Departure"]
+    assert all(chapter["status"] == "structured" for chapter in chapters)
+
+
+def test_epub_spine_and_toc_become_chapters(client, tmp_path: Path) -> None:
+    project = _import_document(client, "book.epub", _epub_heading_bytes(tmp_path))
+    extract(client, project)
+    chapters = client.get(f"/api/v1/projects/{project}/chapters").json()
+    assert [chapter["title"] for chapter in chapters] == ["The Arrival", "The Departure"]
+
+
+def test_container_signal_matches_heading_longer_than_display_title() -> None:
+    heading = "An Uncommonly Long Heading About " + "Very " * 25 + "Distant Shores"
+    assert len(heading) > 120
+    text = f"{heading}\n\nA body paragraph follows the long heading here.\n"
+    compiler = StructureCompiler("proj_test", "src_test", "test-parser")
+    signal = ChapterSignal(
+        title=heading[:120],
+        source_kind="docx_heading",
+        level=1,
+        anchor_text=heading,
+        confidence=0.95,
+    )
+
+    result = compiler.compile(text, 200, chapter_signals=[signal])
+
+    titles = [chapter["record"]["title"] for chapter in result.hierarchy]
+    assert titles == [heading[:120]]
+    codes = {
+        json.loads(str(warning["evidence_json"])).get("code") for warning in result.warnings
+    }
+    assert "container_signal_unmatched" not in codes
 
 
 def test_cast_discovery_uses_aliases_without_creating_duplicates(client) -> None:

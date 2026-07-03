@@ -5,6 +5,15 @@ Stage 3 adds deterministic cleaning before canonical manuscript normalization. T
 ## Pipeline Order
 
 1. Source extraction reads TXT, Markdown, DOCX, EPUB, or selected PDF page text.
+   - DOCX extraction reads `paragraph.style.name` (Title, Heading 1, Heading 2)
+     and EPUB extraction iterates documents in **spine (reading) order**, reading
+     `book.toc` and each spine item's first `<h1>`. These become container
+     **chapter signals** written to `sources/{sourceId}/structure_signals/chapter_signals.json`
+     and referenced from the source manifest as `structureSignalsPath`. EPUB
+     block elements are emitted separated by blank lines so a heading is never
+     folded into the following paragraph by wrap-merge (which would erase its
+     anchor). The structure parser resolves these signals by anchor text; see
+     [`structure-parser-v2.md`](../structure/structure-parser-v2.md).
 2. The cleaning pipeline removes deterministic pollution and records applied decisions.
 3. Canonical normalization performs Unicode/newline cleanup, smart quote conversion, duplicate paragraph removal, and parser warnings.
 4. Structure extraction reads only the cleaned canonical manuscript.
