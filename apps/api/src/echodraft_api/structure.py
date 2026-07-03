@@ -618,8 +618,7 @@ class StructureService:
             "mixedSegmentWarningCount": warning_codes.count("segment.mixed_dialogue_and_narration"),
             "castCandidateCount": len(characters),
             "possibleDuplicateCastCount": issue_codes.count("cast.possible_duplicate"),
-            "lowConfidenceCastCandidateCount": issue_codes.count("cast.low_confidence_candidate")
-            or sum(1 for character in characters if character.confidence < 0.72),
+            "lowConfidenceCastCandidateCount": issue_codes.count("cast.low_confidence_candidate"),
             "possibleSceneBreakCount": warning_codes.count("scene.possible_break_detected"),
             "offsetValidationFailureCount": warning_codes.count("segment.offset_validation_failed"),
             "quoteUnclosedCount": warning_codes.count("segment.quote_unclosed"),
@@ -653,8 +652,7 @@ class StructureService:
         return {
             "castCandidateCount": len(characters),
             "possibleDuplicateCastCount": issue_codes.count("cast.possible_duplicate"),
-            "lowConfidenceCastCandidateCount": issue_codes.count("cast.low_confidence_candidate")
-            or sum(1 for character in characters if character.confidence < 0.72),
+            "lowConfidenceCastCandidateCount": issue_codes.count("cast.low_confidence_candidate"),
         }
 
 

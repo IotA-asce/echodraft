@@ -313,7 +313,49 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   await page.route(/\/api\/v1\/projects\/proj_progress\/production-settings$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify({ projectId: "proj_progress", narratorVoiceProfileId: "voice_progress", defaultDirection: null }) });
   });
-  await page.route(/\/api\/v1\/projects\/proj_progress\/(issues|exports|characters|pronunciations)$/, async (route) => {
+  await page.route(/\/api\/v1\/projects\/proj_progress\/issues$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "issue_duplicate_cast",
+          projectId: "proj_progress",
+          chapterId: "chap_progress",
+          segmentId: "seg_1",
+          severity: "warning",
+          category: "cast_discovery",
+          title: "Possible duplicate cast candidate",
+          description: "Dr. Sen was observed but may already be represented.",
+          status: "open",
+          metadata: {
+            code: "cast.possible_duplicate",
+            reviewAction: "merge_cast",
+            candidateName: "Dr. Sen",
+            possibleMatches: ["Dr. Priya Sen"],
+            confidence: 0.68
+          }
+        },
+        {
+          id: "issue_low_cast",
+          projectId: "proj_progress",
+          chapterId: "chap_progress",
+          segmentId: null,
+          severity: "warning",
+          category: "cast_discovery",
+          title: "Low-confidence cast candidate",
+          description: "Rahul needs confirmation before creating a Character Bible record.",
+          status: "open",
+          metadata: {
+            code: "cast.low_confidence_candidate",
+            reviewAction: "confirm_cast",
+            candidateName: "Rahul",
+            confidence: 0.62
+          }
+        }
+      ])
+    });
+  });
+  await page.route(/\/api\/v1\/projects\/proj_progress\/(exports|characters|pronunciations)$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
   });
   await page.route(/\/api\/v1\/projects\/proj_progress\/(speaker-attributions|segment-directions|sound-assets)$/, async (route) => {
@@ -385,7 +427,13 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   await expect(page.locator(".structure-warning-panel")).toContainText("Later that night");
   await expect(page.locator(".structure-warning-panel")).toContainText("120-158");
   await page.locator(".structure-warning-panel").getByRole("button", { name: /Cast issues/ }).click();
-  await expect(page.locator(".structure-warning-panel")).toContainText("No warnings in this category.");
+  await expect(page.locator(".structure-warning-panel")).toContainText("cast.possible_duplicate");
+  await expect(page.locator(".structure-warning-panel")).toContainText("cast.low_confidence_candidate");
+  await expect(page.locator(".structure-warning-panel")).toContainText("Dr. Sen");
+  await expect(page.locator(".structure-warning-panel")).toContainText("Dr. Priya Sen");
+  await expect(page.locator(".structure-warning-panel")).toContainText("merge cast");
+  await expect(page.locator(".structure-warning-panel")).toContainText("68%");
+  await expect(page.locator(".structure-warning-panel")).toContainText("segment · seg_1");
   await page.locator(".structure-warning-panel").getByRole("button", { name: /All/ }).click();
   await expect(page.locator(".segment-evidence").first()).toContainText("speaker unresolved");
   await expect(page.locator(".segment-evidence").first()).toContainText("quote aware atomization");

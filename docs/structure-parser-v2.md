@@ -32,11 +32,13 @@ Each chapter, scene, and segment can carry `parserEvidence`. Parser warnings are
 - confidence;
 - resolved state.
 
-The dashboard shows parser warnings above the structure editor columns and shows segment-level parser evidence below each segment.
+The dashboard shows parser warnings and open cast discovery review issues above the structure editor columns, with filters for speaker, scene, mixed/long segment, cast, LLM, and error categories. Segment-level parser evidence remains visible below each segment.
 
 Segment evidence records sources such as `block_map`, `quote_aware_atomization`, `deterministic_segment_builder`, and `optional_atom_llm_grouping`. LLM refinement evidence records the local LLM run ID and atom IDs without accepting model-returned manuscript text.
 
-Review hardening warnings include unclosed quotes, atom offset validation failures, mixed narration/dialogue segments, multiple-speaker segments, ambiguous two-person exchanges, unresolved dialogue, possible scene breaks, and LLM diagnostics. Cast duplicate and low-confidence candidate reviews remain review issues with structured metadata codes.
+Review hardening warnings include unclosed quotes, atom offset validation failures, mixed narration/dialogue segments, multiple-speaker segments, ambiguous two-person exchanges, unresolved dialogue, possible scene breaks, and LLM diagnostics. Offset validation failures include structured errors plus uncovered and overlapping source ranges. Cast duplicate and low-confidence candidate reviews remain review issues with structured metadata codes and are shown in the Story Map review panel.
+
+Cast evidence graphs distinguish speaker evidence from deterministic mention evidence. Mentions are counted only for candidates already discovered through speaker or LLM evidence, and never create cast candidates by themselves.
 
 Stable source-span IDs are used for chapters, scenes, segments, atoms, and offset-backed warnings:
 

@@ -2,6 +2,7 @@ import { useMemo, useState, type ChangeEvent } from "react";
 import type {
   Chapter,
   Direction,
+  Issue,
   Job,
   ProductionStatus,
   RenderQueueItem,
@@ -37,6 +38,7 @@ export function StoryMapPanel({
   voices,
   directions,
   warnings,
+  issues,
   quality,
   status,
   job,
@@ -85,6 +87,7 @@ export function StoryMapPanel({
   voices: VoiceProfile[];
   directions: SegmentDirection[];
   warnings: StructureParserWarning[];
+  issues: Issue[];
   quality: StructureQuality | null;
   status: ProductionStatus | null;
   job: Job | null;
@@ -191,7 +194,7 @@ export function StoryMapPanel({
           </button>
         ))}
       </div>
-      <StructureWarnings warnings={warnings} />
+      <StructureWarnings warnings={warnings} issues={issues} />
       <div className="structure-columns">
         <ChapterList chapters={chapters} selectedChapterId={selectedChapter?.id} onOpen={onOpenChapter} />
         <SceneList scenes={scenes} onOpen={onOpenScene} />

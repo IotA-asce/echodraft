@@ -161,6 +161,14 @@ class QuoteScan:
 
 
 @dataclass(frozen=True)
+class AtomOffsetValidation:
+    valid: bool
+    errors: list[str]
+    uncovered_ranges: list[tuple[int, int]]
+    overlapping_ranges: list[tuple[int, int]]
+
+
+@dataclass(frozen=True)
 class SegmentDraft:
     atom_ids: list[str]
     segment_type: str
@@ -208,22 +216,73 @@ def safe_json(payload: dict[str, object]) -> str:
     return json.dumps(payload, sort_keys=True)
 
 
-def validate_atom_offsets(scene_text: str, base: int, atoms: list[TextAtom]) -> bool:
+def validate_atom_offsets(
+    scene_text: str, base: int, atoms: list[TextAtom]
+) -> AtomOffsetValidation:
     scene_start = base
     scene_end = base + len(scene_text)
     previous_end = scene_start
+    errors: list[str] = []
+    covered_ranges: list[tuple[int, int]] = []
+    overlapping_ranges: list[tuple[int, int]] = []
+
+    def add_error(code: str) -> None:
+        if code not in errors:
+            errors.append(code)
+
     for atom in atoms:
         if atom.start_offset < scene_start or atom.end_offset > scene_end:
-            return False
+            add_error("out_of_bounds")
         if atom.start_offset > atom.end_offset:
-            return False
+            add_error("invalid_span")
         if atom.start_offset < previous_end:
-            return False
-        source_slice = scene_text[atom.start_offset - base : atom.end_offset - base]
-        if source_slice.strip() != atom.text.strip():
-            return False
-        previous_end = atom.end_offset
-    return True
+            add_error("non_monotonic_order")
+        if atom.start_offset < previous_end and atom.end_offset > atom.start_offset:
+            overlap_end = min(atom.end_offset, previous_end)
+            if overlap_end > atom.start_offset:
+                overlapping_ranges.append((atom.start_offset, overlap_end))
+                add_error("overlapping_atoms")
+        if scene_start <= atom.start_offset <= atom.end_offset <= scene_end:
+            source_slice = scene_text[atom.start_offset - base : atom.end_offset - base]
+            if source_slice.strip() != atom.text.strip():
+                add_error("source_slice_mismatch")
+            if atom.end_offset > atom.start_offset:
+                covered_ranges.append((atom.start_offset, atom.end_offset))
+        previous_end = max(previous_end, atom.end_offset)
+
+    uncovered_ranges = _uncovered_non_whitespace_ranges(scene_text, base, covered_ranges)
+    if uncovered_ranges:
+        add_error("uncovered_source_text")
+    return AtomOffsetValidation(
+        valid=not errors,
+        errors=errors,
+        uncovered_ranges=uncovered_ranges,
+        overlapping_ranges=overlapping_ranges,
+    )
+
+
+def atom_offsets_valid(scene_text: str, base: int, atoms: list[TextAtom]) -> bool:
+    return validate_atom_offsets(scene_text, base, atoms).valid
+
+
+def _uncovered_non_whitespace_ranges(
+    scene_text: str, base: int, ranges: list[tuple[int, int]]
+) -> list[tuple[int, int]]:
+    scene_start = base
+    scene_end = base + len(scene_text)
+    cursor = scene_start
+    uncovered: list[tuple[int, int]] = []
+    for start, end in sorted(ranges):
+        if start > cursor:
+            gap = scene_text[cursor - base : start - base]
+            if gap.strip():
+                uncovered.append((cursor, start))
+        cursor = max(cursor, end)
+    if cursor < scene_end:
+        gap = scene_text[cursor - base : scene_end - base]
+        if gap.strip():
+            uncovered.append((cursor, scene_end))
+    return uncovered
 
 
 class StructureCompiler:
@@ -481,7 +540,8 @@ class StructureCompiler:
                     )
                 )
             atoms = self.atoms_for_scene(trimmed_text, trimmed_start, warnings, scene_id)
-            if not validate_atom_offsets(trimmed_text, trimmed_start, atoms):
+            offset_validation = validate_atom_offsets(trimmed_text, trimmed_start, atoms)
+            if not offset_validation.valid:
                 warnings.append(
                     self.structure_issue(
                         "scene",
@@ -490,10 +550,21 @@ class StructureCompiler:
                         "warning",
                         "One or more atom offsets did not match the source text.",
                         "inspect_segment",
-                        {"textPreview": trimmed_text[:160]},
+                        {
+                            "textPreview": trimmed_text[:160],
+                            "errors": offset_validation.errors,
+                            "uncoveredRanges": [
+                                [start, end]
+                                for start, end in offset_validation.uncovered_ranges
+                            ],
+                            "overlappingRanges": [
+                                [start, end]
+                                for start, end in offset_validation.overlapping_ranges
+                            ],
+                        },
                         0.72,
                         trimmed_start,
-                        min(trimmed_end, trimmed_start + 160),
+                        trimmed_end,
                     )
                 )
             segments = self.segments_from_atoms(scene_id, atoms, max_chars, warnings)
