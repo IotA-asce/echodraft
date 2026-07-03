@@ -9,6 +9,7 @@ export function SegmentEditorCard({
   editing,
   draft,
   savedDirection,
+  supportedDirection,
   busy,
   onStartEdit,
   onDraftChange,
@@ -27,6 +28,7 @@ export function SegmentEditorCard({
   editing: Segment | null;
   draft: string;
   savedDirection?: SegmentDirection;
+  supportedDirection?: string[] | null;
   busy: boolean;
   onStartEdit: (segment: Segment) => void;
   onDraftChange: (value: string) => void;
@@ -132,7 +134,7 @@ export function SegmentEditorCard({
           ))}
         </select>
       </label>
-      <DirectionControls segment={segment} saved={savedDirection} onSave={onSaveDirection} />
+      <DirectionControls segment={segment} saved={savedDirection} supportedDirection={supportedDirection} onSave={onSaveDirection} />
     </div>
   );
 }

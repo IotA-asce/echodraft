@@ -360,11 +360,31 @@ class ManagedKokoroSetupService:
         return steps
 
     def _write_wrapper(self) -> None:
-        if self.paths.wrapper.is_file() and self.paths.wrapper.read_text(encoding="utf-8") == WRAPPER_SOURCE:
-            return
-        self.paths.wrapper.write_text(WRAPPER_SOURCE, encoding="utf-8")
-        if os.name != "nt":
-            self.paths.wrapper.chmod(0o755)
+        write_managed_wrapper(self.paths.wrapper)
+
+
+def write_managed_wrapper(wrapper_path: Path) -> None:
+    """Idempotently (re)write the managed Kokoro helper to the current ``WRAPPER_SOURCE``.
+
+    The wrapper is generated content, so any on-disk copy that differs from the
+    current source (e.g. an older install that hardcoded ``speed=1.0``) is
+    refreshed. Callers use this both at setup time and lazily before each render
+    so existing installs pick up wrapper fixes without a manual repair.
+
+    The refresh is atomic (temp file + ``os.replace`` in the same directory) so a
+    concurrent render never observes a mid-truncate wrapper.
+    """
+    if wrapper_path.is_file() and wrapper_path.read_text(encoding="utf-8") == WRAPPER_SOURCE:
+        return
+    wrapper_path.parent.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile(
+        "w", encoding="utf-8", dir=wrapper_path.parent, delete=False
+    ) as temporary:
+        temporary.write(WRAPPER_SOURCE)
+        temporary_path = Path(temporary.name)
+    if os.name != "nt":
+        temporary_path.chmod(0o755)
+    os.replace(temporary_path, wrapper_path)
 
 
 WRAPPER_SOURCE = r'''#!/usr/bin/env python3
@@ -399,6 +419,7 @@ def main() -> int:
     parser.add_argument("--voice")
     parser.add_argument("--text")
     parser.add_argument("--output")
+    parser.add_argument("--speed", type=float, default=1.0)
     parser.add_argument("--list-voices", action="store_true")
     args = parser.parse_args()
 
@@ -416,7 +437,7 @@ def main() -> int:
         print(f"Kokoro voice '{args.voice}' is not registered locally.", file=sys.stderr)
         return 2
 
-    samples, sample_rate = kokoro.create(args.text, voice=args.voice, speed=1.0)
+    samples, sample_rate = kokoro.create(args.text, voice=args.voice, speed=args.speed)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     sf.write(str(output), samples, sample_rate)

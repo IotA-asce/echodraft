@@ -56,7 +56,7 @@ The current TTS layer exposes a local provider registry through the dashboard.
 - XTTS-v2 is opt-in and requires a local Python runtime, reference WAV, language, and explicit reference-voice consent.
 - Segment renders are immutable and stored under the project artifact store.
 - Render cache keys are derived from segment text, synthesis text after pronunciation replacements, revision, resolved voice, resolved direction, output format, provider identity, and applied pronunciation entries.
-- Direction Studio persists segment-level emotion, pace, intensity, pause, emphasis, and whisper controls; current Kokoro adapters apply supported pace data and retain unsupported controls in metadata.
+- Direction Studio persists segment-level emotion, pace, intensity, pause, emphasis, and whisper controls. Each provider's `capabilities.direction` is truthful (see the capability matrix in [`tts-production-upgrade.md`](../pipeline/tts/tts-production-upgrade.md)): managed Kokoro transmits pace via the wrapper's `--speed` flag; Piper transmits pace natively; the custom Kokoro and XTTS-v2 adapters honor no engine-native direction. Unsupported controls are still recorded in metadata as `unsupportedDirection`.
 - Chapter production records per-segment render queue rows and exposes latest-vs-parent render comparison for review.
 - A cache hit returns the existing render; forced regeneration creates a new render linked to the prior render through `parent_render_id`.
 
@@ -77,6 +77,7 @@ Current QA is deterministic and technical.
 
 - Segment and chapter QA can create durable issues for missing/corrupt audio, very short duration, duration mismatch, clipping, excessive silence, and render source mismatch.
 - Chapter assembly orders successful segment renders by scene and segment order, writes a speech WAV, and records an immutable chapter render.
+- The pause inserted between two consecutive segments is `max(prev.pauseAfterMs, next.pauseBeforeMs, default_gap)`, where `default_gap` is 350 ms within a scene and 800 ms across a scene boundary (the scene boundary keeps its 800 ms floor). Pause values come from the direction that actually rendered each segment (its render `request_json`), clamped to the DirectionProfile 0–5000 ms bounds. The chapter render manifest's `pauses` block records `paragraphMs`, `sceneMs`, and an `applied` list of the per-gap `{afterSegmentId, ms}` actually written.
 - Every "latest render/export" lookup selects by `created_at DESC, id DESC` (time-ordered, with the id as a tiebreaker); legacy rows without `created_at` sort oldest.
 - Assembly refuses to stitch a segment render whose recorded request `revision` does not match the segment's current revision; the segment must be re-rendered first.
 - Review patching can update segment text, render the affected segment, assemble a new chapter render, and record patch lineage.
