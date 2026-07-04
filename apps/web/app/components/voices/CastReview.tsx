@@ -23,6 +23,11 @@ export function CastReview({
   const activeCharacters = characters.filter((item) => !item.mergedIntoCharacterId);
   const open = attributions.filter((item) => item.status !== "approved");
   const approved = attributions.filter((item) => item.status === "approved");
+  const orderedAttributions = [...attributions].sort((left, right) => {
+    if (left.status === "approved" && right.status !== "approved") return 1;
+    if (left.status !== "approved" && right.status === "approved") return -1;
+    return left.confidence - right.confidence;
+  });
   const narratorFallback = approved.filter((item) => !item.characterId || !item.voiceProfileId).length;
   return (
     <div className="cast-review">
@@ -30,6 +35,7 @@ export function CastReview({
         <strong>Cast Review</strong>
         <span>
           {activeCharacters.length} detected · {approved.length} approved · {open.length} review · {narratorFallback} narrator fallback
+          {open.length ? " · lowest confidence first" : ""}
         </span>
       </div>
       <div className="cast-actions">
@@ -42,7 +48,7 @@ export function CastReview({
       </div>
       {attributions.length ? (
         <div className="cast-grid">
-          {attributions.map((item) => {
+          {orderedAttributions.map((item) => {
             const preview = typeof item.evidence.textPreview === "string" ? item.evidence.textPreview : "No preview available.";
             return (
               <article className={item.status === "approved" ? "cast-card approved" : "cast-card review"} key={item.id}>

@@ -19,6 +19,7 @@ Each character stores:
 
 - Structure & Cast Draft can create high-confidence unique characters automatically from observed dialogue/cast evidence.
 - Ambiguous candidates are kept as review issues instead of creating duplicate Character Bible records.
+- Parser Review can apply evidence-backed cast issues: possible duplicates merge into the selected target, while low-confidence unique candidates are confirmed into the Character Bible.
 - User locks survive reruns and local extraction passes.
 - Merge preserves the source record with `mergedIntoCharacterId`; it does not delete data.
 - Merge also re-points speaker attributions from the merged-away source record to the surviving character.
@@ -37,10 +38,13 @@ Each character stores:
 - `POST /api/v1/characters/{characterId}/reject-merge`
 - `POST /api/v1/characters/{characterId}/split`
 - `POST /api/v1/characters/{characterId}/assign-voice`
+- `POST /api/v1/issues/{issueId}/apply-action`
 - `GET /api/v1/projects/{projectId}/speaker-attributions`
 - `POST /api/v1/projects/{projectId}/speaker-attributions/run`
 - `PATCH /api/v1/speaker-attributions/{speakerAttributionId}`
 
 ## UI Surface
 
-The dashboard Cast Review & Voice Bible panel supports creating character records, editing canonical names, aliases, traits, and roles, linking a voice, locking records, issuing merge or split operations, and reviewing speaker attribution rows in Cast Review.
+The dashboard Cast Review & Voice Bible panel supports creating character records, editing canonical names, aliases, traits, and roles, linking a voice, locking records, issuing merge or split operations, and reviewing speaker attribution rows in Cast Review. Speaker rows are ordered with unresolved, lowest-confidence items first, and propagated approvals report how many matching rows were updated.
+
+The Structure & Cast Draft Parser Review queue surfaces cast-discovery issues alongside parser warnings. It offers apply, not-a-duplicate, and dismiss actions so evidence-backed character decisions can be completed without leaving the story map.
