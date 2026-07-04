@@ -83,6 +83,7 @@ from echodraft_domain import (
     VoicePreviewRequest,
     VoiceProfile,
     VoiceProfileCreate,
+    VoiceSuggestion,
     VoiceProfileUpdate,
     KokoroSetupInstallRequest,
     KokoroSetupStatus,
@@ -253,6 +254,50 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 "voiceProfileId": voice_profile_id,
             }
         )
+
+    def voice_suggestions(character: CharacterRecord) -> list[VoiceSuggestion]:
+        traits = [str(item) for item in _json_list(character.traits_json)]
+        sample_text = (
+            f"{character.display_name}: This audition line should match the character's "
+            "observed age, accent, role, and vocal traits."
+        )
+        suggestions: list[VoiceSuggestion] = []
+        for voice in container.casting.voices(character.project_id):
+            haystack = " ".join(
+                [voice.name, voice.backend, voice.provider_voice_id, voice.style_prompt or ""]
+            ).casefold()
+            matched = [trait for trait in traits if _voice_matches_trait(trait, haystack)]
+            evidence = [
+                f"Matched {trait} in voice metadata."
+                for trait in matched
+            ] or ["No explicit trait match; included as an available project voice."]
+            score = round(len(matched) / max(1, len(traits)), 3)
+            suggestions.append(
+                VoiceSuggestion(
+                    voiceProfileId=voice.id,
+                    name=voice.name,
+                    providerVoiceId=voice.provider_voice_id,
+                    backend=voice.backend,
+                    score=score,
+                    matchedTraits=matched,
+                    evidence=evidence,
+                    sampleText=sample_text,
+                )
+            )
+        return sorted(
+            suggestions,
+            key=lambda item: (-item.score, -len(item.matched_traits), item.name.casefold()),
+        )
+
+    def _voice_matches_trait(trait: str, haystack: str) -> bool:
+        value = trait.split(":", 1)[-1].casefold()
+        synonyms = {
+            "feminine": ["feminine", "female", "woman", "girl"],
+            "masculine": ["masculine", "male", "man", "boy"],
+            "young": ["young", "youth", "teen"],
+            "old": ["old", "older", "elder"],
+        }
+        return any(term in haystack for term in [value, *synonyms.get(value, [])])
 
     @app.middleware("http")
     async def request_logging(
@@ -986,6 +1031,16 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Character not found")
         voice_id = request.app.state.container.casting.character_voice_assignment(character_id)
         return character_model(x, voice_id)
+
+    @app.get(
+        "/api/v1/characters/{character_id}/voice-suggestions",
+        response_model=list[VoiceSuggestion],
+    )
+    def suggest_character_voices(character_id: str, request: Request) -> list[VoiceSuggestion]:
+        character = request.app.state.container.casting.character(character_id)
+        if not character:
+            raise HTTPException(status_code=404, detail="Character not found")
+        return voice_suggestions(character)
 
     @app.post("/api/v1/characters/{character_id}/merge", response_model=Character)
     def merge_character(

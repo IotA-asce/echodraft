@@ -16,7 +16,7 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 - Numbered gaps tracked: 20
 - Complete: 11
 - Remaining: 9
-- In progress: 0
+- In progress: 3
 - Approximate roadmap completion: 55%
 - Complete phases: Phase 0, Phase 1, Phase 2
 - Remaining phases: Phase 3, Phase 4
@@ -101,17 +101,21 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 
 - [ ] G9 - Character disambiguation and fuzzy aliasing.
   - [ ] Add disambiguation gate before same-name character merges.
-  - [ ] Add nickname lexicon and fuzzy alias clustering.
-  - [ ] Extract casting-relevant character traits.
+  - [x] Add initial title/nickname alias enrichment.
+  - [x] Extract conservative casting-relevant character traits from observed evidence.
+  - Evidence: `feat/phase-3-cast-depth`.
 - [ ] G10 - Speaker attribution depth.
-  - [ ] Add turn-taking and alternation model.
-  - [ ] Add pronoun and coreference support.
+  - [x] Add initial nearby-turn and pronoun-cue evidence for unlabeled dialogue.
+  - [ ] Expand into full turn-taking and alternation model.
+  - [ ] Add broader pronoun and coreference support.
   - [ ] Let attribution propose new speakers back to the cast.
+  - Evidence: `feat/phase-3-cast-depth`.
 - [ ] G14 - Casting traits and audition-first suggestions.
-  - [ ] Add gender, age, and accent facets where available.
+  - [x] Add initial gender, age, accent, and role traits where directly observed.
   - [ ] Extract Kokoro voice-ID facets.
-  - [ ] Rank voice suggestions by character traits.
+  - [x] Rank existing project voice suggestions by character traits.
   - [ ] Audition voices against representative character lines.
+  - Evidence: `feat/phase-3-cast-depth`.
 - [ ] G19 - Persistent local TTS worker.
   - [ ] Keep local models resident.
   - [ ] Speed up auditioning.
@@ -151,7 +155,7 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 
 - Roadmap items tracked: 20 numbered gaps.
 - Completed: 11 numbered gaps.
-- In progress: 0 numbered gaps.
+- In progress: 3 numbered gaps.
 - Remaining: 9 numbered gaps.
 - Approximate roadmap completion: 55%.
 - Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 0%, Phase 4 0%.

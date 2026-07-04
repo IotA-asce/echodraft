@@ -143,6 +143,29 @@ def test_merge_repoints_attributions_and_records_decision(client) -> None:
     assert len(linked_after) >= len(linked_before)
 
 
+def test_unlabeled_dialogue_uses_nearby_turn_evidence(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Turn Evidence", "rightsStatus": "declared"}
+    ).json()["id"]
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    _import_and_extract(
+        client,
+        project,
+        "Chapter 1\n\nMara: We leave now.\n\n\"No,\" she replied.\n\nMara: Stay close.",
+    )
+
+    rows = client.get(f"/api/v1/projects/{project}/speaker-attributions").json()
+    contextual = next(
+        row
+        for row in rows
+        if row["speakerName"] == "Mara"
+        and row["evidence"].get("reason") == "nearby_dialogue_turn"
+    )
+    assert contextual["status"] == "needs_review"
+    assert contextual["evidence"]["previousSpeaker"] == "Mara"
+    assert contextual["evidence"]["pronounCue"] == "she"
+
+
 def test_speaker_attribution_review_and_production_voice_resolution(client) -> None:
     project = client.post(
         "/api/v1/projects", json={"title": "Cast Review", "rightsStatus": "declared"}
