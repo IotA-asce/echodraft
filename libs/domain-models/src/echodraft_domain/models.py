@@ -846,6 +846,22 @@ class IssueUpdate(ApiModel):
     severity: str | None = None
 
 
+class IssueApplyActionRequest(ApiModel):
+    target_character_id: str | None = Field(default=None, alias="targetCharacterId")
+    reason: str | None = None
+
+
+class IssueApplyActionResult(ApiModel):
+    action: str
+    character_id: str | None = Field(default=None, alias="characterId")
+    source_character_id: str | None = Field(default=None, alias="sourceCharacterId")
+
+
+class IssueApplyActionResponse(ApiModel):
+    issue: Issue
+    result: IssueApplyActionResult
+
+
 class ReadinessCheck(ApiModel):
     id: str
     scope: str

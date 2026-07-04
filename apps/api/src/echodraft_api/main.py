@@ -39,6 +39,8 @@ from echodraft_domain import (
     EmbeddingRequest,
     EmbeddingResult,
     Issue,
+    IssueApplyActionRequest,
+    IssueApplyActionResponse,
     IssueCreate,
     IssueUpdate,
     Job,
@@ -115,6 +117,7 @@ from .rendering import SegmentRenderer
 from .assembly import ChapterAssembler
 from .review import ReviewService
 from .review_workbench import ReviewWorkbenchService
+from .issue_actions import IssueActionService
 from .exporting import ExportService
 from .production import ProductionService
 from .readiness import ReadinessService
@@ -1644,6 +1647,20 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         if not record:
             raise HTTPException(status_code=404, detail="Issue not found")
         return ReviewService.issue_model(record)
+
+    @app.post(
+        "/api/v1/issues/{issue_id}/apply-action",
+        response_model=IssueApplyActionResponse,
+    )
+    def apply_issue_action(
+        issue_id: str, payload: IssueApplyActionRequest, request: Request
+    ) -> IssueApplyActionResponse:
+        try:
+            return IssueActionService(request.app.state.container).apply(issue_id, payload)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get("/api/v1/issues/{issue_id}/comments", response_model=list[Comment])
     def list_comments(issue_id: str, request: Request) -> list[Comment]:

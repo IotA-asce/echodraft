@@ -18,6 +18,15 @@ The response is a `SegmentReviewInspector` read model. It is assembled from exis
 
 No audio blobs or waveform blobs are stored in the relational database. The API returns artifact URLs for segment render audio using the same local artifact route as the render history endpoint.
 
+`POST /api/v1/issues/{issueId}/apply-action`
+
+Parser review issues can carry evidence-backed `metadata.reviewAction` values. The apply-action endpoint currently supports:
+
+- `merge_cast`: resolve a possible duplicate cast issue by merging the candidate into the chosen target character.
+- `confirm_cast`: resolve a low-confidence cast candidate by creating or confirming the character record.
+
+The request may include `targetCharacterId` for `merge_cast` and an optional `reason`. The response returns the resolved issue plus the applied action result. Unsupported or incomplete issue metadata is rejected with a validation error rather than guessing.
+
 ## Dashboard Behavior
 
 The dashboard’s segment action is now `Inspect`. It loads the existing render comparison and the inspector read model together. The Review & Patch section shows compact layers for:
@@ -30,6 +39,8 @@ The dashboard’s segment action is now `Inspect`. It loads the existing render 
 - Render history, QA findings, comments, and patch queue
 
 Patch attempts remain append-only. A patch creates a new segment render, records the previous render as the parent, reassembles the owning chapter, and adds a `patch_attempts` row. Segment text edits continue to create revisions and stale only the affected segment render fingerprint.
+
+The Structure & Cast Draft `Parser Review` queue combines parser warnings with open cast-discovery issues. Reviewers can apply cast actions, reject duplicate suggestions, or dismiss resolved review items from the queue while preserving the evidence metadata on the issue record.
 
 `POST /api/v1/projects/{projectId}/segments/{segmentId}/patch` accepts an optional `voiceProfileId` and `direction`; omitted fields are resolved server-side using the same layering as production (segment override → cast-resolved voice for approved speaker attributions → project narrator voice; direction override → saved segment direction → project default → a blank profile). Any voice/direction the caller does supply is honored as a manual override for that field. Patch always renders with `force=true`: it re-renders with the segment's resolved voice and direction and always produces fresh audio, so the render cache can never silently return stale audio for a patch.
 
