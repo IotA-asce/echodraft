@@ -221,9 +221,7 @@ class StructureParserWarning(ApiModel):
 
 class StructureQuality(ApiModel):
     chapter_count: int = Field(alias="chapterCount")
-    chapters_from_container_signals: int = Field(
-        default=0, alias="chaptersFromContainerSignals"
-    )
+    chapters_from_container_signals: int = Field(default=0, alias="chaptersFromContainerSignals")
     scene_count: int = Field(alias="sceneCount")
     segment_count: int = Field(alias="segmentCount")
     dialogue_segment_count: int = Field(alias="dialogueSegmentCount")
@@ -578,7 +576,9 @@ class TtsProviderInfo(ApiModel):
 
 
 class TtsTestRequest(ApiModel):
-    text: str = Field(default="Echodraft is ready to produce your audiobook.", min_length=1, max_length=1000)
+    text: str = Field(
+        default="Echodraft is ready to produce your audiobook.", min_length=1, max_length=1000
+    )
     voice_id: str | None = Field(default=None, alias="voiceId")
 
 
@@ -956,6 +956,33 @@ class ExportBlocker(ApiModel):
     issue_id: str | None = Field(default=None, alias="issueId")
 
 
+class ExportQaOutput(ApiModel):
+    filename: str
+    method: str | None = None
+    within_tolerance: bool | None = Field(default=None, alias="withinTolerance")
+    lufs_integrated: float | None = Field(default=None, alias="lufsIntegrated")
+    true_peak_db: float | None = Field(default=None, alias="truePeakDb")
+    rms_dbfs: float | None = Field(default=None, alias="rmsDbfs")
+    duration_ms: int = Field(alias="durationMs")
+    bytes: int
+    sha256: str
+    error: str | None = None
+
+
+class ExportQa(ApiModel):
+    target_lufs: float | None = Field(default=None, alias="targetLufs")
+    lufs_tolerance: float | None = Field(default=None, alias="lufsTolerance")
+    true_peak_ceiling_db: float | None = Field(default=None, alias="truePeakCeilingDb")
+    all_within_tolerance: bool | None = Field(default=None, alias="allWithinTolerance")
+    outputs: list[ExportQaOutput] = Field(default_factory=list)
+    latest_readiness_report: dict[str, object] = Field(
+        default_factory=dict, alias="latestReadinessReport"
+    )
+    open_blocking_issues: list[dict[str, object]] = Field(
+        default_factory=list, alias="openBlockingIssues"
+    )
+
+
 class ExportPackage(ApiModel):
     id: str
     project_id: str = Field(alias="projectId")
@@ -971,6 +998,7 @@ class ExportPackage(ApiModel):
     checksum: str | None = None
     metadata: dict[str, object] = Field(default_factory=dict)
     manifest_summary: dict[str, object] = Field(default_factory=dict, alias="manifestSummary")
+    qa: ExportQa = Field(default_factory=ExportQa)
     blockers: list[ExportBlocker] = Field(default_factory=list)
     created_at: datetime | None = Field(default=None, alias="createdAt")
 
@@ -986,6 +1014,7 @@ class ExportRequest(ApiModel):
     copyright: str | None = None
     language: str | None = None
     cover_image_path: str | None = Field(default=None, alias="coverImagePath")
+    include_retail_sample: bool = Field(default=False, alias="includeRetailSample")
 
 
 class ExportEstimate(ApiModel):
