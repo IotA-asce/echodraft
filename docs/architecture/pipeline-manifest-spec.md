@@ -156,6 +156,18 @@ Payload fields:
 - source chapter renders
 - metadata used
 - output file paths
+- output roles (`chapter`, `audiobook`, `retail_sample`) with bytes, duration, SHA-256, package-relative `artifactPath`, and local `artifactUrl`
+- export QA scorecard with loudness target, true-peak ceiling, per-output measurements, and pass/fail summary
+
+Current export manifest schema:
+- `schemaVersion: "0.3.0"`
+- `qa.targetLufs: -19.0`
+- `qa.lufsTolerance: 1.0`
+- `qa.truePeakCeilingDb: -3.0`
+- `qa.outputs[]` entries include `filename`, `method`, `durationMs`, `bytes`, `sha256`, `withinTolerance`, and measured loudness/peak fields when FFmpeg can measure them
+- M4B package outputs use `role: "audiobook"` and carry chapter marker source metadata
+- M4B outputs include `artifactUrl` so the chapter-marked audiobook is directly addressable in addition to being included in the ZIP package
+- optional retail samples use `role: "retail_sample"` and reference the source chapter
 
 ## Validation rules
 - `manifestType`, `schemaVersion`, `projectId`, and `payload` are required.
