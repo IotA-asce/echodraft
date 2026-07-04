@@ -2,6 +2,8 @@
 
 This directory is the working documentation set for `echodraft`, a local-first AI audiobook production system. It translates the raw PRD and engineering source material into a repo-first document set for implementation.
 
+Before implementing roadmap or gap-analysis work, check [progress-tracker.md](progress-tracker.md). Update that tracker in the same branch and commit whenever a roadmap item is implemented, verified, deferred, or changes status.
+
 ## Source mapping
 - Product source: `sources/prds.md`
 - Engineering source: `sources/engineering-pack.md`
@@ -33,6 +35,7 @@ The source files above remain raw reference inputs. The documents in this direct
 - **`api/`** — [api-spec.yaml](api/api-spec.yaml)
 - **`operations/`** — [alpha-operations](operations/alpha-operations.md)
 - **`analysis/`** — point-in-time evaluations: [deep-analysis-report](analysis/deep-analysis-report.md) (engineering), [product-vision-analysis](analysis/product-vision-analysis.md) (capability vision), [gap-analysis](analysis/gap-analysis.md) (current vs. vision). The resulting plan lives at [product/roadmap.md](product/roadmap.md).
+- **`progress-tracker.md`** — checklist of roadmap/gap implementation status. This must be updated with each completed or status-changing implementation.
 - **`plans/`** — dated stage-execution history (stages 0–13).
 - **`sources/`** — raw, unedited PRD/engineering inputs (historical record).
 - **`assets/`** — README screenshots/GIF and the capture script.
@@ -57,6 +60,7 @@ The source files above remain raw reference inputs. The documents in this direct
 17. [api-spec.yaml](api/api-spec.yaml)
 18. [repository-blueprint.md](architecture/repository-blueprint.md)
 19. [platform-evolution.md](product/platform-evolution.md)
+20. [progress-tracker.md](progress-tracker.md)
 
 ## How to use this set
 - Start with the overview and MVP spec to understand scope and success criteria.

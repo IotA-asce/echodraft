@@ -2800,6 +2800,52 @@ components:
           additionalProperties: true
         m4bPlanned:
           type: boolean
+    ExportQaOutput:
+      type: object
+      properties:
+        filename:
+          type: string
+        method:
+          type: string
+        withinTolerance:
+          type: boolean
+        lufsIntegrated:
+          type: number
+        truePeakDb:
+          type: number
+        rmsDbfs:
+          type: number
+        durationMs:
+          type: integer
+        bytes:
+          type: integer
+        sha256:
+          type: string
+        error:
+          type: string
+    ExportQa:
+      type: object
+      properties:
+        targetLufs:
+          type: number
+        lufsTolerance:
+          type: number
+        truePeakCeilingDb:
+          type: number
+        allWithinTolerance:
+          type: boolean
+        outputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportQaOutput"
+        latestReadinessReport:
+          type: object
+          additionalProperties: true
+        openBlockingIssues:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
     ExportPackage:
       type: object
       properties:
@@ -2839,6 +2885,8 @@ components:
         manifestSummary:
           type: object
           additionalProperties: true
+        qa:
+          $ref: "#/components/schemas/ExportQa"
         blockers:
           type: array
           items:
@@ -3466,6 +3514,8 @@ components:
           type: string
         coverImagePath:
           type: string
+        includeRetailSample:
+          type: boolean
     UpsertRightsDeclarationRequest:
       type: object
       required: [declarationType, status]

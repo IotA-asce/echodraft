@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import shutil
 import subprocess
+import wave
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,13 +22,18 @@ from echodraft_db.models import (
     SegmentRenderRecord,
     SourceDocumentRecord,
 )
-from echodraft_domain import ExportBlocker, ExportEstimate, ExportPackage, ExportRequest
+from echodraft_domain import ExportBlocker, ExportEstimate, ExportPackage, ExportQa, ExportRequest
 from sqlalchemy import select
 
+from . import mastering
+from .audio_analysis import analyze_wav
 from .container import AppContainer
 
-EXPORT_MANIFEST_VERSION = "0.2.0"
+EXPORT_MANIFEST_VERSION = "0.3.0"
 MP3_BITRATE_BPS = 192_000
+M4B_BITRATE_BPS = 128_000
+RETAIL_SAMPLE_SECONDS = 300
+EXPORT_LUFS_TOLERANCE = 1.0
 
 
 @dataclass(frozen=True)
@@ -36,6 +43,12 @@ class PlannedChapter:
     source_path: Path
     audio_variant: str
     estimated_size_bytes: int
+
+
+@dataclass(frozen=True)
+class ChapterMarker:
+    title: str
+    duration_ms: int
 
 
 @dataclass(frozen=True)
@@ -70,10 +83,6 @@ class ExportService:
     def export(self, project_id: str, request: ExportRequest) -> ExportPackage:
         plan = self._plan(project_id, request)
         if plan.blockers:
-            if plan.m4b_planned:
-                raise ValueError(
-                    "M4B export is planned but not implemented; use WAV or MP3 ZIP export for now."
-                )
             details = "; ".join(blocker.message for blocker in plan.blockers[:3])
             raise ValueError(f"Resolve export blockers before export: {details}")
 
@@ -87,23 +96,34 @@ class ExportService:
         staging.mkdir(parents=True)
 
         outputs: list[dict[str, object]] = []
+        qa_outputs: list[dict[str, object]] = []
         source_render_ids: list[str] = []
         render_lineage: list[dict[str, object]] = []
         provider_names: set[str] = set()
         model_versions: set[str] = set()
         voice_profile_ids: set[str] = set()
         render_modes: set[str] = set()
+        cover_source = self._cover_source(plan.metadata)
 
         with self.container.structure.database.session() as session:
             source = self._latest_source(session, project_id)
             latest_readiness = self._latest_readiness(session, project_id)
             open_blocking_issues = self._open_blocking_issue_summary(session, project_id)
             for index, planned in enumerate(plan.chapters, 1):
-                target = staging / f"{index:02d}-{planned.chapter.id}.{plan.export_format}"
+                target: Path | None = None
                 if plan.export_format == "wav":
+                    target = staging / f"{index:02d}-{planned.chapter.id}.wav"
                     shutil.copyfile(planned.source_path, target)
-                else:
-                    self._write_mp3(planned.source_path, target)
+                elif plan.export_format == "mp3":
+                    target = staging / f"{index:02d}-{planned.chapter.id}.mp3"
+                    self._write_mp3(
+                        planned.source_path,
+                        target,
+                        plan.metadata,
+                        track_index=index,
+                        total_tracks=len(plan.chapters),
+                        cover=cover_source,
+                    )
 
                 chapter_manifest = self._read_json(planned.render.manifest_path)
                 segment_render_ids = [
@@ -124,22 +144,27 @@ class ExportService:
                         voice_profile_ids.add(voice)
                 source_render_ids.append(planned.render.id)
                 render_modes.add(planned.render.render_mode)
-                output_sha = hashlib.sha256(target.read_bytes()).hexdigest()
-                outputs.append(
-                    {
-                        "chapterId": planned.chapter.id,
-                        "chapterTitle": planned.chapter.title,
-                        "chapterRenderId": planned.render.id,
-                        "chapterRenderMode": planned.render.render_mode,
-                        "audioVariant": planned.audio_variant,
-                        "filename": target.name,
-                        "bytes": target.stat().st_size,
-                        "durationMs": planned.render.duration_ms,
-                        "sha256": output_sha,
-                        "segmentRenderIds": segment_render_ids,
-                        "segmentCount": len(segment_render_ids),
-                    }
-                )
+                if target is not None:
+                    score = self._qa_score_for_output(target, planned.render.duration_ms)
+                    qa_outputs.append(score)
+                    outputs.append(
+                        {
+                            "role": "chapter",
+                            "chapterId": planned.chapter.id,
+                            "chapterTitle": planned.chapter.title,
+                            "chapterRenderId": planned.render.id,
+                            "chapterRenderMode": planned.render.render_mode,
+                            "audioVariant": planned.audio_variant,
+                            "filename": target.name,
+                            "artifactPath": f"exports/{export_id}/{target.name}",
+                            "artifactUrl": f"/api/v1/projects/{project_id}/artifacts/exports/{export_id}/{target.name}",
+                            "bytes": score["bytes"],
+                            "durationMs": planned.render.duration_ms,
+                            "sha256": score["sha256"],
+                            "segmentRenderIds": segment_render_ids,
+                            "segmentCount": len(segment_render_ids),
+                        }
+                    )
                 render_lineage.append(
                     {
                         "chapterId": planned.chapter.id,
@@ -148,11 +173,62 @@ class ExportService:
                     }
                 )
 
+        selected_duration_ms = sum(item.render.duration_ms for item in plan.chapters)
+        if plan.export_format == "m4b":
+            target = staging / "audiobook.m4b"
+            self._write_m4b(plan.chapters, target, staging, plan.metadata, cover_source)
+            score = self._qa_score_for_output(target, selected_duration_ms)
+            qa_outputs.append(score)
+            outputs.append(
+                {
+                    "role": "audiobook",
+                    "filename": target.name,
+                    "artifactPath": f"exports/{export_id}/{target.name}",
+                    "artifactUrl": f"/api/v1/projects/{project_id}/artifacts/exports/{export_id}/{target.name}",
+                    "bytes": score["bytes"],
+                    "durationMs": selected_duration_ms,
+                    "sha256": score["sha256"],
+                    "audioVariant": plan.audio_variant,
+                    "chapterCount": len(plan.chapters),
+                    "chapters": [
+                        {
+                            "chapterId": item.chapter.id,
+                            "chapterTitle": item.chapter.title,
+                            "chapterRenderId": item.render.id,
+                            "durationMs": item.render.duration_ms,
+                        }
+                        for item in plan.chapters
+                    ],
+                }
+            )
+        if request.include_retail_sample and plan.export_format in {"mp3", "m4b"} and plan.chapters:
+            first = plan.chapters[0]
+            target = staging / "retail_sample.mp3"
+            sample_duration_ms = min(first.render.duration_ms, RETAIL_SAMPLE_SECONDS * 1000)
+            self._write_retail_sample(first.source_path, target, plan.metadata, cover_source)
+            score = self._qa_score_for_output(target, sample_duration_ms)
+            qa_outputs.append(score)
+            outputs.append(
+                {
+                    "role": "retail_sample",
+                    "filename": target.name,
+                    "artifactPath": f"exports/{export_id}/{target.name}",
+                    "artifactUrl": f"/api/v1/projects/{project_id}/artifacts/exports/{export_id}/{target.name}",
+                    "bytes": score["bytes"],
+                    "durationMs": sample_duration_ms,
+                    "sha256": score["sha256"],
+                    "sourceChapterId": first.chapter.id,
+                    "sourceChapterTitle": first.chapter.title,
+                    "audioVariant": first.audio_variant,
+                }
+            )
+
         cover_filename = self._copy_cover(plan.metadata, staging)
         manifest = staging / "export_manifest.json"
+        qa_scorecard = self._qa_manifest(qa_outputs, latest_readiness, open_blocking_issues)
         summary = {
-            "chapterCount": len(outputs),
-            "durationMs": sum(_int_value(item.get("durationMs")) for item in outputs),
+            "chapterCount": len(plan.chapters),
+            "durationMs": selected_duration_ms,
             "outputBytes": sum(_int_value(item.get("bytes")) for item in outputs),
             "estimatedSizeBytes": plan.estimated_size_bytes,
             "providers": sorted(provider_names),
@@ -160,6 +236,7 @@ class ExportService:
             "voiceProfileIds": sorted(voice_profile_ids),
             "renderModes": sorted(render_modes),
             "sourceRenderCount": len(source_render_ids),
+            "retailSampleIncluded": any(item.get("role") == "retail_sample" for item in outputs),
             "m4bPlanned": False,
         }
         manifest_payload = {
@@ -172,16 +249,15 @@ class ExportService:
             "audioVariant": plan.audio_variant,
             "metadata": {**plan.metadata, "coverFilename": cover_filename},
             "source": self._source_manifest(source),
-            "qa": {
-                "latestReadinessReport": self._readiness_manifest(latest_readiness),
-                "openBlockingIssues": open_blocking_issues,
-            },
+            "qa": qa_scorecard,
             "sourceRenders": source_render_ids,
             "outputs": outputs,
             "renderLineage": render_lineage,
             "summary": summary,
         }
-        manifest.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True), encoding="utf-8")
+        manifest.write_text(
+            json.dumps(manifest_payload, indent=2, sort_keys=True), encoding="utf-8"
+        )
 
         archive = staging / "audiobook.zip"
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as package:
@@ -190,11 +266,13 @@ class ExportService:
             if cover_filename:
                 package.write(staging / cover_filename, cover_filename)
             package.write(manifest, manifest.name)
-        archive_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+        archive_sha = self._file_sha256(archive)
         summary["archiveBytes"] = archive.stat().st_size
         summary["archiveSha256"] = archive_sha
         manifest_payload["summary"] = summary
-        manifest.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True), encoding="utf-8")
+        manifest.write_text(
+            json.dumps(manifest_payload, indent=2, sort_keys=True), encoding="utf-8"
+        )
 
         staging.replace(root)
         record = ExportPackageRecord(
@@ -217,9 +295,7 @@ class ExportService:
                 session.scalars(
                     select(ExportPackageRecord)
                     .where(ExportPackageRecord.project_id == project_id)
-                    .order_by(
-                        ExportPackageRecord.created_at.desc(), ExportPackageRecord.id.desc()
-                    )
+                    .order_by(ExportPackageRecord.created_at.desc(), ExportPackageRecord.id.desc())
                 )
             )
         return [self._model(record) for record in records]
@@ -236,21 +312,12 @@ class ExportService:
         audio_variant = request.audio_variant.strip().lower()
         metadata = self._request_metadata(project_id, request)
         blockers: list[ExportBlocker] = []
-        m4b_planned = export_format == "m4b"
-        if m4b_planned:
-            blockers.append(
-                ExportBlocker(
-                    code="m4b_planned",
-                    severity="planned",
-                    message="M4B export is planned but not implemented.",
-                    scope="format",
-                )
-            )
-        elif export_format not in {"wav", "mp3"}:
+        m4b_planned = False
+        if export_format not in {"wav", "mp3", "m4b"}:
             blockers.append(
                 ExportBlocker(
                     code="unsupported_format",
-                    message="Only WAV and MP3 ZIP exports are available locally.",
+                    message="Only WAV, MP3, and M4B exports are available locally.",
                     scope="format",
                 )
             )
@@ -262,16 +329,20 @@ class ExportService:
                     scope="audioVariant",
                 )
             )
-        if export_format == "mp3" and shutil.which("ffmpeg") is None:
+        if export_format in {"mp3", "m4b"} and shutil.which("ffmpeg") is None:
             blockers.append(
                 ExportBlocker(
                     code="ffmpeg_missing",
-                    message="MP3 export requires FFmpeg with MP3 support.",
+                    message="MP3, M4B, and retail sample exports require FFmpeg.",
                     scope="system",
                 )
             )
         cover_path = metadata.get("coverImagePath")
-        if isinstance(cover_path, str) and cover_path and not Path(cover_path).expanduser().is_file():
+        if (
+            isinstance(cover_path, str)
+            and cover_path
+            and not Path(cover_path).expanduser().is_file()
+        ):
             blockers.append(
                 ExportBlocker(
                     code="cover_missing",
@@ -368,6 +439,9 @@ class ExportService:
                     )
                 )
         estimated = sum(item.estimated_size_bytes for item in planned) + 12_000
+        if request.include_retail_sample and export_format in {"mp3", "m4b"} and planned:
+            sample_ms = min(planned[0].render.duration_ms, RETAIL_SAMPLE_SECONDS * 1000)
+            estimated += max(1, int((sample_ms / 1000) * (MP3_BITRATE_BPS / 8)))
         return ExportPlan(
             project_id=project_id,
             export_format=export_format,
@@ -396,7 +470,11 @@ class ExportService:
         if audio_variant == "clean":
             return Path(render.speech_path), "clean"
         if audio_variant == "mixed":
-            return (Path(render.mixed_audio_path), "mixed") if render.mixed_audio_path else (None, "mixed")
+            return (
+                (Path(render.mixed_audio_path), "mixed")
+                if render.mixed_audio_path
+                else (None, "mixed")
+            )
         if render.mixed_audio_path:
             return Path(render.mixed_audio_path), "mixed"
         return Path(render.speech_path), "clean"
@@ -405,32 +483,340 @@ class ExportService:
     def _estimate_audio_size(export_format: str, source: Path, duration_ms: int) -> int:
         if export_format == "mp3":
             return max(1, int((duration_ms / 1000) * (MP3_BITRATE_BPS / 8)))
+        if export_format == "m4b":
+            return max(1, int((duration_ms / 1000) * (M4B_BITRATE_BPS / 8)))
         return source.stat().st_size
 
-    @staticmethod
-    def _write_mp3(source: Path, target: Path) -> None:
-        completed = subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-v",
-                "error",
-                "-i",
-                str(source),
-                "-codec:a",
-                "libmp3lame",
-                "-b:a",
-                "192k",
-                str(target),
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
+    def _write_mp3(
+        self,
+        source: Path,
+        target: Path,
+        metadata: dict[str, object],
+        *,
+        track_index: int,
+        total_tracks: int,
+        cover: Path | None,
+    ) -> None:
+        self._run_media_command(
+            self._mp3_command(
+                source,
+                target,
+                metadata,
+                track_index=track_index,
+                total_tracks=total_tracks,
+                cover=cover,
+            ),
+            target,
+            "MP3 export",
         )
-        if completed.returncode or not target.is_file() or target.stat().st_size == 0:
-            raise ValueError(
-                f"MP3 export failed: {completed.stderr.strip() or 'ffmpeg produced no file'}"
+
+    def _write_retail_sample(
+        self,
+        source: Path,
+        target: Path,
+        metadata: dict[str, object],
+        cover: Path | None,
+    ) -> None:
+        self._run_media_command(
+            self._mp3_command(
+                source,
+                target,
+                metadata,
+                track_index=None,
+                total_tracks=None,
+                cover=cover,
+                sample_seconds=RETAIL_SAMPLE_SECONDS,
+                title_override=f"{self._metadata_value(metadata, 'title', 'Audiobook')} Retail Sample",
+            ),
+            target,
+            "Retail sample export",
+        )
+
+    def _write_m4b(
+        self,
+        chapters: list[PlannedChapter],
+        target: Path,
+        staging: Path,
+        metadata: dict[str, object],
+        cover: Path | None,
+    ) -> None:
+        concat_file = staging / "m4b-concat.txt"
+        metadata_file = staging / "m4b-ffmetadata.txt"
+        markers = [
+            ChapterMarker(
+                title=planned.chapter.title or f"Chapter {index}",
+                duration_ms=planned.render.duration_ms,
             )
+            for index, planned in enumerate(chapters, 1)
+        ]
+        concat_file.write_text(
+            self._concat_manifest([item.source_path for item in chapters]), encoding="utf-8"
+        )
+        metadata_file.write_text(self._ffmetadata(markers, metadata), encoding="utf-8")
+        try:
+            self._run_media_command(
+                self._m4b_command(concat_file, metadata_file, target, cover),
+                target,
+                "M4B export",
+            )
+        finally:
+            concat_file.unlink(missing_ok=True)
+            metadata_file.unlink(missing_ok=True)
+
+    @classmethod
+    def _mp3_command(
+        cls,
+        source: Path,
+        target: Path,
+        metadata: dict[str, object],
+        *,
+        track_index: int | None,
+        total_tracks: int | None,
+        cover: Path | None,
+        sample_seconds: int | None = None,
+        title_override: str | None = None,
+    ) -> list[str]:
+        command = ["ffmpeg", "-y", "-v", "error", "-i", str(source)]
+        if cover:
+            command.extend(["-i", str(cover)])
+        if sample_seconds is not None:
+            command.extend(["-t", str(sample_seconds)])
+        if cover:
+            command.extend(["-map", "0:a", "-map", "1:v"])
+        command.extend(cls._ffmpeg_metadata_args(metadata, title_override=title_override))
+        if track_index is not None and total_tracks is not None:
+            command.extend(["-metadata", f"track={track_index}/{total_tracks}"])
+        command.extend(["-codec:a", "libmp3lame", "-b:a", "192k"])
+        if cover:
+            command.extend(["-c:v", "mjpeg", "-disposition:v", "attached_pic"])
+        command.extend(["-id3v2_version", "3", str(target)])
+        return command
+
+    @staticmethod
+    def _m4b_command(
+        concat_file: Path,
+        metadata_file: Path,
+        target: Path,
+        cover: Path | None,
+    ) -> list[str]:
+        command = [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_file),
+            "-f",
+            "ffmetadata",
+            "-i",
+            str(metadata_file),
+        ]
+        if cover:
+            command.extend(["-i", str(cover), "-map", "0:a", "-map", "2:v"])
+        else:
+            command.extend(["-map", "0:a"])
+        command.extend(
+            [
+                "-map_metadata",
+                "1",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+            ]
+        )
+        if cover:
+            command.extend(["-c:v", "mjpeg", "-disposition:v", "attached_pic"])
+        command.extend(["-movflags", "+faststart", str(target)])
+        return command
+
+    @classmethod
+    def _ffmpeg_metadata_args(
+        cls, metadata: dict[str, object], *, title_override: str | None = None
+    ) -> list[str]:
+        pairs = [
+            ("title", title_override or cls._metadata_value(metadata, "title", "Audiobook")),
+            ("artist", cls._metadata_value(metadata, "author", "")),
+            ("album", cls._metadata_value(metadata, "album", "")),
+            ("genre", "Audiobook"),
+            ("date", datetime.now(UTC).strftime("%Y")),
+            ("publisher", cls._metadata_value(metadata, "publisher", "")),
+            ("language", cls._metadata_value(metadata, "language", "en")),
+            ("copyright", cls._metadata_value(metadata, "copyright", "")),
+        ]
+        args: list[str] = []
+        for key, value in pairs:
+            if value:
+                args.extend(["-metadata", f"{key}={value}"])
+        return args
+
+    @classmethod
+    def _ffmetadata(cls, chapters: list[ChapterMarker], metadata: dict[str, object]) -> str:
+        lines = [";FFMETADATA1"]
+        for key, value in (
+            ("title", cls._metadata_value(metadata, "title", "Audiobook")),
+            ("artist", cls._metadata_value(metadata, "author", "")),
+            ("album", cls._metadata_value(metadata, "album", "")),
+            ("genre", "Audiobook"),
+            ("date", datetime.now(UTC).strftime("%Y")),
+            ("publisher", cls._metadata_value(metadata, "publisher", "")),
+            ("language", cls._metadata_value(metadata, "language", "en")),
+            ("copyright", cls._metadata_value(metadata, "copyright", "")),
+        ):
+            if value:
+                lines.append(f"{key}={cls._escape_ffmetadata(value)}")
+        start = 0
+        for chapter in chapters:
+            end = start + max(0, chapter.duration_ms)
+            lines.extend(
+                [
+                    "[CHAPTER]",
+                    "TIMEBASE=1/1000",
+                    f"START={start}",
+                    f"END={end}",
+                    f"title={cls._escape_ffmetadata(chapter.title or 'Untitled')}",
+                ]
+            )
+            start = end
+        return "\n".join(lines) + "\n"
+
+    @classmethod
+    def _concat_manifest(cls, sources: list[Path]) -> str:
+        return "".join(f"file '{cls._escape_concat_path(source)}'\n" for source in sources)
+
+    @staticmethod
+    def _escape_concat_path(path: Path) -> str:
+        return str(path).replace("'", "'\\''")
+
+    @staticmethod
+    def _escape_ffmetadata(value: str) -> str:
+        return (
+            value.replace("\\", "\\\\")
+            .replace("=", "\\=")
+            .replace(";", "\\;")
+            .replace("#", "\\#")
+            .replace("\n", "\\n")
+        )
+
+    @staticmethod
+    def _metadata_value(metadata: dict[str, object], key: str, fallback: str) -> str:
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return fallback
+
+    @staticmethod
+    def _run_media_command(command: list[str], target: Path, label: str) -> None:
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise ValueError(f"{label} failed: {error}") from error
+        if completed.returncode or not target.is_file() or target.stat().st_size == 0:
+            detail = (
+                completed.stderr.strip() or completed.stdout.strip() or "ffmpeg produced no file"
+            )
+            raise ValueError(f"{label} failed: {detail}")
+
+    def _qa_manifest(
+        self,
+        outputs: list[dict[str, object]],
+        latest_readiness: ReadinessReportRecord | None,
+        open_blocking_issues: list[dict[str, object]],
+    ) -> dict[str, object]:
+        return {
+            "targetLufs": mastering.TARGET_LUFS,
+            "lufsTolerance": EXPORT_LUFS_TOLERANCE,
+            "truePeakCeilingDb": mastering.TRUE_PEAK_DB,
+            "allWithinTolerance": bool(outputs)
+            and all(output.get("withinTolerance") is True for output in outputs),
+            "outputs": outputs,
+            "latestReadinessReport": self._readiness_manifest(latest_readiness),
+            "openBlockingIssues": open_blocking_issues,
+        }
+
+    def _qa_score_for_output(self, path: Path, duration_ms: int) -> dict[str, object]:
+        score: dict[str, object] = {
+            "filename": path.name,
+            "durationMs": duration_ms,
+            "bytes": path.stat().st_size,
+            "sha256": self._file_sha256(path),
+        }
+        if mastering.ffmpeg_available():
+            try:
+                measured = mastering.measure_loudness(path)
+            except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+                score.update(
+                    {"method": "ffmpeg_loudnorm", "withinTolerance": False, "error": str(error)}
+                )
+                return score
+            score["method"] = "ffmpeg_loudnorm"
+            for source_key, target_key in (
+                ("input_i", "lufsIntegrated"),
+                ("input_tp", "truePeakDb"),
+                ("input_lra", "lra"),
+            ):
+                value = _finite_float(measured.get(source_key))
+                if value is not None:
+                    score[target_key] = value
+            score["withinTolerance"] = self._within_export_tolerance(score)
+            return score
+        if path.suffix.lower() == ".wav":
+            try:
+                analysis = analyze_wav(path)
+            except (EOFError, OSError, ValueError, wave.Error) as error:
+                score.update(
+                    {"method": "rms_fallback", "withinTolerance": False, "error": str(error)}
+                )
+                return score
+            score.update(
+                {
+                    "method": "rms_fallback",
+                    "truePeakDb": analysis.peak_dbfs,
+                    "rmsDbfs": analysis.rms_dbfs,
+                    "sampleRate": analysis.sample_rate,
+                    "withinTolerance": False,
+                }
+            )
+            return score
+        score.update({"method": "unavailable", "withinTolerance": False})
+        return score
+
+    @staticmethod
+    def _within_export_tolerance(score: dict[str, object]) -> bool:
+        lufs = score.get("lufsIntegrated")
+        peak = score.get("truePeakDb")
+        if not isinstance(lufs, (int, float)) or not isinstance(peak, (int, float)):
+            return False
+        return (
+            abs(float(lufs) - mastering.TARGET_LUFS) <= EXPORT_LUFS_TOLERANCE
+            and float(peak) <= mastering.TRUE_PEAK_DB
+        )
+
+    @staticmethod
+    def _cover_source(metadata: dict[str, object]) -> Path | None:
+        cover = metadata.get("coverImagePath")
+        if not isinstance(cover, str) or not cover:
+            return None
+        source = Path(cover).expanduser()
+        return source if source.is_file() else None
+
+    @staticmethod
+    def _file_sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def _copy_cover(self, metadata: dict[str, object], staging: Path) -> str | None:
         cover = metadata.get("coverImagePath")
@@ -454,7 +840,7 @@ class ExportService:
                     ChapterRenderRecord.status == "succeeded",
                 )
                 .order_by(ChapterRenderRecord.created_at.desc(), ChapterRenderRecord.id.desc())
-            )
+            ),
         )
 
     @staticmethod
@@ -596,6 +982,7 @@ class ExportService:
         manifest = ExportService._read_json(record.manifest_path)
         summary = _json_dict_from_value(manifest.get("summary"))
         metadata = _json_dict_from_value(manifest.get("metadata"))
+        qa = _json_dict_from_value(manifest.get("qa"))
         return ExportPackage(
             id=record.id,
             projectId=record.project_id,
@@ -612,6 +999,7 @@ class ExportService:
             checksum=str(summary.get("archiveSha256")) if summary.get("archiveSha256") else None,
             metadata=metadata,
             manifestSummary=summary,
+            qa=ExportQa.model_validate(qa),
             blockers=[],
             createdAt=record.created_at,
         )
@@ -639,3 +1027,13 @@ def _int_value(value: object) -> int:
     if isinstance(value, str) and value.isdigit():
         return int(value)
     return 0
+
+
+def _finite_float(value: object) -> float | None:
+    if not isinstance(value, (str, bytes, int, float)):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None

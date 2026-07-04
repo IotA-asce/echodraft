@@ -9,7 +9,7 @@ import {
   inferSegmentDirections, listLocalAiCatalog, listProjects, listScenes, listSegmentDirections, listSegments, listSoundAssets, listSourcePages, listSpeakerAttributions, listStructureWarnings, listVoices, mergeCharacter, mergeSegment, patchSegment, previewVoice, produceChapter,
   rejectCharacterMerge, reparseSource, runReadiness, runSpeakerAttribution, saveProductionSettings, saveSegmentDirection, saveSegmentOverride, saveTtsSettings, testTtsSettings,
   setStructureLock, splitCharacter, splitSegment, updateCharacter, updateCleaningIssue, updateIssue, updateSegment, updateSpeakerAttribution, uploadSoundAsset, verifyLocalAiModel, type Chapter, type Character, type Comment, type Direction,
-  type ExportPackage, type Issue, type Job, type KokoroSetupStatus, type LocalAiCatalogItem, type LocalAiInstallJob, type ReadinessReport,
+  type ExportFormat, type ExportPackage, type Issue, type Job, type KokoroSetupStatus, type LocalAiCatalogItem, type LocalAiInstallJob, type ReadinessReport,
   type ProductionSettings, type ProductionStatus, type Pronunciation, type Project, type RenderQueueItem, type Scene, type Segment,
   type SegmentDirection, type SegmentRenderComparison, type SegmentReviewInspector, type SoundAsset, type SoundCue, type SourceDocument, type SourcePage, type SpeakerAttribution, type StructureParserWarning, type StructureQuality, type TextCleanlinessIssue, type TtsProvider, type TtsProviderInfo, type TtsSettings, type VoiceProfile,
 } from "./api";
@@ -281,7 +281,7 @@ export function ProjectDashboard() {
   async function comment(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); if (!activeIssue || !String(form.get("comment") || "").trim()) return; try { const added = await addComment(activeIssue.id, String(form.get("comment"))); setComments((current) => [...current, added]); event.currentTarget.reset(); } catch (cause) { setError(messageOf(cause)); } }
   async function resolveIssue(issue: Issue) { try { const updated = await updateIssue(issue.id, { status: "resolved" }); setIssues((current) => current.map((item) => item.id === updated.id ? updated : item)); if (activeIssue?.id === updated.id) setActiveIssue(updated); } catch (cause) { setError(messageOf(cause)); } }
   async function patch(issue: Issue) { if (!selectedProjectId || !issue.segmentId) return; try { await patchSegment(selectedProjectId, issue.segmentId, { issueId: issue.id }); setNotice("Segment patched and its chapter reassembled."); if (selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id); await inspectSegment(issue.segmentId); setReadiness(await runReadiness(selectedProjectId, selectedChapter?.id)); setIssues(await listIssues(selectedProjectId)); } catch (cause) { setError(messageOf(cause)); } }
-  async function exportSelected(format: "wav" | "mp3") { if (!selectedProjectId || !selectedExportIds.length) return; try { const item = await createExport(selectedProjectId, format, selectedExportIds, { audioVariant: exportAudioVariant, title: exportTitle.trim() || undefined, author: exportAuthor.trim() || undefined, album: exportAlbum.trim() || undefined, publisher: exportPublisher.trim() || undefined, language: exportLanguage.trim() || undefined, coverImagePath: exportCoverPath.trim() || undefined }); setExports((current) => [item, ...current]); setActiveSection("export"); setNotice("Export package created. Download the ZIP from export history."); } catch (cause) { setError(messageOf(cause)); } }
+  async function exportSelected(format: ExportFormat, options?: { includeRetailSample?: boolean }) { if (!selectedProjectId || !selectedExportIds.length) return; try { const item = await createExport(selectedProjectId, format, selectedExportIds, { audioVariant: exportAudioVariant, title: exportTitle.trim() || undefined, author: exportAuthor.trim() || undefined, album: exportAlbum.trim() || undefined, publisher: exportPublisher.trim() || undefined, language: exportLanguage.trim() || undefined, coverImagePath: exportCoverPath.trim() || undefined, includeRetailSample: options?.includeRetailSample }); setExports((current) => [item, ...current]); setActiveSection("export"); setNotice("Export package created. Download the ZIP from export history."); } catch (cause) { setError(messageOf(cause)); } }
 
   return <div className="desk-shell"><div className="grain" aria-hidden="true" />
     <StudioHero tts={tts} setupJob={setupJob} job={job} selectedChapter={selectedChapter} status={status} />
@@ -461,7 +461,7 @@ export function ProjectDashboard() {
           onPublisherChange={setExportPublisher}
           onLanguageChange={setExportLanguage}
           onCoverPathChange={setExportCoverPath}
-          onExport={(format) => void exportSelected(format)}
+          onExport={(format, options) => void exportSelected(format, options)}
         />
       ) : null}
     </> : null}
