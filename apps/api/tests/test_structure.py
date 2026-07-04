@@ -710,6 +710,27 @@ def test_cast_duplicate_metadata_for_honorific_alias(client) -> None:
     assert quality["possibleDuplicateCastCount"] == 0
 
 
+def test_cast_discovery_extracts_title_aliases_and_traits(client) -> None:
+    project = project_with_source(
+        client,
+        "Chapter 1\n\n"
+        "Captain Mara: Hold the line.\n\n"
+        "The young Irish captain raised her hand.\n\n"
+        "Mara: We move at dawn.",
+    )
+
+    extract(client, project)
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    active = [character for character in characters if not character["mergedIntoCharacterId"]]
+    assert [character["displayName"] for character in active] == ["Captain Mara"]
+    character = active[0]
+    assert "Mara" in character["aliases"]
+    assert {"role:captain", "age:young", "accent:irish", "gender:feminine"} <= set(
+        character["traits"]
+    )
+
+
 def test_low_confidence_cast_candidate_issue_metadata(client) -> None:
     project = project_with_source(client, 'Chapter 1\n\nRahul looked away. "Hello."')
 

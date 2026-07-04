@@ -464,6 +464,17 @@ class VoiceProfileUpdate(ApiModel):
     style_prompt: str | None = Field(default=None, alias="stylePrompt")
 
 
+class VoiceSuggestion(ApiModel):
+    voice_profile_id: str = Field(alias="voiceProfileId")
+    name: str
+    provider_voice_id: str = Field(alias="providerVoiceId")
+    backend: str
+    score: float
+    matched_traits: list[str] = Field(default_factory=list, alias="matchedTraits")
+    evidence: list[str] = Field(default_factory=list)
+    sample_text: str = Field(alias="sampleText")
+
+
 class AssignVoice(ApiModel):
     voice_profile_id: str = Field(alias="voiceProfileId")
 

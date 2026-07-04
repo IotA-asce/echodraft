@@ -70,7 +70,11 @@ class SpeakerAttributionService:
         segments = self._segments(project_id)
         character_index = self._character_index(project_id)
         for index, segment in enumerate(segments, 1):
-            self._upsert_deterministic(project_id, segment, character_index)
+            previous_segment = segments[index - 2] if index >= 2 else None
+            next_segment = segments[index] if index < len(segments) else None
+            self._upsert_deterministic(
+                project_id, segment, character_index, previous_segment, next_segment
+            )
             if job_id:
                 self.container.jobs_repository.set_progress(
                     job_id,
@@ -130,9 +134,21 @@ class SpeakerAttributionService:
         )
 
     def _upsert_deterministic(
-        self, project_id: str, segment: SegmentRecord, character_index: CharacterIndex
+        self,
+        project_id: str,
+        segment: SegmentRecord,
+        character_index: CharacterIndex,
+        previous_segment: SegmentRecord | None = None,
+        next_segment: SegmentRecord | None = None,
     ) -> SpeakerAttribution:
         candidate = segment.speaker_candidate.strip() if segment.speaker_candidate else None
+        turn_hint = (
+            _nearby_turn_hint(segment, previous_segment, next_segment)
+            if not candidate and _looks_like_dialogue(segment.text_content)
+            else None
+        )
+        if turn_hint:
+            candidate = turn_hint["speakerName"]
         character = character_index.by_name.get(_name_key(candidate)) if candidate else None
         parser_evidence = _evidence(segment.parser_evidence_json)
         speaker_name: str | None
@@ -151,7 +167,11 @@ class SpeakerAttributionService:
             confidence = segment.speaker_confidence if candidate else 0.0
             status = "approved" if character and confidence >= 0.8 else "needs_review"
             evidence = {
-                "reason": "deterministic_speaker_candidate" if candidate else "dialogue_without_speaker",
+                "reason": turn_hint["reason"]
+                if turn_hint
+                else "deterministic_speaker_candidate"
+                if candidate
+                else "dialogue_without_speaker",
                 "speakerCandidate": candidate,
                 "textPreview": segment.text_content[:160],
                 "segmentType": segment.segment_type,
@@ -160,6 +180,10 @@ class SpeakerAttributionService:
                 "productionType": parser_evidence.get("productionType"),
                 "structure": parser_evidence,
             }
+            if turn_hint:
+                evidence.update(turn_hint)
+                confidence = min(max(confidence, 0.58), 0.72)
+                status = "needs_review"
         return self.container.speaker_attributions.upsert(
             project_id,
             segment.id,
@@ -361,6 +385,49 @@ def _evidence(payload: str | None) -> dict[str, object]:
     except json.JSONDecodeError:
         return {}
     return cast(dict[str, object], loaded if isinstance(loaded, dict) else {})
+
+
+def _nearby_turn_hint(
+    segment: SegmentRecord,
+    previous_segment: SegmentRecord | None,
+    next_segment: SegmentRecord | None,
+) -> dict[str, str] | None:
+    pronoun = (
+        _pronoun_cue(segment.text_content)
+        or _pronoun_cue(next_segment.text_content if next_segment else "")
+        or _pronoun_cue(previous_segment.text_content if previous_segment else "")
+    )
+    previous_speaker = (
+        previous_segment.speaker_candidate.strip()
+        if previous_segment and previous_segment.speaker_candidate
+        else None
+    )
+    next_speaker = (
+        next_segment.speaker_candidate.strip() if next_segment and next_segment.speaker_candidate else None
+    )
+    speaker_name = previous_speaker or next_speaker
+    if not speaker_name or not pronoun:
+        return None
+    return {
+        "reason": "nearby_dialogue_turn",
+        "speakerName": speaker_name,
+        "previousSpeaker": previous_speaker or "",
+        "nextSpeaker": next_speaker or "",
+        "pronounCue": pronoun,
+    }
+
+
+def _pronoun_cue(text: str) -> str | None:
+    lowered = text.casefold()
+    for pronoun in ("she", "he", "they"):
+        if re.search(rf"\b{pronoun}\b\s+(?:said|asked|replied|answered|whispered|called)", lowered):
+            return pronoun
+    return None
+
+
+def _looks_like_dialogue(text: str) -> bool:
+    stripped = text.strip()
+    return stripped.startswith(('"', "'", "“", "‘")) or stripped.endswith(('"', "'", "”", "’"))
 
 
 def _confidence(value: object) -> float:

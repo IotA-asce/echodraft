@@ -118,6 +118,7 @@ class CharacterCandidate:
     confidence: float
     source: str
     mention_evidence: list[str] = field(default_factory=list)
+    traits: list[str] = field(default_factory=list)
 
     @property
     def key(self) -> str:
@@ -201,7 +202,7 @@ class CastDiscoveryService:
                 CharacterCandidate(
                     display_name=segment.speaker_candidate,
                     canonical_name=segment.speaker_candidate,
-                    aliases=[],
+                    aliases=_alias_candidates(segment.speaker_candidate),
                     first_seen_segment_id=segment.id,
                     first_seen_chapter_id=segment.chapter_id,
                     evidence=[
@@ -223,6 +224,7 @@ class CastDiscoveryService:
                     role_guess="supporting",
                     confidence=segment.speaker_confidence,
                     source="+".join(sources) if sources else "structure_parser",
+                    traits=_extract_traits(segment.speaker_candidate, [segment.text]),
                 )
             )
         return candidates
@@ -289,6 +291,7 @@ class CastDiscoveryService:
         aliases = _clean_strings(payload.get("aliases"))
         canonical_name = str(payload.get("canonicalName") or display_name).strip() or display_name
         evidence = _clean_strings(payload.get("evidence"))
+        aliases = _clean_strings([*aliases, *_alias_candidates(display_name)])
         return CharacterCandidate(
             display_name=display_name,
             canonical_name=canonical_name,
@@ -299,6 +302,7 @@ class CastDiscoveryService:
             role_guess=_role_type(str(payload.get("roleGuess") or "supporting")),
             confidence=_clamp_float(payload.get("confidence"), 0.0, 1.0),
             source="llm_cast_discovery",
+            traits=_extract_traits(display_name, evidence),
         )
 
     def _llm_merge_decisions(
@@ -423,7 +427,7 @@ class CastDiscoveryService:
                     sort_keys=True,
                 ),
                 canonical_name=candidate.canonical_name,
-                traits=[],
+                traits=candidate.traits,
                 first_seen_source_id=source_id,
                 first_seen_chapter_id=candidate.first_seen_chapter_id,
                 first_seen_segment_id=candidate.first_seen_segment_id,
@@ -444,14 +448,18 @@ class CastDiscoveryService:
         if character.user_locked:
             return
         aliases = _clean_strings(json.loads(character.aliases_json or "[]"))
+        traits = _clean_strings(json.loads(character.traits_json or "[]"))
         additions = [
             candidate.display_name,
             *(candidate.aliases or []),
             *(extra_aliases or []),
         ]
         merged = _clean_strings([*aliases, *additions])
-        if merged != aliases:
-            self.container.casting.update_character(character.id, aliases=merged)
+        merged_traits = _clean_strings([*traits, *candidate.traits])
+        if merged != aliases or merged_traits != traits:
+            self.container.casting.update_character(
+                character.id, aliases=merged, traits=merged_traits
+            )
 
     def _pair_rejected(self, project_id: str, name_a: str, name_b: str) -> bool:
         """True when a reviewer already ruled this name pair is NOT a duplicate."""
@@ -483,6 +491,7 @@ class CastDiscoveryService:
                 "possibleMatches": [match.display_name for match in matches],
                 "displayName": candidate.display_name,
                 "aliases": candidate.aliases,
+                "traits": candidate.traits,
                 "confidence": candidate.confidence,
                 "source": candidate.source,
                 "reason": reason,
@@ -515,6 +524,7 @@ class CastDiscoveryService:
                 "reviewAction": "confirm_cast",
                 "candidateName": candidate.display_name,
                 "confidence": candidate.confidence,
+                "traits": candidate.traits,
                 "source": candidate.source,
                 "reason": "Candidate confidence was too low.",
                 "evidence": candidate.evidence,
@@ -642,6 +652,7 @@ class CastDiscoveryService:
             existing.mention_evidence = _clean_strings(
                 [*existing.mention_evidence, *candidate.mention_evidence]
             )
+            existing.traits = _clean_strings([*existing.traits, *candidate.traits])
             existing.confidence = max(existing.confidence, candidate.confidence)
             if existing.source != candidate.source:
                 existing.source = "deterministic_parser+llm_cast_discovery"
@@ -656,7 +667,14 @@ class CastDiscoveryService:
             mention_evidence = list(candidate.mention_evidence)
             for segment in segments:
                 if _name_key(segment.speaker_candidate) in candidate_keys:
+                    candidate.traits = _clean_strings(
+                        [*candidate.traits, *_extract_traits(candidate.display_name, [segment.text])]
+                    )
                     continue
+                if _role_mentioned(candidate, segment.text):
+                    candidate.traits = _clean_strings(
+                        [*candidate.traits, *_extract_traits(candidate.display_name, [segment.text])]
+                    )
                 for start, end, matched_text in _mention_spans(candidate, segment.text):
                     absolute_start = segment.start_offset + start
                     absolute_end = segment.start_offset + end
@@ -674,6 +692,9 @@ class CastDiscoveryService:
                             },
                             sort_keys=True,
                         )
+                    )
+                    candidate.traits = _clean_strings(
+                        [*candidate.traits, *_extract_traits(candidate.display_name, [segment.text])]
                     )
             candidate.mention_evidence = _clean_strings(mention_evidence)
         return candidates
@@ -753,6 +774,7 @@ def _candidate_evidence_graph(candidate: CharacterCandidate) -> dict[str, object
     return {
         "canonicalName": candidate.canonical_name or candidate.display_name,
         "aliases": _clean_strings([candidate.display_name, candidate.canonical_name or "", *candidate.aliases]),
+        "traits": candidate.traits,
         "speakerEvidenceCount": len(speaker_items),
         "mentionEvidenceCount": len(mention_items),
         "firstSeenOffset": min(offsets) if offsets else None,
@@ -760,6 +782,84 @@ def _candidate_evidence_graph(candidate: CharacterCandidate) -> dict[str, object
         "confidence": candidate.confidence,
         "sources": sources or [candidate.source],
     }
+
+
+TITLE_PREFIXES = {
+    "captain": "role:captain",
+    "capt": "role:captain",
+    "dr": "role:doctor",
+    "doctor": "role:doctor",
+    "prof": "role:professor",
+    "professor": "role:professor",
+    "sir": "role:nobility",
+    "lady": "role:nobility",
+}
+NICKNAME_ALIASES = {
+    "elizabeth": ["Liz", "Beth", "Eliza"],
+    "liz": ["Elizabeth"],
+    "william": ["Will", "Bill", "Billy"],
+    "will": ["William"],
+    "robert": ["Rob", "Bob", "Bobby"],
+    "margaret": ["Maggie", "Meg"],
+    "katherine": ["Kate", "Katie", "Kat"],
+    "catherine": ["Kate", "Katie", "Cat"],
+    "mara": [],
+}
+AGE_TRAITS = {"young": "age:young", "old": "age:old", "elderly": "age:old"}
+ACCENT_TRAITS = {
+    "irish": "accent:irish",
+    "scottish": "accent:scottish",
+    "british": "accent:british",
+    "english": "accent:english",
+    "american": "accent:american",
+    "french": "accent:french",
+    "spanish": "accent:spanish",
+    "indian": "accent:indian",
+}
+FEMININE_PRONOUNS = {"she", "her", "hers"}
+MASCULINE_PRONOUNS = {"he", "him", "his"}
+
+
+def _alias_candidates(name: str | None) -> list[str]:
+    key = _name_key(name)
+    if not key:
+        return []
+    tokens = key.split()
+    aliases: list[str] = []
+    if len(tokens) > 1 and tokens[0] in TITLE_PREFIXES:
+        aliases.append(" ".join(tokens[1:]).title())
+    for token in tokens:
+        aliases.extend(NICKNAME_ALIASES.get(token, []))
+    return aliases
+
+
+def _extract_traits(name: str | None, texts: list[str]) -> list[str]:
+    haystack = " ".join([name or "", *texts]).casefold()
+    tokens = set(re.findall(r"[a-z]+", haystack))
+    traits: list[str] = []
+    name_tokens = _name_key(name).split()
+    if name_tokens and name_tokens[0] in TITLE_PREFIXES:
+        traits.append(TITLE_PREFIXES[name_tokens[0]])
+    for token, trait in AGE_TRAITS.items():
+        if token in tokens:
+            traits.append(trait)
+    for token, trait in ACCENT_TRAITS.items():
+        if token in tokens:
+            traits.append(trait)
+    if tokens & FEMININE_PRONOUNS:
+        traits.append("gender:feminine")
+    if tokens & MASCULINE_PRONOUNS:
+        traits.append("gender:masculine")
+    return _clean_strings(traits)
+
+
+def _role_mentioned(candidate: CharacterCandidate, text: str) -> bool:
+    tokens = _name_key(candidate.display_name).split()
+    role_tokens = {token for token in tokens if token in TITLE_PREFIXES}
+    if not role_tokens:
+        return False
+    text_tokens = set(re.findall(r"[a-z]+", text.casefold()))
+    return bool(role_tokens & text_tokens)
 
 
 def _clean_strings(value: object) -> list[str]:
@@ -798,10 +898,26 @@ def _soft_name_match(left: str, right: str) -> bool:
         return False
     if left in right or right in left:
         return True
+    if _nickname_match(left, right):
+        return True
     left_tokens = left.split()
     right_tokens = right.split()
     if len(left_tokens) >= 2 and len(right_tokens) >= 2 and left_tokens[-1] == right_tokens[-1]:
         return left_tokens[0] == right_tokens[0] and left_tokens[0] in {"dr", "captain", "capt", "prof"}
+    return False
+
+
+def _nickname_match(left: str, right: str) -> bool:
+    left_tokens = left.split()
+    right_tokens = right.split()
+    for left_token in left_tokens:
+        aliases = {_name_key(alias) for alias in NICKNAME_ALIASES.get(left_token, [])}
+        if any(right_token in aliases for right_token in right_tokens):
+            return True
+    for right_token in right_tokens:
+        aliases = {_name_key(alias) for alias in NICKNAME_ALIASES.get(right_token, [])}
+        if any(left_token in aliases for left_token in left_tokens):
+            return True
     return False
 
 
