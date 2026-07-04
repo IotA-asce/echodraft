@@ -32,6 +32,7 @@ export type ProductionStatus = { chapterId: string; ready: boolean; reason?: str
 export type SoundAsset = { id: string; projectId: string; name: string; assetType: "ambience" | "music" | "sfx" | string; assetPath: string; audioUrl?: string | null; durationMs?: number | null; licenseNote: string; provenance: string };
 export type SoundCue = { id: string; sceneId: string; assetId?: string | null; cueType: "ambience" | "music" | "sfx" | string; startMs: number; gainDb: number; fadeInMs: number; fadeOutMs: number; ducking: boolean; renderMode: string; noSfx: boolean };
 export type Issue = { id: string; projectId: string; chapterId?: string | null; segmentId?: string | null; severity: string; category: string; title: string; description: string; status: string; metadata: Record<string, unknown> };
+export type IssueApplyActionResponse = { issue: Issue; result: { action: string; characterId?: string | null; sourceCharacterId?: string | null } };
 export type ReadinessCheck = { id: string; scope: string; status: string; severity: string; category: string; title: string; description: string; issueId?: string | null; resolutionStatus?: string | null; metadata: Record<string, unknown> };
 export type ReadinessReport = { id: string; projectId: string; chapterId?: string | null; status: string; score: number; summary: Record<string, number>; checks: ReadinessCheck[]; createdAt: string };
 export type Comment = { id: string; issueId: string; body: string; author: string; createdAt: string };
@@ -105,7 +106,7 @@ export const saveSegmentDirection = (projectId: string, segmentId: string, paylo
 export const inferSegmentDirections = (projectId: string) => request<Job>(`/api/v1/projects/${projectId}/directions/infer`, json("POST", {}));
 export const listSpeakerAttributions = (projectId: string, status?: string) => request<SpeakerAttribution[]>(`/api/v1/projects/${projectId}/speaker-attributions${status ? `?status=${encodeURIComponent(status)}` : ""}`);
 export const runSpeakerAttribution = (projectId: string, payload: { useLocalLlm?: boolean; model?: string } = {}) => request<Job>(`/api/v1/projects/${projectId}/speaker-attributions/run`, json("POST", payload));
-export const updateSpeakerAttribution = (attributionId: string, payload: { characterId?: string | null; speakerName?: string | null; status?: string; userLocked?: boolean }) => request<SpeakerAttribution>(`/api/v1/speaker-attributions/${attributionId}`, json("PATCH", payload));
+export const updateSpeakerAttribution = (attributionId: string, payload: { characterId?: string | null; speakerName?: string | null; status?: string; userLocked?: boolean }) => request<SpeakerAttribution & { propagatedCount?: number }>(`/api/v1/speaker-attributions/${attributionId}`, json("PATCH", payload));
 
 export const getTtsSettings = () => request<TtsSettings>("/api/v1/settings/tts");
 export const saveTtsSettings = (payload: Omit<TtsSettings, "ready" | "message" | "availableVoices">) => request<TtsSettings>("/api/v1/settings/tts", json("PUT", payload));
@@ -126,6 +127,7 @@ export const listCharacters = (projectId: string) => request<Character[]>(`/api/
 export const createCharacter = (projectId: string, payload: string | { displayName: string; canonicalName?: string; aliases?: string[]; traits?: string[]; roleType?: string; notes?: string }) => request<Character>(`/api/v1/projects/${projectId}/characters`, json("POST", typeof payload === "string" ? { displayName: payload } : payload));
 export const updateCharacter = (characterId: string, payload: Partial<Pick<Character, "displayName" | "canonicalName" | "aliases" | "traits" | "roleType" | "confidence" | "notes" | "userLocked" | "lockReason" | "voiceProfileId">>) => request<Character>(`/api/v1/characters/${characterId}`, json("PATCH", payload));
 export const mergeCharacter = (targetCharacterId: string, sourceCharacterId: string, reason?: string) => request<Character>(`/api/v1/characters/${targetCharacterId}/merge`, json("POST", { sourceCharacterId, reason }));
+export const rejectCharacterMerge = (characterId: string, payload: { candidateName: string; reason?: string | null }) => request<Character>(`/api/v1/characters/${characterId}/reject-merge`, json("POST", payload));
 export const splitCharacter = (characterId: string, payload: { displayName: string; aliases?: string[]; traits?: string[]; reason?: string }) => request<Character>(`/api/v1/characters/${characterId}/split`, json("POST", payload));
 export const listPronunciations = (projectId: string) => request<Pronunciation[]>(`/api/v1/projects/${projectId}/pronunciations`);
 export const createPronunciation = (projectId: string, term: string, replacementText?: string) => request<Pronunciation>(`/api/v1/projects/${projectId}/pronunciations`, json("POST", { term, replacementText }));
@@ -149,6 +151,7 @@ export const getLatestReadiness = (projectId: string, chapterId?: string | null)
 export const listReadinessReports = (projectId: string) => request<ReadinessReport[]>(`/api/v1/projects/${projectId}/readiness/reports`);
 export const listIssues = (projectId: string) => request<Issue[]>(`/api/v1/projects/${projectId}/issues`);
 export const updateIssue = (issueId: string, payload: { status?: string; severity?: string }) => request<Issue>(`/api/v1/issues/${issueId}`, json("PATCH", payload));
+export const applyIssueAction = (issueId: string, payload: { targetCharacterId?: string | null; reason?: string | null }) => request<IssueApplyActionResponse>(`/api/v1/issues/${issueId}/apply-action`, json("POST", payload));
 export const listComments = (issueId: string) => request<Comment[]>(`/api/v1/issues/${issueId}/comments`);
 export const addComment = (issueId: string, body: string) => request<Comment>(`/api/v1/issues/${issueId}/comments`, json("POST", { body }));
 export const patchSegment = (projectId: string, segmentId: string, payload: { textContent?: string; issueId?: string; voiceProfileId?: string; direction?: Direction }) => request<unknown>(`/api/v1/projects/${projectId}/segments/${segmentId}/patch`, json("POST", payload));
