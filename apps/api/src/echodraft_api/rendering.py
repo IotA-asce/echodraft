@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 from echodraft_domain import SegmentRender, SegmentRenderComparison, SegmentRenderRequest
 from echodraft_db.models import SegmentRenderRecord
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from . import mastering
 from .audio_analysis import analyze_wav
@@ -15,10 +15,10 @@ from .container import AppContainer
 from .direction import apply_pronunciations
 from .review import ReviewService
 
-# Serialize renders per segment so the cache-check -> parent-selection -> insert path is
-# atomic within a process. Two concurrent renders of the same segment would otherwise read
-# the same "latest" parent and fork the append-only chain (TOCTOU). Keyed by segment_id;
-# _render_locks_guard protects the registry itself.
+# Serialize renders per segment in-process, then use a SQLite write transaction for the
+# final cache-recheck -> parent-selection -> insert path so separate API processes cannot
+# fork the append-only render chain either. Keyed by segment_id; _render_locks_guard
+# protects the registry itself.
 _render_locks: dict[str, threading.Lock] = {}
 _render_locks_guard = threading.Lock()
 
@@ -110,8 +110,6 @@ class SegmentRenderer:
                     indent=2,
                 )
             )
-            with self.container.structure.database.session() as session:
-                previous = self._latest_successful(session, segment_id)
             record = SegmentRenderRecord(
                 id=render_id,
                 segment_id=segment_id,
@@ -120,12 +118,30 @@ class SegmentRenderer:
                 audio_path=str(audio),
                 metadata_path=str(metadata),
                 duration_ms=duration,
-                parent_render_id=previous.id if previous else None,
+                parent_render_id=None,
                 request_json=json.dumps(payload),
             )
-            with self.container.structure.database.session() as s:
-                s.add(record)
-                s.commit()
+            with self.container.structure.database.session() as session:
+                self._begin_write_transaction(session)
+                if not request.force:
+                    cached = session.scalar(
+                        select(SegmentRenderRecord)
+                        .where(
+                            SegmentRenderRecord.segment_id == segment_id,
+                            SegmentRenderRecord.render_key == key,
+                            SegmentRenderRecord.status == "succeeded",
+                        )
+                        .order_by(
+                            SegmentRenderRecord.created_at.desc(), SegmentRenderRecord.id.desc()
+                        )
+                    )
+                    if cached:
+                        session.commit()
+                        return self._model(cached)
+                previous = self._latest_successful(session, segment_id)
+                record.parent_render_id = previous.id if previous else None
+                session.add(record)
+                session.commit()
         # Reuse the analysis computed for metadata.json above: QA must not re-decode the
         # same WAV a second time.
         ReviewService(self.container).qa_segment(project_id, record, analysis=analysis)
@@ -258,6 +274,10 @@ class SegmentRenderer:
             )
         )
         return SegmentRenderer._tip(records)
+
+    def _begin_write_transaction(self, session: Session) -> None:
+        if self.container.structure.database.engine.dialect.name == "sqlite":
+            session.execute(text("BEGIN IMMEDIATE"))
 
     @staticmethod
     def _tip(records: list[SegmentRenderRecord]) -> SegmentRenderRecord | None:

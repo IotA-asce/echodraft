@@ -120,6 +120,7 @@ def test_segment_render_cache_and_forced_lineage_are_append_only(client) -> None
 
     assert cached["id"] == first["id"]
     assert forced["id"] != first["id"]
+    assert forced["renderKey"] != first["renderKey"]
     assert forced["parentRenderId"] == first["id"]
     assert {item["id"] for item in history} == {forced["id"], first["id"]}
 

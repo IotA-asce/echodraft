@@ -81,6 +81,7 @@ Current QA is deterministic and technical.
 - Ambience/music loops crossfade over 250 ms (equal-power) at each seam; ducking is a static -6 dB dip applied with 50 ms ramps.
 - The pause inserted between two consecutive segments is `max(prev.pauseAfterMs, next.pauseBeforeMs, default_gap)`, where `default_gap` is 350 ms within a scene and 800 ms across a scene boundary (the scene boundary keeps its 800 ms floor). Pause values come from the direction that actually rendered each segment (its render `request_json`), clamped to the DirectionProfile 0–5000 ms bounds. The chapter render manifest's `pauses` block records `paragraphMs`, `sceneMs`, and an `applied` list of the per-gap `{afterSegmentId, ms}` actually written.
 - Every "latest render/export" lookup selects by `created_at DESC, id DESC` (time-ordered, with the id as a tiebreaker); legacy rows without `created_at` sort oldest.
+- Segment render insertion rechecks the cache, selects the parent render, and writes the new row inside a SQLite write transaction, preventing separate local API processes from forking the append-only parent chain.
 - Assembly refuses to stitch a segment render whose recorded request `revision` does not match the segment's current revision; the segment must be re-rendered first.
 - Review patching can update segment text, render the affected segment, assemble a new chapter render, and record patch lineage.
 - Export supports WAV and MP3 ZIP packages with a manifest and checksums.
