@@ -635,6 +635,41 @@ def test_possible_duplicate_cast_name_creates_review_issue(client) -> None:
     assert issue["metadata"]["possibleMatches"] == ["Mary"]
 
 
+def test_apply_merge_cast_issue_action_merges_candidate_and_resolves_issue(client) -> None:
+    project = project_with_source(client, "Chapter 1\n\nMary-Jane: Wait.")
+    existing = client.post(
+        f"/api/v1/projects/{project}/characters",
+        json={"displayName": "Mary"},
+    ).json()
+
+    extract(client, project)
+
+    issue = next(
+        issue
+        for issue in client.get(f"/api/v1/projects/{project}/issues").json()
+        if issue["metadata"].get("code") == "cast.possible_duplicate"
+    )
+    response = client.post(
+        f"/api/v1/issues/{issue['id']}/apply-action",
+        json={"targetCharacterId": existing["id"]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["action"] == "merge_cast"
+    assert payload["result"]["characterId"] == existing["id"]
+    assert payload["issue"]["status"] == "resolved"
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    target = next(character for character in characters if character["id"] == existing["id"])
+    assert "Mary-Jane" in target["aliases"]
+    assert any(
+        character["displayName"] == "Mary-Jane"
+        and character["mergedIntoCharacterId"] == existing["id"]
+        for character in characters
+    )
+
+
 def test_cast_duplicate_metadata_for_honorific_alias(client) -> None:
     project = project_with_source(
         client,
@@ -696,6 +731,48 @@ def test_low_confidence_cast_candidate_issue_metadata(client) -> None:
     client.patch(f"/api/v1/issues/{issue['id']}", json={"status": "resolved"})
     quality = client.get(f"/api/v1/projects/{project}/structure/quality").json()
     assert quality["lowConfidenceCastCandidateCount"] == 0
+
+
+def test_apply_confirm_cast_issue_action_creates_character_and_resolves_issue(client) -> None:
+    project = project_with_source(client, 'Chapter 1\n\nRahul looked away. "Hello."')
+
+    extract(client, project)
+
+    issue = next(
+        issue
+        for issue in client.get(f"/api/v1/projects/{project}/issues").json()
+        if issue["metadata"].get("code") == "cast.low_confidence_candidate"
+    )
+    response = client.post(f"/api/v1/issues/{issue['id']}/apply-action", json={})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["action"] == "confirm_cast"
+    assert payload["issue"]["status"] == "resolved"
+    assert payload["result"]["characterId"]
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    created = next(character for character in characters if character["displayName"] == "Rahul")
+    assert created["id"] == payload["result"]["characterId"]
+    assert created["confidence"] == issue["metadata"]["confidence"]
+
+
+def test_apply_issue_action_rejects_missing_review_action(client) -> None:
+    project = project_with_source(client, "Chapter 1\n\nA clean sentence.")
+    created = client.post(
+        f"/api/v1/projects/{project}/issues",
+        json={
+            "category": "manual_review",
+            "severity": "warning",
+            "title": "Manual issue",
+            "description": "No automation is attached.",
+        },
+    ).json()
+
+    response = client.post(f"/api/v1/issues/{created['id']}/apply-action", json={})
+
+    assert response.status_code == 422
+    assert "reviewAction" in response.json()["detail"]
 
 
 def test_cast_evidence_graph_counts_mentions(client) -> None:

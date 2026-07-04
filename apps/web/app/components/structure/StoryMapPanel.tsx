@@ -1,6 +1,7 @@
 import { useMemo, useState, type ChangeEvent } from "react";
 import type {
   Chapter,
+  Character,
   Direction,
   Issue,
   Job,
@@ -36,6 +37,7 @@ export function StoryMapPanel({
   editing,
   draft,
   voices,
+  characters,
   directions,
   supportedDirection,
   warnings,
@@ -69,6 +71,9 @@ export function StoryMapPanel({
   onInspect,
   onOverride,
   onSaveDirection,
+  onApplyIssue,
+  onRejectMerge,
+  onDismissIssue,
   onProduce,
   onAssetType,
   onAssetSelect,
@@ -86,6 +91,7 @@ export function StoryMapPanel({
   editing: Segment | null;
   draft: string;
   voices: VoiceProfile[];
+  characters: Character[];
   directions: SegmentDirection[];
   supportedDirection?: string[] | null;
   warnings: StructureParserWarning[];
@@ -119,6 +125,9 @@ export function StoryMapPanel({
   onInspect: (segmentId: string) => void;
   onOverride: (segmentId: string, voiceId: string) => void;
   onSaveDirection: (segmentId: string, direction: Direction) => Promise<void>;
+  onApplyIssue: (issue: Issue, targetCharacterId?: string | null) => Promise<void>;
+  onRejectMerge: (issue: Issue, targetCharacterId: string) => Promise<void>;
+  onDismissIssue: (issue: Issue) => Promise<void>;
   onProduce: (force?: boolean) => void;
   onAssetType: (value: "ambience" | "music" | "sfx") => void;
   onAssetSelect: (value: string) => void;
@@ -196,7 +205,15 @@ export function StoryMapPanel({
           </button>
         ))}
       </div>
-      <StructureWarnings warnings={warnings} issues={issues} />
+      <StructureWarnings
+        warnings={warnings}
+        issues={issues}
+        characters={characters}
+        busy={busy}
+        onApplyIssue={onApplyIssue}
+        onRejectMerge={onRejectMerge}
+        onDismissIssue={onDismissIssue}
+      />
       <div className="structure-columns">
         <ChapterList chapters={chapters} selectedChapterId={selectedChapter?.id} onOpen={onOpenChapter} />
         <SceneList scenes={scenes} onOpen={onOpenScene} />

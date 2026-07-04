@@ -2,12 +2,12 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import {
-  addComment, assembleChapter, assetUrl, compareSegmentRenders, createCharacter, createExport, createProject, createPronunciation, createSoundCue, createVoice, deleteVoice,
+  addComment, applyIssueAction, assembleChapter, assetUrl, compareSegmentRenders, createCharacter, createExport, createProject, createPronunciation, createSoundCue, createVoice, deleteVoice,
   extractStructure, getJob, getKokoroSetup, getLocalAiInstallJob, getProductionSettings, getProductionStatus, getSegmentReviewInspector,
   getSource, getStructureQuality, getTtsProviders, getTtsSettings, installKokoroSetup, installLocalAiModel,
   importSource, listCharacters, listChapterSoundCues, listChapters, listCleaningIssues, listComments, listExports, listIssues, listPronunciations, listRenderQueue,
   inferSegmentDirections, listLocalAiCatalog, listProjects, listScenes, listSegmentDirections, listSegments, listSoundAssets, listSourcePages, listSpeakerAttributions, listStructureWarnings, listVoices, mergeCharacter, mergeSegment, patchSegment, previewVoice, produceChapter,
-  reparseSource, runReadiness, runSpeakerAttribution, saveProductionSettings, saveSegmentDirection, saveSegmentOverride, saveTtsSettings, testTtsSettings,
+  rejectCharacterMerge, reparseSource, runReadiness, runSpeakerAttribution, saveProductionSettings, saveSegmentDirection, saveSegmentOverride, saveTtsSettings, testTtsSettings,
   setStructureLock, splitCharacter, splitSegment, updateCharacter, updateCleaningIssue, updateIssue, updateSegment, updateSpeakerAttribution, uploadSoundAsset, verifyLocalAiModel, type Chapter, type Character, type Comment, type Direction,
   type ExportPackage, type Issue, type Job, type KokoroSetupStatus, type LocalAiCatalogItem, type LocalAiInstallJob, type ReadinessReport,
   type ProductionSettings, type ProductionStatus, type Pronunciation, type Project, type RenderQueueItem, type Scene, type Segment,
@@ -177,6 +177,20 @@ export function ProjectDashboard() {
   async function refreshRenderQueue(projectId: string, chapterId: string) { try { setRenderQueue(await listRenderQueue(projectId, chapterId)); } catch (cause) { setRenderQueue([]); setError(messageOf(cause)); } }
   async function refreshSoundDesign(projectId: string, chapterId?: string) { try { const [assets, cues] = await Promise.all([listSoundAssets(projectId), chapterId ? listChapterSoundCues(projectId, chapterId) : Promise.resolve([])]); setSoundAssets(assets); setSoundCues(cues); } catch (cause) { setError(messageOf(cause)); } }
   async function refreshImportedSource(projectId: string) { const nextSource = await getSource(projectId); setSource(nextSource); setSourcePages(await listSourcePages(nextSource.id).catch(() => [])); setCleaningIssues(await listCleaningIssues(nextSource.id).catch(() => [])); }
+  async function refreshReviewQueues(projectId: string) {
+    const [nextWarnings, nextQuality, nextIssues, nextCharacters, nextAttributions] = await Promise.all([
+      listStructureWarnings(projectId),
+      getStructureQuality(projectId),
+      listIssues(projectId),
+      listCharacters(projectId),
+      listSpeakerAttributions(projectId),
+    ]);
+    setStructureWarnings(nextWarnings);
+    setStructureQuality(nextQuality);
+    setIssues(nextIssues);
+    setCharacters(nextCharacters);
+    setSpeakerAttributions(nextAttributions);
+  }
   async function inspectSegment(segmentId: string) { if (!selectedProjectId) return; try { const [comparison, inspector] = await Promise.all([compareSegmentRenders(selectedProjectId, segmentId), getSegmentReviewInspector(selectedProjectId, segmentId)]); setRenderCompare(comparison); setSegmentInspector(inspector); } catch { setRenderCompare(null); setSegmentInspector(null); } }
   async function refreshTtsSetup(options?: { syncProvider?: boolean }) { const [nextTts, nextSetup, nextProviders] = await Promise.all([getTtsSettings(), getKokoroSetup(), getTtsProviders()]); setTts(nextTts); setKokoroSetup(nextSetup); setTtsProviders(nextProviders); if (options?.syncProvider || nextTts.provider === "kokoro") setSelectedTtsProvider(nextTts.provider); }
 
@@ -199,7 +213,55 @@ export function ProjectDashboard() {
   async function mergeCast(source: Character, targetId: string) { if (!selectedProjectId || !targetId || targetId === source.id) return; try { await mergeCharacter(targetId, source.id, `Merged from Character Bible on ${new Date().toISOString()}`); setCharacters(await listCharacters(selectedProjectId)); setNotice("Character records merged; source remains linked for traceability."); } catch (cause) { setError(messageOf(cause)); } }
   async function splitCast(character: Character) { if (!selectedProjectId) return; const displayName = window.prompt("New character name", `${character.displayName} variant`); if (!displayName?.trim()) return; try { await splitCharacter(character.id, { displayName: displayName.trim(), reason: `Split from ${character.displayName} in Character Bible` }); setCharacters(await listCharacters(selectedProjectId)); setNotice("Character split created with history on both records."); } catch (cause) { setError(messageOf(cause)); } }
   async function runCastReview(useLocalLlm = false) { if (!selectedProjectId) return; setBusy(true); try { const next = await runSpeakerAttribution(selectedProjectId, { useLocalLlm }); await waitFor(next.id, selectedProjectId); const [nextAttributions, nextCharacters] = await Promise.all([listSpeakerAttributions(selectedProjectId), listCharacters(selectedProjectId)]); setSpeakerAttributions(nextAttributions); setCharacters(nextCharacters); setNotice(useLocalLlm ? "Cast review refreshed with local Ollama speaker assistance." : "Cast review refreshed from the current Structure & Cast Draft."); if (selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
-  async function saveAttribution(attributionId: string, payload: Parameters<typeof updateSpeakerAttribution>[1]) { try { const item = await updateSpeakerAttribution(attributionId, payload); setSpeakerAttributions((current) => current.map((candidate) => candidate.id === item.id ? item : candidate)); setNotice("Speaker attribution updated."); if (selectedProjectId && selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id); } catch (cause) { setError(messageOf(cause)); } }
+  async function saveAttribution(attributionId: string, payload: Parameters<typeof updateSpeakerAttribution>[1]) { try { const item = await updateSpeakerAttribution(attributionId, payload); setSpeakerAttributions((current) => current.map((candidate) => candidate.id === item.id ? item : candidate)); setNotice(item.propagatedCount ? `Speaker attribution updated; ${item.propagatedCount} matching rows were approved.` : "Speaker attribution updated."); if (selectedProjectId && selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id); } catch (cause) { setError(messageOf(cause)); } }
+  async function applyTriageIssue(issue: Issue, targetCharacterId?: string | null) {
+    if (!selectedProjectId) return;
+    setBusy(true);
+    try {
+      const response = await applyIssueAction(issue.id, { targetCharacterId: targetCharacterId || undefined, reason: `Applied from Parser Review on ${new Date().toISOString()}` });
+      await refreshReviewQueues(selectedProjectId);
+      if (selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id);
+      setNotice(response.result.action === "merge_cast" ? "Cast issue applied and merged." : "Cast issue applied.");
+    } catch (cause) {
+      setError(messageOf(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function rejectTriageMerge(issue: Issue, targetCharacterId: string) {
+    if (!selectedProjectId) return;
+    const target = characters.find((character) => character.id === targetCharacterId);
+    const candidateName = typeof issue.metadata.candidateName === "string" ? issue.metadata.candidateName.trim() : "";
+    if (!target || !candidateName) {
+      setError("Cast issue is missing the duplicate candidate.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await rejectCharacterMerge(target.id, { candidateName, reason: `Rejected from Parser Review on ${new Date().toISOString()}` });
+      await refreshReviewQueues(selectedProjectId);
+      if (selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id);
+      setNotice("Cast duplicate rejected and the issue queue was refreshed.");
+    } catch (cause) {
+      setError(messageOf(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function dismissTriageIssue(issue: Issue) {
+    if (!selectedProjectId) return;
+    setBusy(true);
+    try {
+      await updateIssue(issue.id, { status: "resolved" });
+      await refreshReviewQueues(selectedProjectId);
+      if (selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id);
+      setNotice("Parser review item dismissed.");
+    } catch (cause) {
+      setError(messageOf(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
   async function ensureKokoroVoice(voiceId: string) { if (!selectedProjectId) return null; const existing = voices.find((voice) => voice.providerVoiceId === voiceId && voice.backend === "kokoro"); if (existing) return existing; const created = await createVoice(selectedProjectId, { name: `Kokoro ${voiceId}`, backend: "kokoro", providerVoiceId: voiceId }); setVoices((current) => [...current, created]); return created; }
   async function previewKokoroVoice(voiceId: string) { try { const voice = await ensureKokoroVoice(voiceId); if (voice) await playPreview(voice.id); } catch (cause) { setError(messageOf(cause)); } }
   async function selectKokoroNarrator(voiceId: string) { try { const voice = await ensureKokoroVoice(voiceId); if (voice) await selectNarrator(voice.id); } catch (cause) { setError(messageOf(cause)); } }
@@ -302,6 +364,7 @@ export function ProjectDashboard() {
           editing={editing}
           draft={draft}
           voices={voices}
+          characters={characters}
           directions={segmentDirections}
           supportedDirection={(ttsProviders.find((item) => item.provider === tts?.provider)?.capabilities as { direction?: string[] } | undefined)?.direction ?? null}
           warnings={structureWarnings}
@@ -338,6 +401,9 @@ export function ProjectDashboard() {
           onInspect={(segmentId) => void inspectSegment(segmentId)}
           onOverride={(segmentId, voiceId) => void setOverride(segmentId, voiceId)}
           onSaveDirection={saveDirection}
+          onApplyIssue={applyTriageIssue}
+          onRejectMerge={rejectTriageMerge}
+          onDismissIssue={dismissTriageIssue}
           onProduce={(force = false) => void produce(force)}
           onAssetType={setSoundAssetType}
           onAssetSelect={setSelectedSoundAssetId}
