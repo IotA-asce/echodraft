@@ -2,140 +2,155 @@
 
 Last updated: 2026-07-04
 
-This tracker follows the roadmap in `docs/product/roadmap.md` and the gap register in `docs/analysis/gap-analysis.md`.
+This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.md`.
 
 ## Maintenance Rule
 
-- Update this file in the same branch and commit whenever a roadmap/gap item is implemented, verified, deferred, or found to need additional scope.
-- Do not mark an item complete unless code is implemented, relevant tests/lint/typecheck have passed or the limitation is recorded, docs are updated when behavior changed, and the branch has been committed, merged, and pushed.
-- For partial work, keep the parent checklist item open and add dated notes under the item.
-- Keep branch names in `branch_type/branch_name` format, for example `feat/g13-export-polish`.
+- Update this file in the same branch and commit whenever a roadmap or gap item is implemented, verified, deferred, or changes status.
+- Do not mark an item complete unless code is implemented, relevant validation passed or the limitation is recorded, docs were updated if behavior changed, and the work was committed, merged, and pushed.
+- For partial work, keep the parent item unchecked and add dated notes under it.
+- Branch names must use `branch_type/branch_name`, for example `feat/render-ordering`, `fix/readiness-refresh`, or `chore/update-progress-tracker`.
 
-## Current Delivery State
+## Status Summary
 
-- [x] G7 evidence-backed parser/cast triage queues shipped on `feat/g7-evidence-triage-queues` and merged to `main`.
-- [x] G13 export polish shipped on `feat/g13-export-polish`.
-  - M4B export, tagged MP3 export, retail sample generation, QA scorecard, docs, API schema, and tracker updates are implemented and verified.
+- Numbered gaps tracked: 20
+- Complete: 11
+- Remaining: 9
+- In progress: 0
+- Approximate roadmap completion: 55%
+- Complete phases: Phase 0, Phase 1, Phase 2
+- Remaining phases: Phase 3, Phase 4
+
+## Recently Shipped
+
+- [x] Phase 0 trust foundation shipped.
+  - Evidence: `feat/g1-render-ordering` (`033839c`, merged `dce8b2e`), `feat/g2-patch-rerender` (`e1cb74a`, `f9a3cf6`, merged `a8dc529`), `feat/g3-readiness-resolve` (`5f41339`, `b47ca4c`, merged `6416f91`), and `feat/g12-db-hardening-ci` (`f7fabde`, merged `bc0a932`).
+- [x] Phase 1 honesty and compounding loop shipped.
+  - Evidence: `feat/g4-direction-transmission` (`e8d63aa`, `c7beca5`, merged `fb736fe`), `feat/g8-container-chapter-signals` (`e04bacf`, `6f387c8`, merged `c6d4331`), `feat/g6-feedback-loop-complete` (`977a9bd`, merged `9d32904`), and `feat/g7-evidence-triage-queues` (`b4237c0`, merged `b0b0bde`).
+- [x] Phase 2 publishable audio shipped.
+  - Evidence: `feat/g11-real-audio-qa` (`ef42a32`, `df1e332`, merged `d8e7cad`), `feat/g5-mastered-audio` (`5d3ad3f`, merged `3dedf83`), and `feat/g13-export-polish` (`7f27089`, merged `66fcf7a`).
 
 ## Phase 0 - Trust Foundation
 
-- [ ] G1: Time-ordered render/export selection and assembly revision guard.
-  - Add or verify `created_at` on render/export tables.
-  - Select latest render/export by time, not random UUID ordering.
-  - Assert render revision matches segment revision during assembly.
-  - Verify patched segments always reach exported chapters.
-- [ ] G2: Patch workflow forces fresh re-render with actual resolved voice/direction.
-  - Force patch renders to bypass stale cache.
-  - Resolve segment voice from override, approved cast voice, then narrator fallback.
-  - Resolve segment direction from override, saved direction, then project default.
-  - Verify patch attempts create fresh audio and lineage.
-- [ ] G3: Readiness resolve-trap fix.
-  - Re-derive readiness from current artifacts.
-  - Auto-resolve only when current checks pass.
-  - Add distinct ignore or accept-risk state that can re-surface when evidence changes.
-- [ ] G12: SQLite and CI hardening.
-  - Enable WAL, foreign keys, and `busy_timeout`.
-  - Bound the job executor.
-  - Add render uniqueness guard where needed.
-  - Keep tests, lint, typecheck, and schema drift checks required before merge.
+- [x] G1 - Render/export ordering and assembly determinism.
+  - [x] Add or verify deterministic `created_at` ordering for renders and exports.
+  - [x] Select latest render/export by `created_at DESC, id DESC`.
+  - [x] Guard assembly against stale manuscript or segment revisions.
+  - Evidence: `033839c`; documented in `docs/architecture/current-pipeline-behavior.md`.
+- [x] G2 - Patch rerender correctness.
+  - [x] Force fresh renders for patched segments instead of reusing stale audio.
+  - [x] Resolve voice and direction during patch rerenders.
+  - [x] Store render lineage through `parent_render_id`.
+  - Evidence: `e1cb74a`, `f9a3cf6`; documented in `docs/pipeline/review/review-patch-workbench.md`.
+- [x] G3 - Readiness checks rederive current state.
+  - [x] Recompute readiness from current parser, QA, render, and export state.
+  - [x] Auto-resolve checks fixed by later work.
+  - [x] Re-surface accepted risk when underlying evidence changes.
+  - Evidence: `5f41339`, `b47ca4c`, `f70edca`.
+- [x] G12 - Local database and worker hardening.
+  - [x] Enable SQLite WAL, foreign keys, and busy timeout.
+  - [x] Bound executor and job concurrency.
+  - [x] Add CI with schema drift checking.
+  - Evidence: `f7fabde`.
 
 ## Phase 1 - Honesty And Compounding Loop
 
-- [ ] G4: Direction controls honestly affect supported engines.
-  - Transmit Kokoro speed or mark unsupported controls honestly.
-  - Use per-segment pause fields in assembly.
-  - Surface per-engine direction capability in the UI.
-- [ ] G6: Human correction feedback loop compounds.
-  - Propagate confirmed speaker/cast corrections to sibling or adjacent rows.
-  - Persist confirmed merges, attributions, and directions as facts.
-  - Reuse confirmed facts or few-shot examples in later detection passes.
-- [x] G7: Evidence-backed review triage queues.
-  - Parser Review combines warnings and cast-discovery issues.
-  - Apply, reject duplicate, and dismiss actions are wired.
-  - Backend apply-action endpoint resolves `merge_cast` and `confirm_cast`.
-- [ ] G8: DOCX/EPUB structure metadata.
-  - Read DOCX heading styles as chapter/section signals.
-  - Read EPUB spine and TOC as structure signals.
-  - Preserve format-derived evidence in parser review.
+- [x] G4 - Direction transmission into audio.
+  - [x] Transmit supported pace controls to managed Kokoro/Piper render paths.
+  - [x] Honor `pauseBeforeMs` and `pauseAfterMs` during assembly.
+  - [x] Expose truthful engine capability metadata instead of implying unsupported controls.
+  - Evidence: `e8d63aa`, `c7beca5`; documented in `docs/pipeline/direction/direction-studio.md` and `docs/pipeline/tts-production-upgrade.md`.
+- [x] G6 - Feedback loop compounds speaker and cast corrections.
+  - [x] Persist confirmed same-speaker assignments.
+  - [x] Persist cast merge decisions.
+  - [x] Reuse confirmed cast facts in later parser and attribution passes.
+  - Evidence: `977a9bd`; documented in `docs/pipeline/casting/speaker-attribution.md` and `docs/pipeline/casting/character-bible.md`.
+- [x] G7 - Parser and cast evidence triage queues.
+  - [x] Parser Review combines parser warnings and cast-discovery issues.
+  - [x] Apply, reject, and dismiss actions are wired.
+  - [x] Backend apply-action endpoint supports merge-cast and confirm-cast actions.
+  - Evidence: `b4237c0`.
+- [x] G8 - Container-derived chapter signals.
+  - [x] Parse DOCX heading-style signals.
+  - [x] Parse EPUB spine and table-of-contents signals.
+  - [x] Persist structure evidence in Parser Review.
+  - Evidence: `e04bacf`, `6f387c8`; documented in `docs/pipeline/structure/structure-parser-v2.md`.
 
 ## Phase 2 - Publishable Audio
 
-- [ ] G5: 44.1 kHz mastered audio pipeline.
-  - Band-limited resampling to 44.1 kHz.
-  - EBU R128 loudness normalization.
-  - True-peak limiter.
-  - Room-tone head/tail.
-  - Honest degradation when FFmpeg is missing.
-- [ ] G11: Real audio QA metrics feeding readiness.
-  - Peak/RMS/LUFS/true-peak checks.
-  - RMS dead-air detection.
-  - Duration-vs-text truncation heuristic.
-  - Readiness consumes real audio metrics.
-- [x] G13: Export polish.
-  - [x] Add M4B export path with chapter markers and audiobook metadata.
-  - [x] Add MP3 metadata and optional embedded cover path.
-  - [x] Add optional retail sample generation.
-  - [x] Add export QA scorecard in manifest and API response.
-  - [x] Add typed backend QA/domain schema instead of unstructured dict only.
-  - [x] Update static OpenAPI spec for `includeRetailSample` and export `qa`.
-  - [x] Clarify direct-output M4B entry/path in manifest or API contract.
-  - [x] Expand FFmpeg integration coverage for MP3 + M4B + retail sample + QA.
-  - [x] Update ExportPanel scorecard copy to pass/fail symbols and M4B-aware empty state.
-  - [x] Run full validation.
-  - [x] Commit, merge to `main`, and push.
+- [x] G5 - Mastered audio baseline.
+  - [x] Use a 44.1 kHz assembly pipeline.
+  - [x] Apply band-limited resampling.
+  - [x] Normalize loudness and apply a true-peak limiter.
+  - [x] Insert calibrated room tone for natural pauses.
+  - Evidence: `5d3ad3f`; documented in `docs/architecture/current-pipeline-behavior.md` and `docs/pipeline/audio/sound-design.md`.
+- [x] G11 - Real audio QA replaces fake telemetry.
+  - [x] Decode rendered audio and collect real metrics.
+  - [x] Detect dead air, clipping, truncation, loudness, and duration anomalies from audio content.
+  - [x] Feed real QA metrics into readiness.
+  - Evidence: `ef42a32`, `df1e332`; documented in `docs/pipeline/qa/qa-rulebook.md`.
+- [x] G13 - Export polish for listener and retail artifacts.
+  - [x] Generate M4B chapterized export.
+  - [x] Generate MP3 exports with metadata and cover art.
+  - [x] Generate retail sample clips.
+  - [x] Add QA scorecard, typed export schema, OpenAPI coverage, and artifact URLs.
+  - Evidence: `7f27089`; documented in `docs/pipeline/export/export-polish.md`.
 
 ## Phase 3 - Algorithmic Depth
 
-- [ ] G9: Character disambiguation and fuzzy aliasing.
-  - Add same-name disambiguation gate before merge.
-  - Add nickname lexicon and fuzzy alias clustering.
-  - Extract casting-relevant traits.
-- [ ] G10: Speaker attribution depth.
-  - Add turn-taking and alternation model.
-  - Add pronoun/coreference support.
-  - Let attribution propose new speakers back to the cast.
-- [ ] G14: Casting traits and audition-first suggestions.
-  - Add gender/age/accent facets where available.
-  - Extract Kokoro voice-ID facets.
-  - Rank voice suggestions by character traits.
-  - Audition voices against character lines.
-- [ ] G19: Persistent local TTS worker.
-  - Keep local models resident.
-  - Speed up auditioning.
-  - Support evidence-based LLM direction workflows.
-- [ ] G4 follow-on: Evidence-based LLM direction inference.
-  - Use scene, character, and mood continuity evidence.
-  - Preserve direction evidence for review.
-- [ ] G16: Local ASR word-match verification.
-  - Verify generated speech matches expected text.
-  - Flag mispronunciation, dropped words, and truncation.
-- [ ] G18: Structure depth.
-  - Add multilingual detection.
-  - Classify front/back matter.
-  - Handle multi-paragraph dialogue and footnotes.
-  - Improve prosody-tuned segmentation.
+- [ ] G9 - Character disambiguation and fuzzy aliasing.
+  - [ ] Add disambiguation gate before same-name character merges.
+  - [ ] Add nickname lexicon and fuzzy alias clustering.
+  - [ ] Extract casting-relevant character traits.
+- [ ] G10 - Speaker attribution depth.
+  - [ ] Add turn-taking and alternation model.
+  - [ ] Add pronoun and coreference support.
+  - [ ] Let attribution propose new speakers back to the cast.
+- [ ] G14 - Casting traits and audition-first suggestions.
+  - [ ] Add gender, age, and accent facets where available.
+  - [ ] Extract Kokoro voice-ID facets.
+  - [ ] Rank voice suggestions by character traits.
+  - [ ] Audition voices against representative character lines.
+- [ ] G19 - Persistent local TTS worker.
+  - [ ] Keep local models resident.
+  - [ ] Speed up auditioning.
+  - [ ] Enable evidence-based LLM direction workflows.
+- [ ] Direction follow-on - Evidence-based LLM direction inference.
+  - [ ] Use scene, character, and mood continuity evidence.
+  - [ ] Preserve direction evidence for review.
+  - Note: this is not counted as a separate G1-G20 gap, but remains a roadmap follow-on after G4 and depends on G19.
+- [ ] G16 - Local ASR word-match verification.
+  - [ ] Verify generated speech matches expected text.
+  - [ ] Flag mispronunciation, dropped words, and truncation.
+  - [ ] Feed ASR verification evidence into QA and readiness.
+- [ ] G18 - Structure depth.
+  - [ ] Add multilingual detection.
+  - [ ] Classify front matter and back matter.
+  - [ ] Handle multi-paragraph dialogue and footnotes.
+  - [ ] Improve prosody-tuned segmentation.
 
 ## Phase 4 - Workflow Experience
 
-- [ ] G15: Scene-level dialogue transcript review.
-  - Color-code speakers in transcript view.
-  - Add waveform player with issue markers.
-  - Jump from issue to exact audio moment.
-- [ ] G17: Scoped issues/export blocking and ranked worklist.
-  - Scope chapter issues to selected chapter(s).
-  - Scope export blockers to selected export set.
-  - Add severity-weighted readiness worklist.
-  - Replace global busy/error with per-section state where needed.
-- [ ] G20: Unified next-best action.
-  - Merge workflow step rail and readiness worklist signals.
-  - Rank actions by impact.
-  - Deep-link each action to the exact control or audio moment.
-  - Add listened-and-approved chapter attestation.
+- [ ] G15 - Scene-level dialogue transcript review.
+  - [ ] Color-code speakers in transcript view.
+  - [ ] Add waveform player with issue markers.
+  - [ ] Jump from issue to exact audio moment.
+- [ ] G17 - Scoped issues, export blocking, and ranked worklist.
+  - [ ] Scope chapter issues to selected chapters.
+  - [ ] Scope export blockers to the selected export set.
+  - [ ] Add severity-weighted readiness worklist.
+  - [ ] Replace global busy/error with per-section state where needed.
+- [ ] G20 - Unified next-best action.
+  - [ ] Merge workflow step rail and readiness worklist signals.
+  - [ ] Rank actions by impact.
+  - [ ] Deep-link each action to the exact control or audio moment.
+  - [ ] Add listened-and-approved chapter attestation.
 
 ## Completion Estimate
 
-- Roadmap items tracked: 20 gaps.
-- Completed: 2 gaps.
-- In progress: 0 gaps.
-- Remaining: 18 gaps.
-- Current approximate roadmap completion: 10% complete, 10% touched.
+- Roadmap items tracked: 20 numbered gaps.
+- Completed: 11 numbered gaps.
+- In progress: 0 numbered gaps.
+- Remaining: 9 numbered gaps.
+- Approximate roadmap completion: 55%.
+- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 0%, Phase 4 0%.
