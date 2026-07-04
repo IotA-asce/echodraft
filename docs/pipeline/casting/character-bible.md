@@ -7,7 +7,7 @@ The Character Bible is the project-level source of truth for cast identity and v
 Each character stores:
 
 - display and canonical names
-- aliases and traits
+- aliases and traits. Cast Discovery can fill conservative traits such as `role:captain`, `age:young`, `accent:irish`, or `gender:feminine` only from directly observed names, titles, nearby mentions, and pronoun evidence.
 - optional first-seen source, chapter, and segment references
 - role type, confidence, and notes
 - user lock state and lock reason
@@ -28,6 +28,7 @@ Each character stores:
 - Split creates a new character and appends history on both records.
 - Voice links must reference a voice profile in the same project.
 - Approved speaker attributions use linked character voices during production unless a segment override is set.
+- Character voice suggestions rank existing project voice profiles against character traits and return evidence for why each voice matched.
 
 ## API Surface
 
@@ -38,6 +39,7 @@ Each character stores:
 - `POST /api/v1/characters/{characterId}/reject-merge`
 - `POST /api/v1/characters/{characterId}/split`
 - `POST /api/v1/characters/{characterId}/assign-voice`
+- `GET /api/v1/characters/{characterId}/voice-suggestions`
 - `POST /api/v1/issues/{issueId}/apply-action`
 - `GET /api/v1/projects/{projectId}/speaker-attributions`
 - `POST /api/v1/projects/{projectId}/speaker-attributions/run`

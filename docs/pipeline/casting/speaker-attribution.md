@@ -10,8 +10,9 @@ Speaker attribution turns parser speaker candidates into reviewable, production-
 4. Speaker attribution then writes one `speaker_attributions` row per segment.
 5. Rows with matched characters and sufficient confidence are approved automatically.
 6. Unmatched or low-confidence dialogue remains `needs_review`.
-7. Reviewers can assign a character, approve narrator delivery, or lock the row.
-8. A confirmed same-speaker assignment propagates to unresolved sibling rows with the same normalized speaker name when the chosen character matches that speaker name or alias.
+7. Unlabeled quote segments can receive a nearby-turn evidence hint when adjacent dialogue/action-beat text provides a speaker and pronoun cue; these rows remain `needs_review` until confirmed.
+8. Reviewers can assign a character, approve narrator delivery, or lock the row.
+9. A confirmed same-speaker assignment propagates to unresolved sibling rows with the same normalized speaker name when the chosen character matches that speaker name or alias.
 
 The manual Cast Review action can be rerun from the dashboard or by calling `POST /api/v1/projects/{projectId}/speaker-attributions/run`.
 
@@ -34,4 +35,5 @@ This means character voice assignment changes can make affected segment renders 
 - `userLocked` rows are not overwritten by reruns.
 - Unknown dialogue stays visible until approved or assigned.
 - Evidence stores the source rule, parser candidate, segment type, and text preview.
+- Nearby-turn rows record `reason = "nearby_dialogue_turn"` plus previous/next speaker and pronoun cue evidence.
 - Propagated rows record `evidence.method = "propagated_from_confirmation"` and the source attribution id.

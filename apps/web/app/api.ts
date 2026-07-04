@@ -22,6 +22,7 @@ export type LocalAiCatalogItem = { modelKey: string; displayName: string; capabi
 export type LocalAiInstallation = { id: string; modelKey: string; displayName: string; capability: string; provider: string; version?: string | null; installPath?: string | null; status: string; installedAt?: string | null; lastVerifiedAt?: string | null; sizeBytes?: number | null; licenseSummary?: string | null; errorMessage?: string | null };
 export type LocalAiInstallJob = { id: string; jobId: string; modelKey: string; status: string; progressPercent: number; currentStep?: string | null; logsPath?: string | null; startedAt?: string | null; completedAt?: string | null; errorMessage?: string | null };
 export type VoiceProfile = { id: string; projectId: string; name: string; backend: string; providerVoiceId: string; stylePrompt?: string | null };
+export type VoiceSuggestion = { voiceProfileId: string; name: string; providerVoiceId: string; backend: string; score: number; matchedTraits: string[]; evidence: string[]; sampleText: string };
 export type ProductionSettings = { projectId: string; narratorVoiceProfileId?: string | null; defaultDirection?: Direction | null };
 export type SegmentOverride = { segmentId: string; voiceProfileId?: string | null; direction?: Direction | null };
 export type SegmentRender = { id: string; segmentId: string; renderKey?: string; status: string; audioPath: string; audioUrl?: string | null; durationMs: number; parentRenderId?: string | null };
@@ -129,6 +130,7 @@ export const previewVoice = (projectId: string, voiceProfileId: string, directio
 export const listCharacters = (projectId: string) => request<Character[]>(`/api/v1/projects/${projectId}/characters`);
 export const createCharacter = (projectId: string, payload: string | { displayName: string; canonicalName?: string; aliases?: string[]; traits?: string[]; roleType?: string; notes?: string }) => request<Character>(`/api/v1/projects/${projectId}/characters`, json("POST", typeof payload === "string" ? { displayName: payload } : payload));
 export const updateCharacter = (characterId: string, payload: Partial<Pick<Character, "displayName" | "canonicalName" | "aliases" | "traits" | "roleType" | "confidence" | "notes" | "userLocked" | "lockReason" | "voiceProfileId">>) => request<Character>(`/api/v1/characters/${characterId}`, json("PATCH", payload));
+export const listVoiceSuggestions = (characterId: string) => request<VoiceSuggestion[]>(`/api/v1/characters/${characterId}/voice-suggestions`);
 export const mergeCharacter = (targetCharacterId: string, sourceCharacterId: string, reason?: string) => request<Character>(`/api/v1/characters/${targetCharacterId}/merge`, json("POST", { sourceCharacterId, reason }));
 export const rejectCharacterMerge = (characterId: string, payload: { candidateName: string; reason?: string | null }) => request<Character>(`/api/v1/characters/${characterId}/reject-merge`, json("POST", payload));
 export const splitCharacter = (characterId: string, payload: { displayName: string; aliases?: string[]; traits?: string[]; reason?: string }) => request<Character>(`/api/v1/characters/${characterId}/split`, json("POST", payload));

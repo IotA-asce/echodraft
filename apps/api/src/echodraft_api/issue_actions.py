@@ -115,6 +115,10 @@ class IssueActionService:
         candidate_name = _required_text(metadata, "candidateName")
         confidence = _float(metadata.get("confidence"), 0.72)
         aliases = _string_list(metadata.get("aliases"))
+        traits = _string_list(metadata.get("traits"))
+        evidence_graph = metadata.get("evidenceGraph")
+        if not traits and isinstance(evidence_graph, dict):
+            traits = _string_list(evidence_graph.get("traits"))
         canonical_name = _text(metadata.get("canonicalName")) or candidate_name
         notes = json.dumps(
             {
@@ -135,7 +139,7 @@ class IssueActionService:
             confidence=confidence,
             notes=notes,
             canonical_name=canonical_name,
-            traits=[],
+            traits=traits,
             first_seen_source_id=None,
             first_seen_chapter_id=issue.chapter_id,
             first_seen_segment_id=issue.segment_id,
