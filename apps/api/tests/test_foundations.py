@@ -175,6 +175,47 @@ def test_sqlite_engine_applies_concurrency_pragmas(tmp_path: Path) -> None:
         assert connection.exec_driver_sql("PRAGMA busy_timeout").scalar() == 30000
 
 
+def test_startup_repairs_legacy_segment_render_uniqueness(tmp_path: Path) -> None:
+    database_path = tmp_path / "legacy-renders.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE segment_renders (
+                id VARCHAR(64) PRIMARY KEY,
+                segment_id VARCHAR(64),
+                render_key VARCHAR(128) NOT NULL,
+                status VARCHAR(32) NOT NULL,
+                audio_path TEXT NOT NULL,
+                metadata_path TEXT NOT NULL,
+                duration_ms INTEGER NOT NULL,
+                parent_render_id VARCHAR(64),
+                request_json TEXT NOT NULL
+            );
+            INSERT INTO segment_renders (
+                id, segment_id, render_key, status, audio_path, metadata_path,
+                duration_ms, parent_render_id, request_json
+            )
+            VALUES
+                ('rend_old', 'seg_1', 'same-key', 'succeeded', '/tmp/a.wav', '/tmp/a.json', 1000, NULL, '{}'),
+                ('rend_new', 'seg_1', 'same-key', 'succeeded', '/tmp/b.wav', '/tmp/b.json', 1000, 'rend_old', '{}');
+            """
+        )
+
+    database = Database(f"sqlite:///{database_path}")
+    database.create_schema()
+
+    with sqlite3.connect(database_path) as connection:
+        statuses = dict(
+            connection.execute("SELECT id, status FROM segment_renders ORDER BY id").fetchall()
+        )
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(segment_renders)")}
+        indexes = {row[1] for row in connection.execute("PRAGMA index_list(segment_renders)")}
+
+    assert statuses == {"rend_new": "succeeded", "rend_old": "superseded"}
+    assert "created_at" in columns
+    assert "uq_segment_renders_succeeded_key" in indexes
+
+
 def test_session_rolls_back_on_exception(tmp_path: Path) -> None:
     database = Database(f"sqlite:///{tmp_path / 'rollback.db'}")
     database.create_schema()

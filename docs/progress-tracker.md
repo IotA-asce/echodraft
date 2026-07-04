@@ -50,8 +50,9 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 - [x] G12 - Local database and worker hardening.
   - [x] Enable SQLite WAL, foreign keys, and busy timeout.
   - [x] Bound executor and job concurrency.
+  - [x] Serialize segment-render cache recheck, parent selection, and insert with a SQLite write transaction.
   - [x] Add CI with schema drift checking.
-  - Evidence: `f7fabde`.
+  - Evidence: `f7fabde`, `feat/phase-0-completion`.
 
 ## Phase 1 - Honesty And Compounding Loop
 
