@@ -84,6 +84,46 @@ def test_provider_direction_capability_is_truthful(client) -> None:
     ]
 
 
+def test_character_voice_suggestions_rank_by_traits(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Voice Suggestions", "rightsStatus": "declared"}
+    ).json()["id"]
+    character = client.post(
+        f"/api/v1/projects/{project}/characters",
+        json={
+            "displayName": "Captain Mara",
+            "traits": ["gender:feminine", "accent:irish", "age:young", "role:captain"],
+        },
+    ).json()
+    matching = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={
+            "name": "Young Irish Female",
+            "backend": "kokoro",
+            "providerVoiceId": "kokoro_female_irish_young",
+            "stylePrompt": "young Irish woman, crisp captain energy",
+        },
+    ).json()
+    client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={
+            "name": "Older Neutral",
+            "backend": "kokoro",
+            "providerVoiceId": "kokoro_neutral_old",
+            "stylePrompt": "older neutral narrator",
+        },
+    )
+
+    response = client.get(f"/api/v1/characters/{character['id']}/voice-suggestions")
+
+    assert response.status_code == 200
+    suggestions = response.json()
+    assert suggestions[0]["voiceProfileId"] == matching["id"]
+    assert suggestions[0]["score"] > suggestions[1]["score"]
+    assert "accent:irish" in suggestions[0]["matchedTraits"]
+    assert suggestions[0]["sampleText"].startswith("Captain Mara")
+
+
 def test_render_queue_pronunciations_and_compare(client) -> None:
     project, chapter, segment = project_with_segment(client)
     client.put("/api/v1/settings/tts", json={"provider": "mock"})
