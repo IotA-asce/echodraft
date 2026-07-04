@@ -1,4 +1,5 @@
-import type { ExportPackage, Project, Chapter } from "../../api";
+import { useState } from "react";
+import type { ExportFormat, ExportPackage, Project, Chapter } from "../../api";
 import { assetUrl } from "../../api";
 import { formatBytes } from "../../lib/format";
 import { EmptyState } from "../common/EmptyState";
@@ -46,8 +47,12 @@ export function ExportPanel({
   onPublisherChange: (value: string) => void;
   onLanguageChange: (value: string) => void;
   onCoverPathChange: (value: string) => void;
-  onExport: (format: "wav" | "mp3") => void;
+  onExport: (format: ExportFormat, options?: { includeRetailSample?: boolean }) => void;
 }) {
+  const [includeRetailSample, setIncludeRetailSample] = useState(false);
+  const latestExport = exports[0] ?? null;
+  const latestScores = latestExport?.qa?.outputs ?? [];
+
   if (!chapters.length) {
     return <EmptyState title="No chapters ready for export." description="Produce at least one chapter before creating a package." onAction={onGoStructure} actionLabel="Go to structure" />;
   }
@@ -105,18 +110,40 @@ export function ExportPanel({
             Cover path
             <input value={coverPath} placeholder="/path/to/cover.jpg" onChange={(event) => onCoverPathChange(event.currentTarget.value)} />
           </label>
+          <label className="retail-sample-toggle">
+            <input type="checkbox" checked={includeRetailSample} onChange={(event) => setIncludeRetailSample(event.currentTarget.checked)} />
+            Include retail sample
+          </label>
         </div>
         <div className="export-actions">
-          <button type="button" disabled={!selectedChapterIds.length} onClick={() => onExport("wav")}>
+          <button type="button" disabled={!selectedChapterIds.length} onClick={() => onExport("wav", { includeRetailSample: false })}>
             Export WAV ZIP
           </button>
-          <button type="button" disabled={!selectedChapterIds.length} onClick={() => onExport("mp3")}>
+          <button type="button" disabled={!selectedChapterIds.length} onClick={() => onExport("mp3", { includeRetailSample })}>
             Export MP3 ZIP
           </button>
-          <button type="button" disabled>
-            M4B planned
+          <button type="button" disabled={!selectedChapterIds.length} onClick={() => onExport("m4b", { includeRetailSample })}>
+            Export M4B
           </button>
         </div>
+        {latestExport && latestScores.length ? (
+          <div className="export-scorecard" aria-label="Latest export QA scorecard">
+            <div className="scorecard-header">
+              <strong>Latest QA</strong>
+              <span className={latestExport.qa.allWithinTolerance ? "score-pass" : "score-check"}>
+                {latestExport.qa.allWithinTolerance ? "✓" : "✗"}
+              </span>
+            </div>
+            {latestScores.map((score) => (
+              <p className="score-row" key={score.filename}>
+                <span>{score.filename}</span>
+                <span>{typeof score.lufsIntegrated === "number" ? `${score.lufsIntegrated.toFixed(1)} LUFS` : "LUFS n/a"}</span>
+                <span>{typeof score.truePeakDb === "number" ? `${score.truePeakDb.toFixed(1)} dBTP` : "Peak n/a"}</span>
+                <span className={score.withinTolerance ? "score-pass" : "score-check"}>{score.withinTolerance ? "✓" : "✗"}</span>
+              </p>
+            ))}
+          </div>
+        ) : null}
         <div className="export-history">
           {exports.length ? (
             exports.map((item) => (
@@ -129,7 +156,7 @@ export function ExportPanel({
               </p>
             ))
           ) : (
-            <p className="import-placeholder">No export history yet. WAV and MP3 ZIP packages will appear here after creation.</p>
+            <p className="import-placeholder">No export history yet. WAV, MP3, and M4B packages will appear here after creation.</p>
           )}
         </div>
       </div>
