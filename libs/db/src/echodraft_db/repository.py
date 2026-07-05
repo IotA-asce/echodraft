@@ -371,6 +371,23 @@ class JobRepository:
             record = session.get(JobRecord, job_id)
             return _job(record) if record else None
 
+    def list_for_project(
+        self,
+        project_id: str,
+        *,
+        job_type: str | None = None,
+        statuses: list[JobState] | None = None,
+        limit: int = 20,
+    ) -> list[Job]:
+        statement = select(JobRecord).where(JobRecord.project_id == project_id)
+        if job_type:
+            statement = statement.where(JobRecord.job_type == job_type)
+        if statuses:
+            statement = statement.where(JobRecord.status.in_([status.value for status in statuses]))
+        statement = statement.order_by(JobRecord.created_at.desc()).limit(max(1, min(limit, 100)))
+        with self.database.session() as session:
+            return [_job(record) for record in session.scalars(statement)]
+
     def reconcile_interrupted(self) -> int:
         """In-process jobs cannot safely resume after restart; fail them with guidance."""
         with self.database.session() as session:
