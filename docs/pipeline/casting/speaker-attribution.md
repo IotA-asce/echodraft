@@ -10,9 +10,10 @@ Speaker attribution turns parser speaker candidates into reviewable, production-
 4. Speaker attribution then writes one `speaker_attributions` row per segment.
 5. Rows with matched characters and sufficient confidence are approved automatically.
 6. Unmatched or low-confidence dialogue remains `needs_review`.
-7. Unlabeled quote segments can receive a nearby-turn evidence hint when adjacent dialogue/action-beat text provides a speaker and pronoun cue; these rows remain `needs_review` until confirmed.
+7. Unlabeled quote segments can receive nearby-turn, speech-action, pronoun-coreference, or two-speaker alternation hints; inferred rows remain `needs_review` until confirmed.
 8. Reviewers can assign a character, approve narrator delivery, or lock the row.
 9. A confirmed same-speaker assignment propagates to unresolved sibling rows with the same normalized speaker name when the chosen character matches that speaker name or alias.
+10. If a high-confidence parser speaker label has no Character Bible match, speaker attribution asks Cast Discovery to propose the missing cast record using the same duplicate and confidence gates as normal cast discovery.
 
 The manual Cast Review action can be rerun from the dashboard or by calling `POST /api/v1/projects/{projectId}/speaker-attributions/run`.
 
@@ -36,4 +37,8 @@ This means character voice assignment changes can make affected segment renders 
 - Unknown dialogue stays visible until approved or assigned.
 - Evidence stores the source rule, parser candidate, segment type, and text preview.
 - Nearby-turn rows record `reason = "nearby_dialogue_turn"` plus previous/next speaker and pronoun cue evidence.
+- Speech-action rows record `reason = "speech_action_cue"` and identify the current or adjacent action-beat cue.
+- Pronoun-coreference rows record `reason = "pronoun_coreference"` when exactly one active same-scene speaker has the matching `gender:*` trait.
+- Two-speaker alternation rows record `reason = "turn_taking_alternation"` with prior, previous, and next speaker evidence.
+- Cast-back proposals record `castProposal = "proposed_cast_from_speaker_attribution"` on the attribution evidence.
 - Propagated rows record `evidence.method = "propagated_from_confirmation"` and the source attribution id.

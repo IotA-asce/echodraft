@@ -17,7 +17,7 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 - Complete: 12
 - Remaining: 8
 - In progress: 2
-- Approximate roadmap completion: 60%
+- Approximate roadmap completion: 62%
 - Complete phases: Phase 0, Phase 1, Phase 2
 - Remaining phases: Phase 3, Phase 4
 
@@ -107,10 +107,12 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - Evidence: `feat/phase-3-cast-depth`, `feat/g9-disambiguation`; documented in `docs/pipeline/casting/character-bible.md`.
 - [ ] G10 - Speaker attribution depth.
   - [x] Add initial nearby-turn and pronoun-cue evidence for unlabeled dialogue.
-  - [ ] Expand into full turn-taking and alternation model.
-  - [ ] Add broader pronoun and coreference support.
-  - [ ] Let attribution propose new speakers back to the cast.
-  - Evidence: `feat/phase-3-cast-depth`.
+  - [x] Add conservative two-speaker alternation for same-scene unlabeled dialogue.
+  - [x] Add broader speech-action cue and gendered pronoun coreference support.
+  - [x] Let attribution propose confident missing speaker labels back through Cast Discovery.
+  - [ ] Expand into full scene active-speaker and interruption model.
+  - [ ] Send contiguous scene windows to the LLM attribution pass.
+  - Evidence: `feat/phase-3-cast-depth`, `feat/g10-speaker-attribution-depth`; documented in `docs/pipeline/casting/speaker-attribution.md`.
 - [ ] G14 - Casting traits and audition-first suggestions.
   - [x] Add initial gender, age, accent, and role traits where directly observed.
   - [ ] Extract Kokoro voice-ID facets.
@@ -158,5 +160,5 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 - Completed: 12 numbered gaps.
 - In progress: 2 numbered gaps.
 - Remaining: 8 numbered gaps.
-- Approximate roadmap completion: 60%.
-- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 14%, Phase 4 0%.
+- Approximate roadmap completion: 62%.
+- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 22%, Phase 4 0%.
