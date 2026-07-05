@@ -10,6 +10,7 @@ from .config import AppSettings
 
 if TYPE_CHECKING:
     from .tts_providers import TtsProvider
+    from .tts_worker import TtsWorkerManager
 
 
 class TtsSettingsStore:
@@ -44,7 +45,12 @@ class TtsSettingsStore:
             TtsSettingsUpdate.model_validate(json.loads(self.path.read_text(encoding="utf-8")))
         )
 
-    def adapter(self, payload: TtsSettingsUpdate | None = None) -> "TtsProvider":
+    def adapter(
+        self,
+        payload: TtsSettingsUpdate | None = None,
+        *,
+        worker_manager: "TtsWorkerManager | None" = None,
+    ) -> "TtsProvider":
         config = self._normalized(payload or self.load())
         from .tts_providers import (
             KokoroTtsAdapter,
@@ -81,6 +87,7 @@ class TtsSettingsStore:
                 Path(config.model_path).expanduser() if config.model_path else None,
                 Path(config.voices_data_path).expanduser() if config.voices_data_path else None,
                 Path(config.voice_registry_path).expanduser() if config.voice_registry_path else None,
+                worker_manager,
             )
         return KokoroTtsAdapter(
             config.executable,

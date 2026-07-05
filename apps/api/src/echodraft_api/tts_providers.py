@@ -8,8 +8,12 @@ import subprocess
 import wave
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from echodraft_domain import DirectionProfile
+
+if TYPE_CHECKING:
+    from .tts_worker import TtsWorkerManager
 
 
 class TtsProvider(ABC):
@@ -194,12 +198,14 @@ class ManagedKokoroOnnxAdapter(TtsProvider):
         model_path: Path | None,
         voices_data_path: Path | None,
         voice_registry_path: Path | None,
+        worker_manager: TtsWorkerManager | None = None,
     ) -> None:
         self.python_path = python_path
         self.wrapper_path = wrapper_path
         self.model_path = model_path
         self.voices_data_path = voices_data_path
         self.voice_registry_path = voice_registry_path
+        self.worker_manager = worker_manager
 
     def readiness(self) -> str | None:
         if not self.python_path or not self.python_path.is_file():
@@ -246,6 +252,26 @@ class ManagedKokoroOnnxAdapter(TtsProvider):
         from .kokoro_setup import write_managed_wrapper
 
         write_managed_wrapper(self.wrapper_path)
+        if self.worker_manager:
+            sample_rate = self.worker_manager.synthesize_managed_kokoro(
+                python_path=self.python_path,
+                wrapper_path=self.wrapper_path,
+                model_path=self.model_path,
+                voices_data_path=self.voices_data_path,
+                voice_registry_path=self.voice_registry_path,
+                text=text,
+                voice_id=voice_id,
+                output=output,
+                speed=direction.pace,
+            )
+            return {
+                **self.render_identity(),
+                "voiceId": voice_id,
+                "sampleRate": sample_rate,
+                "workerMode": "resident",
+                "effectiveDirection": {"pace": direction.pace},
+                "unsupportedDirection": _unsupported_direction(self.direction_support),
+            }
         command = [
             str(self.python_path),
             str(self.wrapper_path),
@@ -270,6 +296,7 @@ class ManagedKokoroOnnxAdapter(TtsProvider):
             **self.render_identity(),
             "voiceId": voice_id,
             "sampleRate": sample_rate,
+            "workerMode": "subprocess",
             "effectiveDirection": {"pace": direction.pace},
             "unsupportedDirection": _unsupported_direction(self.direction_support),
         }
