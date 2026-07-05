@@ -124,6 +124,69 @@ def test_character_voice_suggestions_rank_by_traits(client) -> None:
     assert suggestions[0]["sampleText"].startswith("Captain Mara")
 
 
+def test_kokoro_voice_id_facets_are_exposed_and_ranked(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Kokoro Facets", "rightsStatus": "declared"}
+    ).json()["id"]
+    character = client.post(
+        f"/api/v1/projects/{project}/characters",
+        json={"displayName": "Mara", "traits": ["gender:feminine", "accent:american"]},
+    ).json()
+    voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Heart", "backend": "kokoro", "providerVoiceId": "af_heart"},
+    ).json()
+    client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Fenrir", "backend": "kokoro", "providerVoiceId": "am_fenrir"},
+    )
+
+    listed = client.get(f"/api/v1/projects/{project}/voices").json()
+    listed_voice = next(item for item in listed if item["id"] == voice["id"])
+    assert {"gender:feminine", "accent:american", "locale:american"} <= set(
+        listed_voice["facets"]
+    )
+
+    suggestions = client.get(f"/api/v1/characters/{character['id']}/voice-suggestions").json()
+    assert suggestions[0]["voiceProfileId"] == voice["id"]
+    assert {"gender:feminine", "accent:american"} <= set(suggestions[0]["matchedTraits"])
+    assert "locale:american" in suggestions[0]["facets"]
+
+
+def test_voice_suggestions_use_representative_character_line(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Audition Lines", "rightsStatus": "declared"}
+    ).json()["id"]
+    imported = client.post(
+        f"/api/v1/projects/{project}/source/import",
+        files={
+            "file": (
+                "audition.txt",
+                b"Chapter 1\n\nCaptain Mara: Hold the line.\n\nCaptain Mara: We move at dawn.",
+                "text/plain",
+            )
+        },
+        data={"rightsAcknowledged": "true"},
+    ).json()
+    assert wait_for_job(client, imported["id"])["status"] == "succeeded"
+    structured = client.post(f"/api/v1/projects/{project}/structure/extract", json={}).json()
+    assert wait_for_job(client, structured["id"])["status"] == "succeeded"
+    character = next(
+        item
+        for item in client.get(f"/api/v1/projects/{project}/characters").json()
+        if item["displayName"] == "Captain Mara"
+    )
+    client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Heart", "backend": "kokoro", "providerVoiceId": "af_heart"},
+    )
+
+    suggestions = client.get(f"/api/v1/characters/{character['id']}/voice-suggestions").json()
+
+    assert suggestions[0]["sampleText"] == "Captain Mara: Hold the line."
+    assert "Representative character line selected for audition." in suggestions[0]["evidence"]
+
+
 def test_render_queue_pronunciations_and_compare(client) -> None:
     project, chapter, segment = project_with_segment(client)
     client.put("/api/v1/settings/tts", json={"provider": "mock"})

@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import type { Character, Pronunciation, SpeakerAttribution, VoiceProfile } from "../../api";
+import type { Character, Pronunciation, SpeakerAttribution, VoiceProfile, VoiceSuggestion } from "../../api";
 import { ReferenceForm } from "../common/ReferenceForm";
 import { EmptyState } from "../common/EmptyState";
 import { CastReview } from "./CastReview";
@@ -55,6 +55,8 @@ export function VoiceBiblePanel({
   onSaveCharacter,
   onMergeCharacter,
   onSplitCharacter,
+  onLoadVoiceSuggestions,
+  onPreviewVoiceSuggestion,
   onRunCastReview,
   onSaveAttribution,
   onAddPronunciation,
@@ -83,6 +85,8 @@ export function VoiceBiblePanel({
   onSaveCharacter: (characterId: string, payload: CharacterUpdatePayload) => Promise<void>;
   onMergeCharacter: (source: Character, targetId: string) => Promise<void>;
   onSplitCharacter: (character: Character) => Promise<void>;
+  onLoadVoiceSuggestions: (characterId: string) => Promise<VoiceSuggestion[]>;
+  onPreviewVoiceSuggestion: (voiceId: string, sampleText: string) => void;
   onRunCastReview: (useLocalLlm?: boolean) => Promise<void>;
   onSaveAttribution: (attributionId: string, payload: SpeakerAttributionUpdatePayload) => Promise<void>;
   onAddPronunciation: (value: string) => Promise<void>;
@@ -130,6 +134,8 @@ export function VoiceBiblePanel({
           onSave={onSaveCharacter}
           onMerge={onMergeCharacter}
           onSplit={onSplitCharacter}
+          onLoadVoiceSuggestions={onLoadVoiceSuggestions}
+          onPreviewVoiceSuggestion={onPreviewVoiceSuggestion}
         />
         <CastReview attributions={attributions} characters={characters} onRun={onRunCastReview} onSave={onSaveAttribution} busy={busy} />
         <div className="reference-grid pronunciation-only">

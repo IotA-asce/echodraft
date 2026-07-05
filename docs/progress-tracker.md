@@ -14,10 +14,10 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Status Summary
 
 - Numbered gaps tracked: 20
-- Complete: 12
-- Remaining: 8
-- In progress: 2
-- Approximate roadmap completion: 62%
+- Complete: 13
+- Remaining: 7
+- In progress: 1
+- Approximate roadmap completion: 65%
 - Complete phases: Phase 0, Phase 1, Phase 2
 - Remaining phases: Phase 3, Phase 4
 
@@ -29,6 +29,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - Evidence: `feat/g4-direction-transmission` (`e8d63aa`, `c7beca5`, merged `fb736fe`), `feat/g8-container-chapter-signals` (`e04bacf`, `6f387c8`, merged `c6d4331`), `feat/g6-feedback-loop-complete` (`977a9bd`, merged `9d32904`), and `feat/g7-evidence-triage-queues` (`b4237c0`, merged `b0b0bde`).
 - [x] Phase 2 publishable audio shipped.
   - Evidence: `feat/g11-real-audio-qa` (`ef42a32`, `df1e332`, merged `d8e7cad`), `feat/g5-mastered-audio` (`5d3ad3f`, merged `3dedf83`), and `feat/g13-export-polish` (`7f27089`, merged `66fcf7a`).
+- [x] G14 casting traits and audition-first suggestions shipped.
+  - Evidence: `feat/phase-3-cast-depth`, `feat/g14-voice-facets-auditions`.
 
 ## Phase 0 - Trust Foundation
 
@@ -113,12 +115,12 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - [ ] Expand into full scene active-speaker and interruption model.
   - [ ] Send contiguous scene windows to the LLM attribution pass.
   - Evidence: `feat/phase-3-cast-depth`, `feat/g10-speaker-attribution-depth`; documented in `docs/pipeline/casting/speaker-attribution.md`.
-- [ ] G14 - Casting traits and audition-first suggestions.
+- [x] G14 - Casting traits and audition-first suggestions.
   - [x] Add initial gender, age, accent, and role traits where directly observed.
-  - [ ] Extract Kokoro voice-ID facets.
+  - [x] Extract Kokoro voice-ID facets.
   - [x] Rank existing project voice suggestions by character traits.
-  - [ ] Audition voices against representative character lines.
-  - Evidence: `feat/phase-3-cast-depth`.
+  - [x] Audition voices against representative character lines.
+  - Evidence: `feat/phase-3-cast-depth`, `feat/g14-voice-facets-auditions`; documented in `docs/pipeline/casting/character-bible.md`.
 - [ ] G19 - Persistent local TTS worker.
   - [ ] Keep local models resident.
   - [ ] Speed up auditioning.
@@ -157,8 +159,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Completion Estimate
 
 - Roadmap items tracked: 20 numbered gaps.
-- Completed: 12 numbered gaps.
-- In progress: 2 numbered gaps.
-- Remaining: 8 numbered gaps.
-- Approximate roadmap completion: 62%.
-- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 22%, Phase 4 0%.
+- Completed: 13 numbered gaps.
+- In progress: 1 numbered gap.
+- Remaining: 7 numbered gaps.
+- Approximate roadmap completion: 65%.
+- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 36%, Phase 4 0%.

@@ -198,6 +198,9 @@ test("produces and exports a chapter entirely from the dashboard", async ({ page
 });
 
 test("drafts cast from upload and produces with an assigned character voice", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.HTMLMediaElement.prototype.play = async () => undefined;
+  });
   const title = `Cast Draft ${Date.now()}`;
   await page.goto("/");
   await page.getByLabel("Title").fill(title);
@@ -228,7 +231,13 @@ test("drafts cast from upload and produces with an assigned character voice", as
   await addVoiceProfile(page, "Mock narrator", "mock-narrator");
   await page.locator(".voice-list .voice-card").filter({ hasText: "Mock narrator" }).getByRole("button", { name: "Set narrator" }).click();
   await addVoiceProfile(page, "Mock Mara", "mock-mara");
-  await maraCard.getByLabel("Voice").selectOption({ label: "Mock Mara" });
+  await maraCard.getByRole("button", { name: "Suggest voices" }).click();
+  const maraSuggestion = maraCard.locator(".voice-suggestion-card").filter({ hasText: "Mock Mara" });
+  await expect(maraSuggestion).toBeVisible();
+  await expect(maraSuggestion).toContainText("Mara: We leave now.");
+  await maraSuggestion.getByRole("button", { name: "Audition" }).click();
+  await maraSuggestion.getByRole("button", { name: "Assign" }).click();
+  await expect(page.getByText("Character bible updated.")).toBeVisible();
 
   await openWorkflow(page, "Produce");
   await page.getByRole("button", { name: "Produce chapter audio", exact: true }).click();
