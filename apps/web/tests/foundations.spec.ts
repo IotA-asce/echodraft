@@ -134,6 +134,44 @@ test("keeps manuscript intake polling until a slow import finishes", async ({ pa
 
   await expect(page.getByText("Long import manuscript ready.")).toBeVisible({ timeout: 10_000 });
   expect(polls).toBeGreaterThanOrEqual(2);
+
+  await page.route(/\/api\/v1\/projects\/[^/]+\/structure\/extract$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "job_slow_structure",
+        status: "running",
+        progress: {
+          phase: "llm_cast_discovery",
+          current: 7,
+          total: 584,
+          message: "Extracting observed cast candidates with local Ollama."
+        }
+      })
+    });
+  });
+  await page.route(/\/api\/v1\/jobs\/job_slow_structure$/, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "job_slow_structure",
+        status: "running",
+        progress: {
+          phase: "llm_cast_discovery",
+          current: 8,
+          total: 584,
+          message: "Extracting observed cast candidates with local Ollama."
+        }
+      })
+    });
+  });
+
+  await page.getByRole("button", { name: "Extract structure", exact: true }).click();
+
+  await expect(page.getByText("Story Map")).toBeVisible();
+  await expect(page.getByText("Extracting observed cast candidates with local Ollama.")).toBeVisible();
+  await expect(page.getByText(/llm cast discovery · 7\/584|llm cast discovery · 8\/584/)).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Structure and cast draft progress" })).toBeVisible();
 });
 
 test("shows workflow statuses, empty states, and keyboard project creation", async ({ page }) => {

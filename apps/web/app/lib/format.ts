@@ -31,15 +31,19 @@ export function progressNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+export function jobProgressPercent(job: Job) {
+  const current = progressNumber(job.progress.current);
+  const total = progressNumber(job.progress.total);
+  if (!total || current === null) return null;
+  return Math.min(100, Math.max(0, Math.round((current / total) * 100)));
+}
+
 export function chapterJobProgress(job: Job | null) {
   if (!job || !["queued", "running"].includes(job.status)) return null;
   const phase = typeof job.progress.phase === "string" ? job.progress.phase : "queued";
   const current = progressNumber(job.progress.current);
   const total = progressNumber(job.progress.total);
-  const percent =
-    total && current !== null
-      ? Math.min(100, Math.max(0, Math.round((current / total) * 100)))
-      : 0;
+  const percent = jobProgressPercent(job) ?? 0;
   const label =
     phase === "rendering" && current !== null && total
       ? `Rendering segment ${current}/${total}`

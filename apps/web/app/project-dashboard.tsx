@@ -43,7 +43,7 @@ export function ProjectDashboard() {
   const [scenes, setScenes] = useState<Scene[]>([]); const [segments, setSegments] = useState<Segment[]>([]); const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
   const [editing, setEditing] = useState<Segment | null>(null); const [draft, setDraft] = useState("");
   const [tts, setTts] = useState<TtsSettings | null>(null); const [ttsProviders, setTtsProviders] = useState<TtsProviderInfo[]>([]); const [selectedTtsProvider, setSelectedTtsProvider] = useState<TtsProvider>("mock"); const [kokoroSetup, setKokoroSetup] = useState<KokoroSetupStatus | null>(null); const [voices, setVoices] = useState<VoiceProfile[]>([]); const [production, setProduction] = useState<ProductionSettings | null>(null);
-  const [status, setStatus] = useState<ProductionStatus | null>(null); const [job, setJob] = useState<Job | null>(null); const [setupJob, setSetupJob] = useState<Job | null>(null); const [importJob, setImportJob] = useState<Job | null>(null);
+  const [status, setStatus] = useState<ProductionStatus | null>(null); const [job, setJob] = useState<Job | null>(null); const [setupJob, setSetupJob] = useState<Job | null>(null); const [importJob, setImportJob] = useState<Job | null>(null); const [structureJob, setStructureJob] = useState<Job | null>(null);
   const [localAiCatalog, setLocalAiCatalog] = useState<LocalAiCatalogItem[]>([]); const [localAiJob, setLocalAiJob] = useState<Job | null>(null); const [localAiInstallJob, setLocalAiInstallJob] = useState<LocalAiInstallJob | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]); const [comments, setComments] = useState<Comment[]>([]); const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
   const [exports, setExports] = useState<ExportPackage[]>([]); const [exportEstimate, setExportEstimate] = useState<ExportEstimate | null>(null); const [characters, setCharacters] = useState<Character[]>([]); const [speakerAttributions, setSpeakerAttributions] = useState<SpeakerAttribution[]>([]); const [segmentDirections, setSegmentDirections] = useState<SegmentDirection[]>([]); const [renderQueue, setRenderQueue] = useState<RenderQueueItem[]>([]); const [renderCompare, setRenderCompare] = useState<SegmentRenderComparison | null>(null); const [segmentInspector, setSegmentInspector] = useState<SegmentReviewInspector | null>(null); const [reviewTimeline, setReviewTimeline] = useState<ChapterReviewTimeline | null>(null); const [chapterApproval, setChapterApproval] = useState<ChapterApproval | null>(null); const [pronunciations, setPronunciations] = useState<Pronunciation[]>([]); const [soundAssets, setSoundAssets] = useState<SoundAsset[]>([]); const [soundCues, setSoundCues] = useState<SoundCue[]>([]); const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
@@ -123,6 +123,25 @@ export function ProjectDashboard() {
     return () => window.clearTimeout(timer);
   }, [importJob, selectedProjectId]);
   useEffect(() => {
+    if (!structureJob || !selectedProjectId || !["queued", "running"].includes(structureJob.status)) return;
+    const timer = window.setTimeout(() => {
+      void getJob(structureJob.id).then(async (next) => {
+        setStructureJob(next);
+        if (next.status === "succeeded") {
+          await refreshStructureDraft(selectedProjectId);
+          setNotice("Structure and cast draft extracted. Review cast and voices before producing chapters.");
+          setActiveSection("structure");
+          setBusy(false);
+        }
+        if (next.status === "failed" || next.status === "cancelled") {
+          setError(next.errorMessage ?? "Structure and cast draft failed.");
+          setBusy(false);
+        }
+      }).catch((cause) => { setError(messageOf(cause)); setBusy(false); });
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [structureJob, selectedProjectId]);
+  useEffect(() => {
     if (!job || !["queued", "running"].includes(job.status)) return;
     const timer = window.setTimeout(() => {
       void getJob(job.id).then((next) => {
@@ -183,7 +202,7 @@ export function ProjectDashboard() {
 
   async function loadProject(projectId: string, options: { activate?: WorkflowStepId | null } = { activate: "voice-engine" }) {
     if (options.activate) setActiveSection(options.activate);
-    setSelectedProjectId(projectId); setError(null); setNotice(null); setSelectedChapter(null); setScenes([]); setSegments([]); setSpeakerAttributions([]); setSegmentDirections([]); setRenderQueue([]); setRenderCompare(null); setSegmentInspector(null); setSoundCues([]); setReadiness(null); setStructureQuality(null);
+    setSelectedProjectId(projectId); setError(null); setNotice(null); setSelectedChapter(null); setScenes([]); setSegments([]); setSpeakerAttributions([]); setSegmentDirections([]); setRenderQueue([]); setRenderCompare(null); setSegmentInspector(null); setSoundCues([]); setReadiness(null); setStructureQuality(null); setStructureJob(null);
     const settled = await Promise.allSettled([getSource(projectId), listChapters(projectId), listStructureWarnings(projectId), getStructureQuality(projectId), listVoices(projectId), getProductionSettings(projectId), listIssues(projectId), listExports(projectId), listCharacters(projectId), listSpeakerAttributions(projectId), listSegmentDirections(projectId), listPronunciations(projectId), listSoundAssets(projectId)]);
     const [nextSource, nextChapters, nextWarnings, nextQuality, nextVoices, nextProduction, nextIssues, nextExports, nextCharacters, nextAttributions, nextDirections, nextPronunciations, nextSoundAssets] = settled;
     setSource(nextSource.status === "fulfilled" ? nextSource.value : null); setChapters(nextChapters.status === "fulfilled" ? nextChapters.value : []);
@@ -203,6 +222,25 @@ export function ProjectDashboard() {
   async function refreshChapterApproval(projectId: string, chapterId: string) { try { setChapterApproval(await getChapterApproval(projectId, chapterId)); } catch { setChapterApproval(null); } }
   async function refreshExportEstimate(projectId: string) { try { setExportEstimate(await estimateExport(projectId, "wav", selectedExportIds, { audioVariant: exportAudioVariant, title: exportTitle.trim() || undefined, author: exportAuthor.trim() || undefined, album: exportAlbum.trim() || undefined, publisher: exportPublisher.trim() || undefined, language: exportLanguage.trim() || undefined, coverImagePath: exportCoverPath.trim() || undefined })); } catch { setExportEstimate(null); } }
   async function refreshImportedSource(projectId: string) { const nextSource = await getSource(projectId); setSource(nextSource); setSourcePages(await listSourcePages(nextSource.id).catch(() => [])); setCleaningIssues(await listCleaningIssues(nextSource.id).catch(() => [])); }
+  async function refreshStructureDraft(projectId: string) {
+    const [nextChapters, nextWarnings, nextQuality, nextIssues, nextCharacters, nextAttributions] = await Promise.all([
+      listChapters(projectId),
+      listStructureWarnings(projectId),
+      getStructureQuality(projectId),
+      listIssues(projectId),
+      listCharacters(projectId),
+      listSpeakerAttributions(projectId),
+    ]);
+    setChapters(nextChapters);
+    setStructureWarnings(nextWarnings);
+    setStructureQuality(nextQuality);
+    setIssues(nextIssues);
+    setCharacters(nextCharacters);
+    setSpeakerAttributions(nextAttributions);
+    setSelectedChapter(null);
+    setScenes([]);
+    setSegments([]);
+  }
   async function refreshReviewQueues(projectId: string) {
     const [nextWarnings, nextQuality, nextIssues, nextCharacters, nextAttributions] = await Promise.all([
       listStructureWarnings(projectId),
@@ -222,7 +260,7 @@ export function ProjectDashboard() {
 
   async function create(event: FormEvent) { event.preventDefault(); if (!title.trim() || !rights) return; setBusy(true); try { const created = await createProject({ title: title.trim(), author: author.trim() || undefined, rightsStatus: "declared" }); setProjects((current) => [created, ...current]); setTitle(""); setAuthor(""); setRights(false); await loadProject(created.id); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
   async function chooseFile(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file || !selectedProjectId) return; setBusy(true); setError(null); setNotice(null); setImportJob(null); setActiveSection("manuscript"); try { const imported = await importSource(selectedProjectId, file); setImportJob(imported); setNotice("Manuscript import is running locally. Large PDFs and OCR can take a few minutes."); if (imported.status === "succeeded") { await refreshImportedSource(selectedProjectId); setNotice("Manuscript normalized locally. Inspect the preview, then extract structure."); setActiveSection("manuscript"); setBusy(false); } else if (!["queued", "running"].includes(imported.status)) setBusy(false); } catch (cause) { setError(messageOf(cause)); setBusy(false); } finally { event.target.value = ""; } }
-  async function extract() { if (!selectedProjectId) return; setBusy(true); try { const extraction = await extractStructure(selectedProjectId); await waitFor(extraction.id, selectedProjectId); const [nextChapters, nextWarnings, nextQuality, nextIssues, nextCharacters, nextAttributions] = await Promise.all([listChapters(selectedProjectId), listStructureWarnings(selectedProjectId), getStructureQuality(selectedProjectId), listIssues(selectedProjectId), listCharacters(selectedProjectId), listSpeakerAttributions(selectedProjectId)]); setChapters(nextChapters); setStructureWarnings(nextWarnings); setStructureQuality(nextQuality); setIssues(nextIssues); setCharacters(nextCharacters); setSpeakerAttributions(nextAttributions); setActiveSection("structure"); setNotice("Structure and cast draft extracted. Review cast and voices before producing chapters."); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
+  async function extract() { if (!selectedProjectId) return; setBusy(true); setError(null); setNotice(null); setStructureJob(null); try { const extraction = await extractStructure(selectedProjectId); setStructureJob(extraction); setActiveSection("structure"); setNotice("Structure and cast draft is running locally. This can take several minutes with local LLM enabled."); if (extraction.status === "succeeded") { await refreshStructureDraft(selectedProjectId); setNotice("Structure and cast draft extracted. Review cast and voices before producing chapters."); setBusy(false); } else if (!["queued", "running"].includes(extraction.status)) setBusy(false); } catch (cause) { setError(messageOf(cause)); setBusy(false); } }
   async function openChapter(chapter: Chapter) { if (!selectedProjectId) return; setSelectedChapter(chapter); setStatus(null); setReadiness(null); setRenderCompare(null); setSegmentInspector(null); setReviewTimeline(null); setChapterApproval(null); try { const nextScenes = await listScenes(chapter.id); const nextSegments = nextScenes[0] ? await listSegments(nextScenes[0].id) : []; setScenes(nextScenes); setSegments(nextSegments); await refreshProduction(selectedProjectId, chapter.id); await refreshRenderQueue(selectedProjectId, chapter.id); await refreshSoundDesign(selectedProjectId, chapter.id); await refreshReviewTimeline(selectedProjectId, chapter.id); await refreshChapterApproval(selectedProjectId, chapter.id); if (nextSegments[0]) await inspectSegment(nextSegments[0].id); setActiveSection("produce"); } catch (cause) { setScenes([]); setSegments([]); setRenderQueue([]); setSoundCues([]); setReviewTimeline(null); setChapterApproval(null); setError(messageOf(cause)); } }
   async function saveEdit() { if (!editing || !draft.trim()) return; setBusy(true); try { const updated = await updateSegment(editing.id, draft.trim()); setSegments((current) => current.map((item) => item.id === updated.id ? updated : item)); setEditing(null); setNotice(`Revision r${updated.revision} saved. It will be rendered during the next chapter run.`); if (selectedProjectId && selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id); if (segmentInspector?.segment.id === updated.id) await inspectSegment(updated.id); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
   async function toggleSegmentLock(segment: Segment) { try { const updated = await setStructureLock("segment", segment.id, { locked: !segment.userLocked, reason: segment.userLocked ? null : "Locked in Structure Editor" }) as Segment; setSegments((current) => current.map((item) => item.id === updated.id ? updated : item)); } catch (cause) { setError(messageOf(cause)); } }
@@ -374,6 +412,7 @@ export function ProjectDashboard() {
         <ManuscriptIntakePanel
           busy={busy}
           importJob={importJob}
+          structureJob={structureJob}
           source={source}
           pages={sourcePages}
           cleaningIssues={cleaningIssues}
@@ -400,6 +439,7 @@ export function ProjectDashboard() {
           warnings={structureWarnings}
           issues={issues}
           quality={structureQuality}
+          structureJob={structureJob}
           status={status}
           job={job}
           provider={tts?.provider}

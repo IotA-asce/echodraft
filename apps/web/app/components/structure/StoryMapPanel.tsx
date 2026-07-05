@@ -19,6 +19,7 @@ import type {
   VoiceProfile,
 } from "../../api";
 import { uiCopy } from "../../lib/copy";
+import { jobProgressMessage, jobProgressPercent } from "../../lib/format";
 import { ConfirmAction } from "../common/ConfirmAction";
 import { EmptyState } from "../common/EmptyState";
 import { ChapterAudioPlayer } from "../production/ChapterAudioPlayer";
@@ -43,6 +44,7 @@ export function StoryMapPanel({
   warnings,
   issues,
   quality,
+  structureJob,
   status,
   job,
   provider,
@@ -97,6 +99,7 @@ export function StoryMapPanel({
   warnings: StructureParserWarning[];
   issues: Issue[];
   quality: StructureQuality | null;
+  structureJob: Job | null;
   status: ProductionStatus | null;
   job: Job | null;
   provider?: TtsProvider;
@@ -168,9 +171,20 @@ export function StoryMapPanel({
     { id: "long_segment", label: "Long segment", count: quality?.longSegmentCount },
     { id: "mixed", label: "Mixed", count: quality?.mixedSegmentWarningCount },
   ];
+  const structureJobRunning = Boolean(structureJob && ["queued", "running"].includes(structureJob.status));
 
   if (!chapters.length) {
-    return <EmptyState title="No story map yet." description="Import a manuscript first, then extract chapters, scenes, and lines." onAction={onGoManuscript} actionLabel="Go to manuscript" />;
+    return (
+      <section className="structure-view story-map-panel" aria-labelledby="story-map-title">
+        <div>
+          <p className="eyebrow">03 / Structure & Cast Draft</p>
+          <h2 id="story-map-title">Story Map</h2>
+          <p className="lede">Edit chapters, scenes, and segment-level performance direction while preserving renderable line history.</p>
+        </div>
+        <StructureJobProgress job={structureJob} />
+        <EmptyState title="No story map yet." description="Import a manuscript first, then extract chapters, scenes, and lines." onAction={onGoManuscript} actionLabel="Go to manuscript" />
+      </section>
+    );
   }
 
   return (
@@ -183,6 +197,7 @@ export function StoryMapPanel({
           Infer directions
         </button>
       </div>
+      <StructureJobProgress job={structureJob} />
       <div className="structure-quality" aria-label="Structure quality summary">
         <article><b>Chapters</b><strong>{quality?.chapterCount ?? chapters.length}</strong></article>
         <article><b>Scenes</b><strong>{quality?.sceneCount ?? scenes.length}</strong></article>
@@ -195,7 +210,7 @@ export function StoryMapPanel({
         <article><b>Offset issues</b><strong>{quality?.offsetValidationFailureCount ?? 0}</strong></article>
         <article><b>Unclosed quotes</b><strong>{quality?.quoteUnclosedCount ?? 0}</strong></article>
         <article><b>Warnings</b><strong>{quality?.warningsNeedingReviewCount ?? warnings.length}</strong></article>
-        <article><b>LLM</b><strong>{quality?.llmRefinementUsed ? `${quality.llmAcceptedBatchCount}/${quality.llmAcceptedBatchCount + quality.llmRejectedBatchCount}` : "local off"}</strong></article>
+        <article><b>LLM</b><strong>{structureJobRunning ? "running" : quality?.llmRefinementUsed ? `${quality.llmAcceptedBatchCount}/${quality.llmAcceptedBatchCount + quality.llmRejectedBatchCount}` : "local off"}</strong></article>
       </div>
       <div className="structure-filters" aria-label="Segment review filters">
         {filterOptions.map((item) => (
@@ -282,5 +297,25 @@ export function StoryMapPanel({
         </>
       ) : null}
     </section>
+  );
+}
+
+function StructureJobProgress({ job }: { job: Job | null }) {
+  if (!job || !["queued", "running"].includes(job.status)) return null;
+  const percent = jobProgressPercent(job);
+  const current = typeof job.progress.current === "number" ? job.progress.current : null;
+  const total = typeof job.progress.total === "number" ? job.progress.total : null;
+  const phase = typeof job.progress.phase === "string" ? job.progress.phase.replaceAll("_", " ") : "queued";
+  return (
+    <div className="chapter-progress structure-job-progress" aria-live="polite">
+      <div className="chapter-progress-row">
+        <span>{jobProgressMessage(job, "Structure & Cast Draft is running")}</span>
+        <span>{percent === null ? job.status : `${percent}%`}</span>
+      </div>
+      <progress aria-label="Structure and cast draft progress" className="chapter-progress-bar" value={percent ?? undefined} max={percent === null ? undefined : 100} />
+      <p className="chapter-progress-detail">
+        {current !== null && total ? `${phase} · ${current}/${total}` : phase}. Keep this project open while Echodraft works locally.
+      </p>
+    </div>
   );
 }
