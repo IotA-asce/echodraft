@@ -182,6 +182,7 @@ class Database:
                 "direction_json": "TEXT NOT NULL DEFAULT '{}'",
                 "source": "VARCHAR(32) NOT NULL DEFAULT 'manual'",
                 "user_locked": "BOOLEAN NOT NULL DEFAULT 0",
+                "evidence_json": "TEXT NOT NULL DEFAULT '{}'",
                 "direction_fingerprint": "VARCHAR(64) NOT NULL DEFAULT ''",
                 "created_at": "DATETIME",
                 "updated_at": "DATETIME",

@@ -34,7 +34,7 @@ Each capability and principle is scored on a 0–5 maturity scale against the vi
 | Manuscript understanding & structure | 2 | 5 | **3** | Discards DOCX/EPUB/TOC structure; English "Chapter N" only; destroys verse/scripts; multi-paragraph dialogue mishandled |
 | Speaker attribution & dialogue | 3 | 5 | **2** | Deterministic two-speaker exchanges and scene-window LLM context exist; group-scene ambiguity and flat transcript review remain |
 | Voice casting | 3 | 5 | **2** | Trait-ranked suggestions now use Kokoro facets and own-line auditions; no lineup/confusable-voice check yet |
-| Performance direction | 2 | 5 | **3** | Direction transmission is truthful and managed Kokoro stays resident; inference is still crude and not evidence-based |
+| Performance direction | 3 | 5 | **2** | Direction transmission is truthful, managed Kokoro stays resident, and opt-in local LLM inference now preserves review evidence; deterministic inference remains the default and UI evidence review is still thin |
 | Audio production quality | 1 | 5 | **4** | 16 kHz mono, aliasing resample, no loudness/limiter, no M4B, no metadata embedding |
 | QA (catching real issues) | 1 | 5 | **4** | Checklist not listener; telemetry faked; rulebook checks unimplemented; no ASR verification |
 | Review/patch workflow | 2 | 5 | **3** | Resolve-trap; patch can be a no-op; patch uses wrong voice; issue scoping bugs |
@@ -106,12 +106,12 @@ Format: **Current state → Vision target → Specific gaps (→ principle it se
 - **Target:** trait-matched, audibly distinct casting; auditioned against the character's own lines; a lineup comparison enforcing narrator/character contrast.
 - **Gaps:** no full acoustic/personality facet model beyond provider IDs and observed traits; no cast-lineup comparison; no confusable-voice check enforcing narrator/character contrast (→ P3/P4).
 
-### 3.5 Performance direction — 2 → 5
-- **Current:** direction transmission is truthful for current engines and assembly honors per-segment pauses; managed Kokoro ONNX now has a resident local worker so its model stays loaded across previews/renders. Direction inference is still whole-segment substring matching, blind to speaker/scene/continuity/`segment_type`; XTTS still has no style/pace hook; Piper and XTTS remain subprocess-based.
+### 3.5 Performance direction — 3 → 5
+- **Current:** direction transmission is truthful for current engines and assembly honors per-segment pauses; managed Kokoro ONNX now has a resident local worker so its model stays loaded across previews/renders. Direction inference remains deterministic by default, but `useLocalLlm=true` now runs bounded same-scene local Ollama windows with `TARGET`/`CONTEXT`, segment type, speaker candidate/approved attribution, previous/next scene context, deterministic direction hints, and persisted evidence on `segment_directions.evidence_json`. User-locked rows are still protected and LLM failures fall back to deterministic directions with a warning issue. XTTS still has no style/pace hook; Piper and XTTS remain subprocess-based, and UI evidence review is still limited.
 - **Target:** context-aware, evidence-based, character-consistent direction that actually renders; natural micro-pacing; honest UI about engine limits.
 - **Gaps:**
   1. Inference is crude and character-blind (→ P5).
-  2. Evidence-based LLM direction remains unimplemented (→ P5).
+  2. Direction evidence is persisted for review, but the UI still needs a richer scene/mood evidence display and batch workflow (→ P3/P5).
   3. Persistent residency currently covers managed Kokoro only; Piper and XTTS still pay subprocess startup costs (→ P5).
   4. UI needs richer inline feedback for engine-specific direction ceilings beyond the current capability matrix (→ P4).
 

@@ -838,9 +838,15 @@ paths:
   /api/v1/projects/{projectId}/directions/infer:
     post:
       tags: [Direction]
-      summary: Infer local deterministic segment directions
+      summary: Infer local segment directions
       parameters:
         - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DirectionInferenceRunRequest"
       responses:
         "202":
           description: Direction inference job queued
@@ -3063,7 +3069,7 @@ components:
           default: false
         model:
           type: string
-          default: qwen3:4b
+          default: "qwen3:4b"
     UpdateSpeakerAttributionRequest:
       type: object
       properties:
@@ -3203,6 +3209,9 @@ components:
           type: string
         userLocked:
           type: boolean
+        evidence:
+          type: object
+          additionalProperties: true
         directionFingerprint:
           type: string
         createdAt:
@@ -3211,6 +3220,15 @@ components:
         updatedAt:
           type: string
           format: date-time
+    DirectionInferenceRunRequest:
+      type: object
+      properties:
+        useLocalLlm:
+          type: boolean
+          default: false
+        model:
+          type: string
+          default: qwen3:4b
     UpdateSegmentDirectionRequest:
       type: object
       required: [direction]
