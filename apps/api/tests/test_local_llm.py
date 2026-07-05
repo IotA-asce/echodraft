@@ -105,6 +105,42 @@ Done.
     assert parsed["warnings"] == []
 
 
+def test_ollama_generate_json_disables_thinking_and_requests_schema_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post_or_get(
+        self: local_llm.OllamaProvider,
+        method: str,
+        path: str,
+        payload: dict[str, object] | None = None,
+        timeout: int = 10,
+    ) -> dict[str, object]:
+        captured["method"] = method
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["timeout"] = timeout
+        return {"response": '{"characters": [], "warnings": []}'}
+
+    monkeypatch.setattr(local_llm.OllamaProvider, "_post_or_get", fake_post_or_get)
+    schema = local_llm.DEFAULT_EXTRACTION_SCHEMA
+
+    result = local_llm.OllamaProvider("http://localhost:11434").generate_json(
+        "qwen3:4b", "Extract characters.", schema
+    )
+
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    assert result.response == {"characters": [], "warnings": []}
+    assert captured["method"] == "POST"
+    assert captured["path"] == "/api/generate"
+    assert payload["format"] == schema
+    assert payload["think"] is False
+    assert "Return exactly one JSON object" in str(payload["system"])
+    assert payload["options"] == {"temperature": 0, "top_p": 0.9, "num_predict": 4096}
+
+
 def test_llm_extraction_job_records_retry_and_result(
     client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
