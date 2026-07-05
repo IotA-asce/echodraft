@@ -50,6 +50,7 @@ from echodraft_domain import (
     IssueCreate,
     IssueUpdate,
     Job,
+    JobState,
     Project,
     ProjectCreate,
     PronunciationCreate,
@@ -111,7 +112,7 @@ from echodraft_domain import (
     SegmentProductionOverrideUpdate,
     ChapterProductionStatus,
 )
-from fastapi import Body, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -642,6 +643,29 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         return job
+
+    @app.get("/api/v1/projects/{project_id}/jobs", response_model=list[Job])
+    def list_project_jobs(
+        project_id: str,
+        request: Request,
+        job_type: str | None = None,
+        job_status: str | None = Query(default=None, alias="status"),
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> list[Job]:
+        app_container: AppContainer = request.app.state.container
+        if not app_container.projects.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        statuses: list[JobState] | None = None
+        if job_status:
+            try:
+                statuses = [
+                    JobState(item.strip()) for item in job_status.split(",") if item.strip()
+                ]
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail="Invalid job status filter") from error
+        return app_container.jobs_repository.list_for_project(
+            project_id, job_type=job_type, statuses=statuses, limit=limit
+        )
 
     @app.post("/api/v1/projects/{project_id}/source/import", response_model=Job, status_code=202)
     async def import_source(
