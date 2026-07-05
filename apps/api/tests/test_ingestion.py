@@ -2,6 +2,7 @@ import json
 import time
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 from docx import Document
 from ebooklib import epub
@@ -347,6 +348,83 @@ def test_pdf_v2_scanned_page_records_ocr_artifacts(
     results = app.state.container.source_artifacts.ocr_results(runs[0].id)
     assert len(results) == 1
     assert Path(results[0].text_path).is_file()
+
+
+def test_pdf_v2_none_text_fails_with_readable_ingestion_error(
+    client, app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakePage:
+        def extract_text(self) -> None:
+            return None
+
+    class FakeReader:
+        is_encrypted = False
+        pages = [FakePage()]
+
+    def fake_render(_pdf_path: Path, output_root: Path, page_number: int) -> Path:
+        output_root.mkdir(parents=True, exist_ok=True)
+        image_path = output_root / f"page_{page_number:04d}.png"
+        image_path.write_bytes(b"png")
+        return image_path
+
+    def fake_ocr(
+        _image_path: Path, output_root: Path, page_number: int
+    ) -> tuple[None, Path, Path, float]:
+        output_root.mkdir(parents=True, exist_ok=True)
+        text_path = output_root / f"page_{page_number:04d}.txt"
+        json_path = output_root / f"page_{page_number:04d}.json"
+        text_path.write_text("", encoding="utf-8")
+        json_path.write_text("{}", encoding="utf-8")
+        return None, text_path, json_path, 0.0
+
+    project = project_id(client)
+    service = IngestionService(app.state.container)
+    source_id = service.stage(
+        project,
+        "scan.pdf",
+        "application/pdf",
+        b"%PDF-1.4 fake",
+        ingestion.PARSER_VERSION,
+    )
+    source = app.state.container.sources.get(source_id)
+    assert source
+    monkeypatch.setattr(ingestion, "PdfReader", lambda _: FakeReader())
+    monkeypatch.setattr(
+        ingestion,
+        "resolve_system_tool",
+        lambda command: f"/usr/bin/{command}" if command in {"pdftoppm", "tesseract"} else None,
+    )
+    monkeypatch.setattr(IngestionService, "_render_pdf_page", staticmethod(fake_render))
+    monkeypatch.setattr(IngestionService, "_ocr_page_image", staticmethod(fake_ocr))
+
+    with pytest.raises(IngestionError, match="no readable text"):
+        service._extract_pdf_v2(Path(source.original_path), source_id, project)
+
+
+def test_pdf_ocr_subprocess_decodes_output_with_utf8_replacement(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_run(_command: list[str], **kwargs: object) -> SimpleNamespace:
+        calls.append(kwargs)
+        return SimpleNamespace(returncode=0, stdout="Recognized text.\n", stderr="")
+
+    image_path = tmp_path / "page.png"
+    image_path.write_bytes(b"png")
+    monkeypatch.setattr(ingestion, "resolve_system_tool", lambda command: f"/usr/bin/{command}")
+    monkeypatch.setattr(ingestion.subprocess, "run", fake_run)
+
+    text, text_path, _json_path, confidence = IngestionService._ocr_page_image(
+        image_path, tmp_path / "ocr", 1
+    )
+
+    assert text == "Recognized text."
+    assert text_path.read_text(encoding="utf-8") == "Recognized text."
+    assert confidence == 0.75
+    assert calls[0]["encoding"] == "utf-8"
+    assert calls[0]["errors"] == "replace"
+
 
 def test_ocr_warning_and_failed_parse_preserve_original(client) -> None:
     project = project_id(client)

@@ -82,6 +82,29 @@ def test_heading_scene_and_sentence_safe_segments(client) -> None:
     assert any(item["speakerCandidate"] == "Theo" for item in segments)
 
 
+def test_extract_structure_after_failed_pdf_import_reports_canonical_source_requirement(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Broken PDF", "rightsStatus": "declared"}
+    ).json()["id"]
+    import_job = client.post(
+        f"/api/v1/projects/{project}/source/import",
+        files={"file": ("broken.pdf", b"not a pdf", "application/pdf")},
+        data={"rightsAcknowledged": "true"},
+    ).json()
+    assert wait_for_job(client, import_job["id"])["status"] == "failed"
+
+    response = client.post(
+        f"/api/v1/projects/{project}/structure/extract", json={"maxSegmentChars": 120}
+    )
+    assert response.status_code == 202
+    job = wait_for_job(client, response.json()["id"])
+
+    assert job["status"] == "failed"
+    assert "A successfully imported canonical source is required" in job["errorMessage"]
+    assert "NoneType" not in job["errorMessage"]
+    assert "Capture a debug bundle" not in job["errorMessage"]
+
+
 def test_unresolved_structure_and_segment_revision_history(client) -> None:
     project = project_with_source(client, "A single paragraph with no heading. Another complete sentence.")
     extract(client, project)

@@ -432,7 +432,7 @@ class IngestionService:
         ocr_run = None
 
         for page_number, page in enumerate(reader.pages, start=1):
-            embedded = (page.extract_text() or "").strip()
+            embedded = _safe_text(page.extract_text()).strip()
             embedded_path = paths.embedded_text / f"page_{page_number:04d}.txt"
             embedded_path.write_text(embedded, encoding="utf-8")
             quality = self._embedded_pdf_quality(embedded)
@@ -480,8 +480,9 @@ class IngestionService:
                     )
                     raise
                 ocr_text, _ocr_text_path, _ocr_json_path, ocr_confidence = ocr_result
-                if ocr_text.strip():
-                    selected_text = ocr_text.strip()
+                normalized_ocr_text = _safe_text(ocr_text).strip()
+                if normalized_ocr_text:
+                    selected_text = normalized_ocr_text
                     extraction_method = "ocr"
                     confidence = ocr_confidence
                     page_warnings.append(
@@ -502,6 +503,7 @@ class IngestionService:
                         )
                     )
 
+            selected_text = _safe_text(selected_text)
             selected_path = paths.selected_text / f"page_{page_number:04d}.txt"
             selected_path.write_text(selected_text, encoding="utf-8")
             source_page_id = f"srcpage_{uuid4().hex[:16]}"
@@ -553,7 +555,11 @@ class IngestionService:
                 ocr_run.id, status="succeeded", completed_at=datetime.now(UTC)
             )
 
-        text = "\n\n".join(page.selected_text for page in page_extractions if page.selected_text.strip())
+        text = "\n\n".join(
+            selected_text
+            for page in page_extractions
+            if (selected_text := _safe_text(page.selected_text).strip())
+        )
         if not text.strip():
             raise IngestionError("Unreadable PDF: no readable text was found after extraction and OCR.")
         self._write_canonical_spans(source_id, text, page_extractions)
@@ -567,12 +573,13 @@ class IngestionService:
     ) -> None:
         cursor = 0
         for page in pages:
-            if not page.selected_text.strip():
+            selected_text = _safe_text(page.selected_text).strip()
+            if not selected_text:
                 continue
-            start = text.find(page.selected_text, cursor)
+            start = text.find(selected_text, cursor)
             if start < 0:
                 start = cursor
-            end = start + len(page.selected_text)
+            end = start + len(selected_text)
             cursor = end
             self.container.source_artifacts.create_span(
                 CanonicalSpanRecord(
@@ -581,7 +588,7 @@ class IngestionService:
                     page_number=page.page_number,
                     canonical_start_offset=start,
                     canonical_end_offset=end,
-                    source_text_hash=hashlib.sha256(page.selected_text.encode()).hexdigest(),
+                    source_text_hash=hashlib.sha256(selected_text.encode()).hexdigest(),
                     bbox_json=None,
                     extraction_method=page.extraction_method,
                     confidence=page.confidence,
@@ -705,6 +712,8 @@ class IngestionService:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=120,
             check=False,
         )
@@ -729,6 +738,8 @@ class IngestionService:
             [tesseract, str(image_path), "stdout", "-l", "eng"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         if recognized.returncode:
@@ -805,6 +816,8 @@ class IngestionService:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         image_path = image_stem.with_suffix(".png")
@@ -815,6 +828,8 @@ class IngestionService:
             [tesseract, str(image_path), "stdout", "-l", "eng"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         if recognized.returncode:
@@ -840,6 +855,10 @@ class IngestionService:
             if paragraph:
                 cleaned.append(paragraph)
         return "\n\n".join(cleaned).strip() + "\n", warnings
+
+
+def _safe_text(value: object) -> str:
+    return value if isinstance(value, str) else ""
 
 
 def _docx_heading_signal(style_name: str | None) -> tuple[int, float] | None:
