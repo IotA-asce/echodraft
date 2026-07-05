@@ -391,6 +391,7 @@ WRAPPER_SOURCE = r'''#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -411,6 +412,39 @@ def read_registry(path: str | None) -> set[str]:
     }
 
 
+def synthesize(kokoro: Kokoro, text: str, voice: str, output: str, speed: float) -> int:
+    samples, sample_rate = kokoro.create(text, voice=voice, speed=speed)
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Force signed 16-bit PCM: kokoro_onnx yields float32 samples and soundfile's default
+    # subtype writes a float WAV that stdlib ``wave`` (used everywhere downstream for
+    # decode/analysis/assembly) cannot parse.
+    sf.write(str(output_path), samples, sample_rate, subtype="PCM_16")
+    return sample_rate
+
+
+def serve_json(kokoro: Kokoro, allowed: set[str]) -> int:
+    for line in sys.stdin:
+        try:
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                raise ValueError("Request must be a JSON object.")
+            voice = str(payload.get("voice") or "")
+            text = str(payload.get("text") or "")
+            output = str(payload.get("output") or "")
+            speed = float(payload.get("speed") or 1.0)
+            if not voice or not text or not output:
+                raise ValueError("voice, text, and output are required.")
+            if voice not in allowed:
+                raise ValueError(f"Kokoro voice '{voice}' is not registered locally.")
+            sample_rate = synthesize(kokoro, text, voice, output, speed)
+            response = {"ok": True, "sampleRate": sample_rate}
+        except Exception as error:
+            response = {"ok": False, "error": str(error)}
+        print(json.dumps(response), flush=True)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Echodraft managed Kokoro ONNX helper")
     parser.add_argument("--model", required=True)
@@ -421,6 +455,7 @@ def main() -> int:
     parser.add_argument("--output")
     parser.add_argument("--speed", type=float, default=1.0)
     parser.add_argument("--list-voices", action="store_true")
+    parser.add_argument("--serve-json", action="store_true")
     args = parser.parse_args()
 
     kokoro = Kokoro(args.model, args.voices_data)
@@ -429,21 +464,18 @@ def main() -> int:
         print("\n".join(voices))
         return 0
 
-    if not args.voice or not args.text or not args.output:
-        parser.error("--voice, --text, and --output are required unless --list-voices is used")
-
     allowed = read_registry(args.voice_registry) or set(voices)
+    if args.serve_json:
+        return serve_json(kokoro, allowed)
+
+    if not args.voice or not args.text or not args.output:
+        parser.error("--voice, --text, and --output are required unless --list-voices or --serve-json is used")
+
     if args.voice not in allowed:
         print(f"Kokoro voice '{args.voice}' is not registered locally.", file=sys.stderr)
         return 2
 
-    samples, sample_rate = kokoro.create(args.text, voice=args.voice, speed=args.speed)
-    output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    # Force signed 16-bit PCM: kokoro_onnx yields float32 samples and soundfile's default
-    # subtype writes a float WAV that stdlib ``wave`` (used everywhere downstream for
-    # decode/analysis/assembly) cannot parse.
-    sf.write(str(output), samples, sample_rate, subtype="PCM_16")
+    synthesize(kokoro, args.text, args.voice, args.output, args.speed)
     return 0
 
 

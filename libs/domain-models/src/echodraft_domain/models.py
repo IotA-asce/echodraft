@@ -588,6 +588,16 @@ class TtsProviderInfo(ApiModel):
     reference_voice_path: str | None = Field(default=None, alias="referenceVoicePath")
 
 
+class TtsWorkerStatus(ApiModel):
+    provider: str
+    setup_mode: str | None = Field(default=None, alias="setupMode")
+    worker_mode: str = Field(alias="workerMode")
+    state: str
+    pid: int | None = None
+    request_count: int = Field(default=0, alias="requestCount")
+    last_error: str | None = Field(default=None, alias="lastError")
+
+
 class TtsTestRequest(ApiModel):
     text: str = Field(
         default="Echodraft is ready to produce your audiobook.", min_length=1, max_length=1000

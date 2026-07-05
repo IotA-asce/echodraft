@@ -1,4 +1,5 @@
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 import json
 from pathlib import Path
 import re
@@ -98,6 +99,7 @@ from echodraft_domain import (
     TtsSettings,
     TtsSettingsUpdate,
     TtsProviderInfo,
+    TtsWorkerStatus,
     TtsTestRequest,
     ProjectProductionSettings,
     ProjectProductionSettingsUpdate,
@@ -134,7 +136,15 @@ logger = configure_logging()
 def create_app(settings: AppSettings | None = None) -> FastAPI:
     resolved_settings = settings or AppSettings.from_environment()
     container = build_container(resolved_settings)
-    app = FastAPI(title="echodraft API", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            container.tts_worker_manager.stop_all()
+
+    app = FastAPI(title="echodraft API", version="0.1.0", lifespan=lifespan)
     app.state.container = container
     app.add_middleware(
         CORSMiddleware,
@@ -407,6 +417,14 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             for provider in container.tts_settings.providers()
         ]
 
+    @app.get("/api/v1/settings/tts/worker", response_model=TtsWorkerStatus)
+    def get_tts_worker_status(request: Request) -> TtsWorkerStatus:
+        container: AppContainer = request.app.state.container
+        current = container.tts_settings.load()
+        return container.tts_worker_manager.status(
+            provider=current.provider, setup_mode=current.setup_mode
+        )
+
     @app.put("/api/v1/settings/tts", response_model=TtsSettings)
     def save_tts_settings(payload: TtsSettingsUpdate, request: Request) -> TtsSettings:
         container: AppContainer = request.app.state.container
@@ -414,7 +432,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             saved = container.tts_settings.save(payload)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
-        container.tts_adapter = container.tts_settings.adapter()
+        container.tts_worker_manager.stop_all()
+        container.tts_adapter = container.tts_settings.adapter(
+            worker_manager=container.tts_worker_manager
+        )
         return saved
 
     @app.post("/api/v1/settings/tts/test", response_model=TtsSettings)
@@ -463,7 +484,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 container.settings, container.tts_settings, container.jobs_repository
             )
             service.install(job_id, repair=payload.repair)
-            container.tts_adapter = container.tts_settings.adapter()
+            container.tts_worker_manager.stop_all()
+            container.tts_adapter = container.tts_settings.adapter(
+                worker_manager=container.tts_worker_manager
+            )
 
         return container.jobs.submit_with_job(
             "kokoro_setup", operation, project_id=None, target_id="managed_onnx"

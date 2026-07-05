@@ -36,6 +36,24 @@ managed Kokoro wrapper self-heals on render: an older on-disk wrapper that hardc
 `speed=1.0` is rewritten to the current source so pace transmission works without a manual
 repair.
 
+## Resident Managed Kokoro Worker
+
+Managed Kokoro ONNX can run through a resident app-local worker. The worker starts lazily
+on the first managed Kokoro preview or segment render, loads the Kokoro model once, and
+accepts newline-delimited JSON synthesis requests from the API process. Requests remain
+serialized inside the worker manager so local model access is predictable, and provider
+settings changes or API shutdown stop the resident process.
+
+The one-shot subprocess path remains available for setup validation, direct adapter use,
+custom Kokoro adapters, Piper, XTTS-v2, and tests. Render fingerprints still use provider
+and model identity, not worker mode, so enabling the resident worker does not make existing
+audio stale by itself. Render metadata records `tts.workerMode` as `resident` or
+`subprocess` for traceability.
+
+Runtime status is exposed at `GET /api/v1/settings/tts/worker`. The response reports the
+active provider/setup mode, worker mode, state, process id when running, request count, and
+last worker error.
+
 ## Render Freshness
 
 Segment render fingerprints now include:
