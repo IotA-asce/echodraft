@@ -32,7 +32,7 @@ Each capability and principle is scored on a 0–5 maturity scale against the vi
 |---|:---:|:---:|:---:|---|
 | Character detection & Bible | 2 | 5 | **3** | Recall depends on LLM; exact-string aliasing; same-name merge bug; no casting traits; evidence hidden; no feedback loop |
 | Manuscript understanding & structure | 2 | 5 | **3** | Discards DOCX/EPUB/TOC structure; English "Chapter N" only; destroys verse/scripts; multi-paragraph dialogue mishandled |
-| Speaker attribution & dialogue | 2 | 5 | **3** | One-atom context; flags-not-resolves exchanges; no coreference; disconnected confidence gates; flat review grid |
+| Speaker attribution & dialogue | 3 | 5 | **2** | Deterministic two-speaker exchanges and scene-window LLM context exist; group-scene ambiguity and flat transcript review remain |
 | Voice casting | 3 | 5 | **2** | Trait-ranked suggestions now use Kokoro facets and own-line auditions; no lineup/confusable-voice check yet |
 | Performance direction | 1 | 5 | **4** | Inferred crudely **and not transmitted** to Kokoro/XTTS; assembly ignores per-segment pauses |
 | Audio production quality | 1 | 5 | **4** | 16 kHz mono, aliasing resample, no loudness/limiter, no M4B, no metadata embedding |
@@ -94,13 +94,12 @@ Format: **Current state → Vision target → Specific gaps (→ principle it se
   8. Story-map review lacks previews, visual boundary markers, user-directed split (→ P3/P6).
 
 ### 3.3 Speaker attribution & dialogue — 3 → 5
-- **Current:** deterministic attribution now has conservative nearby-turn, two-speaker alternation, speech-action, and gendered pronoun-coreference hints for unlabeled dialogue; high-confidence missing speaker labels can be proposed back through Cast Discovery. The local LLM fallback receives bounded same-scene windows with target-only attribution writes. Full scene active-speaker modeling, interruption handling, and transcript-level review remain incomplete.
+- **Current:** deterministic attribution now has conservative nearby-turn, two-speaker alternation, speech-action, gendered pronoun-coreference, full same-scene active-speaker roster, interruption-exchange, and vocative-exchange hints for unlabeled dialogue; high-confidence missing speaker labels can be proposed back through Cast Discovery. The local LLM fallback receives bounded same-scene windows with an explicit active-speaker roster and target-only attribution writes. Transcript-level review and ambiguous group-scene attribution remain incomplete.
 - **Target:** every line correctly attributed; back-and-forth resolves from turn-taking; scene speaker sets; differentiated confidence; rare, self-evident ambiguity; one fix resolves the pattern.
 - **Gaps:**
-  1. Full scene active-speaker and interruption model remains incomplete (→ P5).
-  2. Coreference is limited to directly observed gender traits and nearby cues (→ P5).
-  3. LLM pass still lacks an explicit active-speaker roster/interruption model even though it now receives same-scene context (→ P5).
-  4. Review is a flat grid, not a scene-level color-coded transcript (→ P3).
+  1. Coreference is limited to directly observed gender traits and nearby cues (→ P5).
+  2. Scenes with more than two active speakers stay intentionally unresolved for human review (→ P5).
+  3. Review is a flat grid, not a scene-level color-coded transcript (→ P3).
 
 ### 3.4 Voice casting — 3 → 5
 - **Current:** existing project voices can expose derived Kokoro locale/gender facets, suggestions rank by character traits, and the Voice Bible can audition suggestions against an approved representative character line.
