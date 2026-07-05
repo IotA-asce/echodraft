@@ -94,12 +94,12 @@ Format: **Current state → Vision target → Specific gaps (→ principle it se
   8. Story-map review lacks previews, visual boundary markers, user-directed split (→ P3/P6).
 
 ### 3.3 Speaker attribution & dialogue — 3 → 5
-- **Current:** deterministic attribution now has conservative nearby-turn, two-speaker alternation, speech-action, and gendered pronoun-coreference hints for unlabeled dialogue; high-confidence missing speaker labels can be proposed back through Cast Discovery. Full scene active-speaker modeling, interruption handling, LLM scene windows, and transcript-level review remain incomplete.
+- **Current:** deterministic attribution now has conservative nearby-turn, two-speaker alternation, speech-action, and gendered pronoun-coreference hints for unlabeled dialogue; high-confidence missing speaker labels can be proposed back through Cast Discovery. The local LLM fallback receives bounded same-scene windows with target-only attribution writes. Full scene active-speaker modeling, interruption handling, and transcript-level review remain incomplete.
 - **Target:** every line correctly attributed; back-and-forth resolves from turn-taking; scene speaker sets; differentiated confidence; rare, self-evident ambiguity; one fix resolves the pattern.
 - **Gaps:**
   1. Full scene active-speaker and interruption model remains incomplete (→ P5).
   2. Coreference is limited to directly observed gender traits and nearby cues (→ P5).
-  3. LLM pass lacks contiguous scene context despite using few-shot exemplars (→ P5).
+  3. LLM pass still lacks an explicit active-speaker roster/interruption model even though it now receives same-scene context (→ P5).
   4. Review is a flat grid, not a scene-level color-coded transcript (→ P3).
 
 ### 3.4 Voice casting — 3 → 5
