@@ -4,7 +4,7 @@
 
 Unlike one-shot TTS tools, Echodraft works at segment level: import a manuscript, split it into chapters/scenes/segments, edit one line, rerender only that line, rebuild the chapter, review issues, and export a chaptered audio package.
 
-> **Alpha software:** the dashboard currently supports the local production workflow from manuscript intake through chapter export. Expect rough edges, incomplete production controls, and evolving APIs.
+> **Alpha software:** the planned Phase 0-4 roadmap is implemented for the local production workflow, from manuscript intake through transcript review, patching, approval, and chaptered export. Expect rough edges, local setup requirements, and evolving APIs.
 
 ---
 
@@ -32,19 +32,24 @@ Echodraft can currently:
 * create local audiobook projects with explicit rights acknowledgement;
 * ingest TXT, Markdown, DOCX, EPUB, and PDF manuscripts;
 * preserve source originals, PDF page metadata, clean-text decisions, canonical text, parser warnings, and import manifests;
-* split manuscripts into chapters, scenes, and sentence-safe segments;
+* split manuscripts into chapters, scenes, and source-preserving segments with parser evidence, front/back-matter classification, language detection, footnote routing, and prosody-aware boundaries;
+* discover cast candidates, manage a Character Bible, review speaker attributions, and reuse confirmed corrections in later passes;
+* suggest and audition project voices against character lines;
+* infer and edit segment performance direction with reviewable evidence;
 * edit individual segments with immutable revision history;
 * configure narrator/voice settings through the dashboard;
 * run deterministic mock TTS for pipeline validation;
 * inspect and verify local tools/models in Model Center;
 * set up a local Kokoro ONNX voice system from the dashboard;
-* configure Piper fallback and consent-gated XTTS-v2 local provider settings;
+* keep managed Kokoro resident in a local worker, and configure Piper fallback or consent-gated XTTS-v2 local provider settings;
 * render missing or stale segment audio;
 * assemble immutable chapter renders;
 * import local WAV sound assets and assemble optional light or dramatized chapter mixes;
-* run deterministic readiness QA before export;
-* inspect segment review layers, leave comments, patch weak lines, and reassemble chapters;
-* export selected chapters as WAV or MP3 ZIP packages with metadata, manifests, lineage, estimates, and checksums.
+* run deterministic readiness QA, audio QA, and optional local ASR word-match verification before export;
+* inspect segment review layers, use a scene-level transcript timeline with waveform issue markers, leave comments, patch weak lines, and reassemble chapters;
+* scope readiness and export blockers to selected chapters and follow a unified next-best-action card;
+* mark listened-and-approved chapter attestations tied to active renders;
+* export selected chapters as WAV, MP3, or M4B packages with metadata, manifests, lineage, retail samples, estimates, and checksums.
 
 ---
 
@@ -70,23 +75,23 @@ Echodraft is **not** a fully autonomous final audiobook publisher, a SaaS produc
 | TXT / Markdown / DOCX / EPUB import | Working         | Local ingestion and canonical text generation                                              |
 | PDF import                          | Alpha           | Page-aware text/OCR selection; scanned pages require Poppler + Tesseract English OCR        |
 | Clean Text Review                   | Alpha           | Page-marker cleanup and suspicious OCR-token review before structure extraction             |
-| Structure extraction                | Alpha           | Parser v3 deterministic draft plus bounded local LLM refinement when available              |
+| Structure extraction                | Working         | Parser v3 deterministic draft, container signals, matter/language evidence, footnote routing, prosody splits, and bounded local LLM refinement when available |
 | Segment editing                     | Working         | Saves new revisions instead of overwriting history                                         |
 | Mock TTS                            | Working         | Silent WAVs for validating the full workflow                                               |
 | Model Center                        | Alpha           | Catalog, health checks, install jobs, and OS package-manager install commands              |
 | Local LLM service                   | Alpha           | Ollama model listing, schema-first extraction jobs, run records, and embeddings             |
-| Managed Kokoro setup                | Alpha           | Local CPU-oriented ONNX flow from the dashboard                                            |
+| Managed Kokoro setup                | Alpha           | Local CPU-oriented ONNX flow from the dashboard with resident worker reuse                  |
 | TTS provider registry               | Alpha           | Mock, Kokoro, Piper fallback, and consent-gated XTTS-v2 provider contracts                  |
-| Character Bible                     | Alpha           | Canonical names, aliases, traits, locks, voice links, merge/split history, and dashboard UI |
-| Speaker attribution                 | Alpha           | Auto cast discovery, review locks, bounded Ollama speaker assist, and cast voice use        |
-| Direction Studio                    | Alpha           | Segment emotions, pace/intensity, pause controls, inference, and render-stale fingerprinting |
+| Character Bible                     | Alpha           | Canonical names, aliases, traits, locks, voice links, merge/split history, ranked suggestions, auditions, and dashboard UI |
+| Speaker attribution                 | Alpha           | Auto cast discovery, review locks, deterministic active-speaker inference, bounded Ollama speaker assist, and cast voice use |
+| Direction Studio                    | Alpha           | Segment emotions, pace/intensity, pause controls, deterministic and opt-in local LLM inference, evidence, and render-stale fingerprinting |
 | Render queue and compare            | Alpha           | Per-segment queue rows and latest-vs-parent render request comparison                      |
-| Review and patching                 | Alpha           | Segment inspector, QA/comments, patch queue, render lineage, and chapter reassembly         |
+| Review and patching                 | Alpha           | Segment inspector, transcript timeline, waveform issue markers, QA/comments, patch queue, approvals, render lineage, and chapter reassembly |
 | WAV export                          | Working         | ZIP package with metadata, source/render lineage, QA summary, estimates, and checksums      |
 | MP3 export                          | Working         | Same package contract as WAV; requires FFmpeg with MP3 support                              |
-| M4B export                          | Planned         | Marked as planned until a media adapter is implemented                                      |
+| M4B export                          | Working         | Chapter-marked AAC audiobook in the ZIP; requires FFmpeg                                    |
 | Sound Design                        | Alpha           | Local WAV ambience/music/SFX import, scene cue assignment, and explicit light/dramatized mixing |
-| Readiness QA                        | Alpha           | Deterministic text, structure, speaker, voice, direction, audio, stale-render, and export-blocker reports |
+| Readiness QA                        | Alpha           | Deterministic text, structure, speaker, voice, direction, audio, ASR, approval, stale-render, scoped issue, and export-blocker reports |
 | Cloud execution                     | Not included    | MVP is local-first                                                                         |
 
 ---
@@ -114,8 +119,9 @@ Create project
   → Edit individual segments
   → Configure narrator / voice settings
   → Produce chapter audio
-  → Review issues and patch weak lines
-  → Export WAV or MP3 package
+  → Review transcript, issues, waveform markers, and patch weak lines
+  → Mark listened-and-approved chapters
+  → Export WAV, MP3, or M4B package
 ```
 
 The core design rule is simple:
@@ -420,7 +426,7 @@ Project
       → Segments
 ```
 
-The default maximum segment size is 600 characters. Structure Parser v3 records deterministic evidence and warnings, supports segment locks, and lets you split or merge segments before production. When the default Ollama model is installed through Model Center, Extract Structure also refines bounded segment windows locally; it never sends full books or large chapters to the model. If Ollama is not ready or returns invalid segmentation, deterministic structure is kept with a warning.
+The default maximum segment size is 600 characters. Structure Parser v3 records deterministic evidence and warnings, supports segment locks, and lets you split or merge segments before production. It preserves container chapter signals, classifies explicit front/back matter, records language evidence, keeps multi-paragraph dialogue as dialogue, routes footnote-like paragraphs for review, and uses clause-aware prosody fallback for long narration. When the default Ollama model is installed through Model Center, Extract Structure also refines bounded segment windows locally; it never sends full books or large chapters to the model. If Ollama is not ready or returns invalid segmentation, deterministic structure is kept with a warning.
 
 ---
 
@@ -430,13 +436,15 @@ Use **Cast Review & Voice Bible** to maintain project cast records before produc
 
 Character voice links become production inputs after Cast Review approves a segment speaker attribution.
 
-Extract Structure now creates the first cast and speaker draft automatically: local LLM cast extraction runs when available, merge verification prevents obvious duplicates, high-confidence unique characters are created, and ambiguous candidates stay in review issues. Approved character attributions with voice links are used during chapter production unless a segment-level voice override is set.
+Extract Structure now creates the first cast and speaker draft automatically: deterministic and local LLM-assisted cast extraction run when available, merge verification prevents obvious duplicates, high-confidence unique characters are created, and ambiguous candidates stay in review issues. Speaker attribution includes conservative active-speaker, interruption, vocative, pronoun, and turn-taking rules before optional bounded local LLM attribution. Approved character attributions with voice links are used during chapter production unless a segment-level voice override is set.
+
+Voice suggestions rank existing project voices against observed character traits and Kokoro voice-ID facets. Auditions use representative character lines rather than a generic preview sentence.
 
 ---
 
 ### Direction Studio
 
-Use **Infer directions** after structure extraction to seed segment delivery settings locally. Segment direction records store controlled emotion labels, pace, intensity, pauses, emphasis, whispering, lock state, and a direction fingerprint. Manual Direction Studio saves are locked and take effect in chapter production unless an older production override already supplies a direction.
+Use **Infer directions** after structure extraction to seed segment delivery settings locally. Segment direction records store controlled emotion labels, pace, intensity, pauses, emphasis, whispering, lock state, evidence, and a direction fingerprint. Deterministic inference is the default; optional local LLM inference uses bounded scene windows and never overwrites user-locked directions. Manual Direction Studio saves are locked and take effect in chapter production unless an older production override already supplies a direction.
 
 ---
 
@@ -493,18 +501,23 @@ Use **Force regenerate** when you intentionally want a fresh render lineage even
 Use **Review & patch** to:
 
 * inspect automated QA findings;
+* review the active chapter transcript with speaker colors and waveform issue markers;
+* jump from a readiness or transcript issue to the relevant segment and audio moment;
 * leave local comments;
 * resolve issues;
 * patch a specific segment;
-* rebuild the affected chapter.
+* rebuild the affected chapter;
+* mark the active chapter render as listened and approved.
 
 The review loop is designed around fixing weak lines without destroying the rest of the chapter.
+
+The dashboard also shows a unified next-best-action card that merges workflow state, readiness findings, export blockers, transcript markers, and chapter approval state into a ranked action with a deep link.
 
 ---
 
 ### 8. Export
 
-Select one or more chapters under **Export** and create a WAV or MP3 ZIP package.
+Select one or more chapters under **Export** and create a WAV, MP3, or M4B package.
 
 Each ZIP contains:
 
@@ -512,7 +525,7 @@ Each ZIP contains:
 * export manifest;
 * checksum data.
 
-M4B export is not implemented in the current alpha.
+MP3 and M4B exports require local FFmpeg. Export preflight is scoped to the selected chapter set, so unrelated chapter blockers do not prevent exporting a smaller package. M4B exports include a chapter-marked AAC audiobook file, and MP3/M4B requests can include a retail sample clip.
 
 ---
 
@@ -563,6 +576,8 @@ Managed setup stores files under:
 The current managed path is CPU-oriented and exposes selectable Kokoro preset voice IDs. It does not create new custom voices; custom voice support belongs to other local providers such as imported Piper models or consent-gated XTTS-v2 reference voices. GPU/provider tuning remains out of scope for this release.
 
 The setup job uses network access only after you select the install button. Manuscripts, generated audio, and project metadata are not uploaded.
+
+Managed Kokoro synthesis uses a resident local worker when configured through the app. The worker loads the model once per API process, serializes synthesis requests, restarts once on failure, and exposes runtime status at `GET /api/v1/settings/tts/worker`.
 
 ---
 
