@@ -31,6 +31,7 @@ from echodraft_domain import ReadinessCheck, ReadinessReport
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .asr_verification import LocalAsrVerifier
 from .audio_analysis import AudioAnalysis, analyze_wav
 from .container import AppContainer
 from .production import ProductionService
@@ -598,6 +599,9 @@ class ReadinessService:
                     "segment_audio_missing", "audio", "All segments have a successful render."
                 )
             )
+        asr_check = self._segment_asr_check(session, segments)
+        if asr_check:
+            checks.append(asr_check)
         return checks
 
     def _export_checks(
@@ -744,6 +748,86 @@ class ReadinessService:
             if not latest:
                 missing += 1
         return missing
+
+    def _segment_asr_check(
+        self, session: Session, segments: list[SegmentRecord]
+    ) -> CheckDraft | None:
+        latest_renders = self._latest_segment_renders(session, segments)
+        configured = LocalAsrVerifier(self.container.settings).configured()
+        results: list[dict[str, object]] = []
+        missing = 0
+        for segment in segments:
+            render = latest_renders.get(segment.id)
+            if not render:
+                continue
+            result = self._asr_metadata(render.metadata_path)
+            if result is None:
+                missing += 1
+                continue
+            results.append(result)
+        if not configured and not results:
+            return None
+        status_counts: dict[str, int] = {}
+        for result in results:
+            status = str(result.get("status") or "unknown")
+            status_counts[status] = status_counts.get(status, 0) + 1
+        failed = status_counts.get("failed", 0)
+        errors = status_counts.get("error", 0)
+        bad = failed + errors + missing
+        metadata: dict[str, object] = {
+            "configured": configured,
+            "checkedSegments": len(results),
+            "missingAsrResults": missing,
+            "statusCounts": status_counts,
+            "reason": "asr_word_match",
+        }
+        if bad:
+            return self._issue(
+                "segment_asr_word_match",
+                "audio",
+                "warning",
+                "readiness_audio",
+                "ASR word-match verification needs review",
+                (
+                    f"{failed} segment(s) failed ASR word match, {errors} had ASR errors, "
+                    f"and {missing} latest render(s) have no ASR evidence."
+                ),
+                metadata=metadata,
+            )
+        return self._passed(
+            "segment_asr_word_match",
+            "audio",
+            f"ASR word-match verification passed for {len(results)} segment render(s).",
+        )
+
+    @staticmethod
+    def _latest_segment_renders(
+        session: Session, segments: list[SegmentRecord]
+    ) -> dict[str, SegmentRenderRecord]:
+        latest: dict[str, SegmentRenderRecord] = {}
+        for segment in segments:
+            render = session.scalar(
+                select(SegmentRenderRecord)
+                .where(
+                    SegmentRenderRecord.segment_id == segment.id,
+                    SegmentRenderRecord.status == "succeeded",
+                )
+                .order_by(SegmentRenderRecord.created_at.desc(), SegmentRenderRecord.id.desc())
+            )
+            if render:
+                latest[segment.id] = render
+        return latest
+
+    @staticmethod
+    def _asr_metadata(path: str) -> dict[str, object] | None:
+        try:
+            payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        result = payload.get("asrVerification")
+        return result if isinstance(result, dict) else None
 
     @staticmethod
     def _analyze_chapter_audio(
