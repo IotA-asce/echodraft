@@ -978,6 +978,45 @@ class SegmentReviewInspector(ApiModel):
     patch_queue: list[PatchAttempt] = Field(default_factory=list, alias="patchQueue")
 
 
+class ChapterTimelineMarker(ApiModel):
+    id: str
+    issue_id: str | None = Field(default=None, alias="issueId")
+    segment_id: str | None = Field(default=None, alias="segmentId")
+    start_ms: int = Field(alias="startMs")
+    end_ms: int = Field(alias="endMs")
+    severity: str
+    category: str
+    title: str
+    status: str
+
+
+class ChapterTimelineSegment(ApiModel):
+    id: str
+    scene_id: str = Field(alias="sceneId")
+    scene_index: int = Field(alias="sceneIndex")
+    order_index: int = Field(alias="orderIndex")
+    text: str
+    segment_type: str = Field(alias="segmentType")
+    speaker: str | None = None
+    character_id: str | None = Field(default=None, alias="characterId")
+    speaker_status: str | None = Field(default=None, alias="speakerStatus")
+    start_ms: int = Field(alias="startMs")
+    end_ms: int = Field(alias="endMs")
+    render_id: str | None = Field(default=None, alias="renderId")
+    issue_markers: list[ChapterTimelineMarker] = Field(default_factory=list, alias="issueMarkers")
+
+
+class ChapterReviewTimeline(ApiModel):
+    project_id: str = Field(alias="projectId")
+    chapter_id: str = Field(alias="chapterId")
+    chapter_title: str | None = Field(default=None, alias="chapterTitle")
+    chapter_render: ChapterRender | None = Field(default=None, alias="chapterRender")
+    duration_ms: int = Field(default=0, alias="durationMs")
+    waveform: list[float] = Field(default_factory=list)
+    segments: list[ChapterTimelineSegment] = Field(default_factory=list)
+    issue_markers: list[ChapterTimelineMarker] = Field(default_factory=list, alias="issueMarkers")
+
+
 class ExportBlocker(ApiModel):
     code: str
     severity: str = "blocking"

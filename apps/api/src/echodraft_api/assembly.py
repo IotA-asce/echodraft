@@ -129,7 +129,7 @@ class ChapterAssembler:
             root = Path(project.artifact_path) / "audio" / "chapters" / chapter_id / render_id
             root.mkdir(parents=True, exist_ok=True)
             speech_path = root / "speech.wav"
-            duration_ms, scene_offsets, applied_pauses = self._write_speech_stem(
+            duration_ms, scene_offsets, applied_pauses, timeline = self._write_speech_stem(
                 speech_path, inputs
             )
             ambience_path = None
@@ -157,6 +157,14 @@ class ChapterAssembler:
             # "mastered": false so export readiness can raise the honest ffmpeg blocker
             # instead of shipping a falsely-labelled master.
             mastered, measured = self._apply_mastering(output_path)
+            timeline = [
+                {
+                    **entry,
+                    "startMs": self._int_manifest_value(entry.get("startMs")) + mastering.ROOM_TONE_HEAD_MS,
+                    "endMs": self._int_manifest_value(entry.get("endMs")) + mastering.ROOM_TONE_HEAD_MS,
+                }
+                for entry in timeline
+            ]
 
             manifest_path = root / "chapter_render_manifest.json"
             waveform_path = root / "waveform.json"
@@ -205,6 +213,7 @@ class ChapterAssembler:
                             }
                             for item in inputs
                         ],
+                        "timeline": timeline,
                         "durationMs": duration_ms,
                         "renderMode": render_mode,
                         "ambienceInputs": [self._sound_cue_manifest(item) for item in sound_cues],
@@ -386,10 +395,11 @@ class ChapterAssembler:
 
     def _write_speech_stem(
         self, output_path: Path, inputs: list[AssemblyInput]
-    ) -> tuple[int, dict[str, int], list[dict[str, object]]]:
+    ) -> tuple[int, dict[str, int], list[dict[str, object]], list[dict[str, object]]]:
         frame_cursor = 0
         scene_offsets: dict[str, int] = {}
         applied_pauses: list[dict[str, object]] = []
+        timeline: list[dict[str, object]] = []
         with wave.open(str(output_path), "wb") as target:
             target.setnchannels(self.channels)
             target.setsampwidth(self.sample_width)
@@ -397,8 +407,18 @@ class ChapterAssembler:
             for index, item in enumerate(inputs):
                 scene_offsets.setdefault(item.scene_id, self._frames_to_ms(frame_cursor))
                 frames = self._normalized_frames(Path(item.render.audio_path))
+                start_ms = self._frames_to_ms(frame_cursor)
                 target.writeframes(frames)
                 frame_cursor += self._frame_count(frames)
+                timeline.append(
+                    {
+                        "segmentId": item.segment.id,
+                        "segmentRenderId": item.render.id,
+                        "sceneId": item.scene_id,
+                        "startMs": start_ms,
+                        "endMs": self._frames_to_ms(frame_cursor),
+                    }
+                )
                 if index < len(inputs) - 1:
                     next_item = inputs[index + 1]
                     # A scene boundary keeps its 800 ms floor; within a scene the
@@ -416,7 +436,7 @@ class ChapterAssembler:
                     target.writeframes(silence)
                     frame_cursor += self._frame_count(silence)
                     applied_pauses.append({"afterSegmentId": item.segment.id, "ms": pause})
-        return self._frames_to_ms(frame_cursor), scene_offsets, applied_pauses
+        return self._frames_to_ms(frame_cursor), scene_offsets, applied_pauses, timeline
 
     def _resolve_sound_cues(
         self, session: Session, chapter_id: str, render_mode: str
@@ -701,6 +721,12 @@ class ChapterAssembler:
 
     def _frames_to_ms(self, frame_count: int) -> int:
         return int(frame_count / self.sample_rate * 1000)
+
+    @staticmethod
+    def _int_manifest_value(value: object) -> int:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return 0
+        return int(value)
 
     @staticmethod
     def _canonical_render_mode(render_mode: str) -> str:
