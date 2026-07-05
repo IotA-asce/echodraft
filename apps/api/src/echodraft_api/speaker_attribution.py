@@ -69,6 +69,7 @@ class CharacterIndex:
 class SpeakerAttributionWindow:
     segments: list[SegmentRecord]
     target_segment_ids: set[str]
+    active_speakers: list[str]
 
 
 class SpeakerAttributionService:
@@ -292,6 +293,7 @@ class SpeakerAttributionService:
                             character_index,
                             exemplars,
                             target_segment_ids=window.target_segment_ids,
+                            active_speakers=window.active_speakers,
                         ),
                     ),
                     job_id,
@@ -337,6 +339,7 @@ class SpeakerAttributionService:
                         "structure": _evidence(segment_map[segment_id].parser_evidence_json),
                         "sceneWindowSegmentIds": scene_window_segment_ids,
                         "targetSegmentIds": target_segment_ids,
+                        "activeSpeakers": window.active_speakers,
                     },
                     confidence=confidence,
                     status="approved" if character and confidence >= 0.8 else "needs_review",
@@ -389,6 +392,7 @@ class SpeakerAttributionService:
         exemplars: list[tuple[str, str]] | None = None,
         *,
         target_segment_ids: set[str] | None = None,
+        active_speakers: list[str] | None = None,
     ) -> str:
         characters = sorted(
             {character.id: character for character in character_index.by_name.values()}.values(),
@@ -414,6 +418,7 @@ class SpeakerAttributionService:
                 "Reviewer-confirmed examples from this book (follow this style):\n"
                 f"{exemplar_lines}\n\n"
             )
+        active_speaker_line = ", ".join(active_speakers or []) or "Unknown"
         return (
             "Assign likely speakers for this bounded audiobook segment window. Use only the supplied "
             "Character Bible cast when linking a character. Leave uncertain speakers in review by "
@@ -421,6 +426,7 @@ class SpeakerAttributionService:
             "are same-scene evidence only. Return JSON that matches the supplied schema.\n\n"
             f"{exemplar_block}"
             f"Cast: {'; '.join(character_lines) if character_lines else 'No cast records yet'}\n\n"
+            f"Active speakers in this scene: {active_speaker_line}\n\n"
             f"Segments:\n{segment_lines}"
         )
 
@@ -474,7 +480,7 @@ def _speaker_context_hint(
         }
 
     pronoun_hint = _pronoun_coreference_hint(
-        segment, segments, position, previous_segment, next_segment, character_index
+        segment, segments, previous_segment, next_segment, character_index
     )
     if pronoun_hint:
         return pronoun_hint
@@ -482,6 +488,10 @@ def _speaker_context_hint(
     nearby_hint = _nearby_turn_hint(segment, previous_segment, next_segment)
     if nearby_hint:
         return nearby_hint
+
+    exchange_hint = _active_speaker_exchange_hint(segment, segments, position, character_index)
+    if exchange_hint:
+        return exchange_hint
 
     return _alternation_hint(segment, segments, position)
 
@@ -539,7 +549,6 @@ def _nearby_turn_hint(
 def _pronoun_coreference_hint(
     segment: SegmentRecord,
     segments: list[SegmentRecord],
-    position: int,
     previous_segment: SegmentRecord | None,
     next_segment: SegmentRecord | None,
     character_index: CharacterIndex,
@@ -548,7 +557,7 @@ def _pronoun_coreference_hint(
     gender = _pronoun_gender(pronoun)
     if not gender:
         return None
-    active_speakers = _scene_labeled_speakers(segment, segments, position)
+    active_speakers = _scene_active_speakers(segment, segments)
     matches: list[CharacterRecord] = []
     for speaker in active_speakers:
         character = character_index.by_name.get(_name_key(speaker))
@@ -582,18 +591,139 @@ def _adjacent_pronoun_cue(
     return None
 
 
-def _scene_labeled_speakers(
-    segment: SegmentRecord, segments: list[SegmentRecord], position: int
-) -> list[str]:
+def _scene_active_speakers(segment: SegmentRecord, segments: list[SegmentRecord]) -> list[str]:
     speakers: list[str] = []
-    window = segments[max(0, position - 6) : position + 7]
-    for candidate in window:
+    for candidate in segments:
         if candidate.scene_id != segment.scene_id:
             continue
-        speaker = candidate.speaker_candidate.strip() if candidate.speaker_candidate else ""
-        if candidate.segment_type == "dialogue" and speaker and speaker not in speakers:
+        speaker = _confident_dialogue_speaker(candidate)
+        if speaker and speaker not in speakers:
             speakers.append(speaker)
     return speakers
+
+
+def _active_speakers_for_segments(segments: list[SegmentRecord]) -> list[str]:
+    speakers: list[str] = []
+    for segment in segments:
+        speaker = _confident_dialogue_speaker(segment)
+        if speaker and speaker not in speakers:
+            speakers.append(speaker)
+    return speakers
+
+
+def _confident_dialogue_speaker(segment: SegmentRecord) -> str:
+    speaker = segment.speaker_candidate.strip() if segment.speaker_candidate else ""
+    if segment.segment_type == "dialogue" and speaker and segment.speaker_confidence >= 0.8:
+        return speaker
+    return ""
+
+
+def _active_speaker_exchange_hint(
+    segment: SegmentRecord,
+    segments: list[SegmentRecord],
+    position: int,
+    character_index: CharacterIndex,
+) -> dict[str, object] | None:
+    active_speakers = _scene_active_speakers(segment, segments)
+    if len(active_speakers) != 2:
+        return None
+
+    interruption_hint = _interruption_exchange_hint(
+        segment, segments[:position], active_speakers
+    )
+    if interruption_hint:
+        return interruption_hint
+
+    return _vocative_exchange_hint(segment, active_speakers, character_index)
+
+
+def _interruption_exchange_hint(
+    segment: SegmentRecord,
+    previous_segments: list[SegmentRecord],
+    active_speakers: list[str],
+) -> dict[str, object] | None:
+    previous_dialogue = _previous_labeled_dialogue(segment, previous_segments)
+    if not previous_dialogue or not _ends_with_interruption(previous_dialogue.text_content):
+        return None
+    interrupted_speaker = _confident_dialogue_speaker(previous_dialogue)
+    speaker_name = _other_active_speaker(active_speakers, interrupted_speaker)
+    if not speaker_name:
+        return None
+    return {
+        "reason": "interruption_exchange",
+        "speakerName": speaker_name,
+        "interruptedSpeaker": interrupted_speaker,
+        "activeSpeakers": active_speakers,
+        "confidence": 0.68,
+    }
+
+
+def _vocative_exchange_hint(
+    segment: SegmentRecord,
+    active_speakers: list[str],
+    character_index: CharacterIndex,
+) -> dict[str, object] | None:
+    addressed_speaker = _addressed_active_speaker(
+        segment.text_content, active_speakers, character_index
+    )
+    if not addressed_speaker:
+        return None
+    speaker_name = _other_active_speaker(active_speakers, addressed_speaker)
+    if not speaker_name:
+        return None
+    return {
+        "reason": "vocative_exchange",
+        "speakerName": speaker_name,
+        "addressedSpeaker": addressed_speaker,
+        "activeSpeakers": active_speakers,
+        "confidence": 0.67,
+    }
+
+
+def _previous_labeled_dialogue(
+    segment: SegmentRecord, previous_segments: list[SegmentRecord]
+) -> SegmentRecord | None:
+    for candidate in reversed(previous_segments):
+        if candidate.scene_id != segment.scene_id:
+            continue
+        if _confident_dialogue_speaker(candidate):
+            return candidate
+    return None
+
+
+def _ends_with_interruption(text: str) -> bool:
+    stripped = text.rstrip().rstrip('"”’\'').rstrip()
+    return stripped.endswith(("—", "--", "...", "-"))
+
+
+def _addressed_active_speaker(
+    text: str,
+    active_speakers: list[str],
+    character_index: CharacterIndex,
+) -> str | None:
+    opened = text.strip().lstrip('"“‘\'').strip()
+    for speaker in active_speakers:
+        names = _active_speaker_names(speaker, character_index)
+        for name in sorted(names, key=len, reverse=True):
+            escaped = re.escape(name.strip())
+            if escaped and re.match(rf"^{escaped}\b\s*[,!?:;—-]", opened, re.IGNORECASE):
+                return speaker
+    return None
+
+
+def _active_speaker_names(speaker: str, character_index: CharacterIndex) -> list[str]:
+    character = character_index.by_name.get(_name_key(speaker))
+    names = _character_names(character) if character else [speaker]
+    return [name for name in names if name.strip()]
+
+
+def _other_active_speaker(active_speakers: list[str], speaker: str) -> str | None:
+    if len(active_speakers) != 2 or speaker not in active_speakers:
+        return None
+    for candidate in active_speakers:
+        if candidate != speaker:
+            return candidate
+    return None
 
 
 def _pronoun_gender(pronoun: str | None) -> str | None:
@@ -720,11 +850,13 @@ def _scene_context_windows(
         ordered_scene = scene_segments.get(scene_id, [])
         if not ordered_scene:
             continue
+        active_speakers = _active_speakers_for_segments(ordered_scene)
         if _fits_llm_window(ordered_scene):
             windows.append(
                 SpeakerAttributionWindow(
                     segments=ordered_scene,
                     target_segment_ids={target.id for target in targets},
+                    active_speakers=active_speakers,
                 )
             )
             continue
@@ -733,6 +865,7 @@ def _scene_context_windows(
                 SpeakerAttributionWindow(
                     segments=_bounded_scene_window(ordered_scene, {target.id for target in target_batch}),
                     target_segment_ids={target.id for target in target_batch},
+                    active_speakers=active_speakers,
                 )
             )
     return windows
