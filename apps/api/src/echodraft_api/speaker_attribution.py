@@ -14,6 +14,7 @@ from echodraft_domain import (
 from sqlalchemy import select
 
 from .container import AppContainer
+from .cast_discovery import CastDiscoveryService
 from .local_llm import LocalLlmService
 
 SPEAKER_ATTRIBUTION_SCHEMA: dict[str, object] = {
@@ -39,11 +40,29 @@ SPEAKER_ATTRIBUTION_SCHEMA: dict[str, object] = {
 }
 SPEAKER_ATTRIBUTION_BATCH_CHARS = 5000
 SPEAKER_ATTRIBUTION_BATCH_SEGMENTS = 20
+SPEECH_VERBS = {
+    "answered",
+    "asked",
+    "called",
+    "cried",
+    "muttered",
+    "replied",
+    "said",
+    "shouted",
+    "whispered",
+}
+IGNORED_CAST_SPEAKER_NAMES = {"narrator", "unknown", "speaker"}
 
 
 @dataclass(frozen=True)
 class CharacterIndex:
     by_name: dict[str, CharacterRecord]
+
+    def add(self, character: CharacterRecord) -> None:
+        for name in _character_names(character):
+            key = _name_key(name)
+            if key and key not in self.by_name:
+                self.by_name[key] = character
 
 
 class SpeakerAttributionService:
@@ -69,18 +88,16 @@ class SpeakerAttributionService:
             raise ValueError("Project not found.")
         segments = self._segments(project_id)
         character_index = self._character_index(project_id)
-        for index, segment in enumerate(segments, 1):
-            previous_segment = segments[index - 2] if index >= 2 else None
-            next_segment = segments[index] if index < len(segments) else None
+        for position, segment in enumerate(segments):
             self._upsert_deterministic(
-                project_id, segment, character_index, previous_segment, next_segment
+                project_id, segment, character_index, segments, position
             )
             if job_id:
                 self.container.jobs_repository.set_progress(
                     job_id,
                     {
                         "phase": "speaker_attribution",
-                        "current": index,
+                        "current": position + 1,
                         "total": len(segments),
                         "segmentId": segment.id,
                     },
@@ -138,18 +155,37 @@ class SpeakerAttributionService:
         project_id: str,
         segment: SegmentRecord,
         character_index: CharacterIndex,
-        previous_segment: SegmentRecord | None = None,
-        next_segment: SegmentRecord | None = None,
+        segments: list[SegmentRecord],
+        position: int,
     ) -> SpeakerAttribution:
-        candidate = segment.speaker_candidate.strip() if segment.speaker_candidate else None
-        turn_hint = (
-            _nearby_turn_hint(segment, previous_segment, next_segment)
+        explicit_candidate = segment.speaker_candidate.strip() if segment.speaker_candidate else None
+        candidate = explicit_candidate
+        context_hint = (
+            _speaker_context_hint(segment, segments, position, character_index)
             if not candidate and _looks_like_dialogue(segment.text_content)
             else None
         )
-        if turn_hint:
-            candidate = turn_hint["speakerName"]
+        if context_hint:
+            candidate = str(context_hint["speakerName"])
         character = character_index.by_name.get(_name_key(candidate)) if candidate else None
+        proposed_cast = False
+        if (
+            explicit_candidate
+            and not character
+            and segment.speaker_confidence >= 0.8
+            and _can_propose_cast(explicit_candidate)
+        ):
+            character = CastDiscoveryService(self.container).propose_from_speaker_attribution(
+                project_id,
+                speaker_name=explicit_candidate,
+                segment_id=segment.id,
+                chapter_id=None,
+                text=segment.text_content,
+                confidence=segment.speaker_confidence,
+            )
+            if character:
+                character_index.add(character)
+                proposed_cast = True
         parser_evidence = _evidence(segment.parser_evidence_json)
         speaker_name: str | None
         if segment.segment_type != "dialogue" and not candidate:
@@ -167,8 +203,8 @@ class SpeakerAttributionService:
             confidence = segment.speaker_confidence if candidate else 0.0
             status = "approved" if character and confidence >= 0.8 else "needs_review"
             evidence = {
-                "reason": turn_hint["reason"]
-                if turn_hint
+                "reason": str(context_hint["reason"])
+                if context_hint
                 else "deterministic_speaker_candidate"
                 if candidate
                 else "dialogue_without_speaker",
@@ -180,10 +216,13 @@ class SpeakerAttributionService:
                 "productionType": parser_evidence.get("productionType"),
                 "structure": parser_evidence,
             }
-            if turn_hint:
-                evidence.update(turn_hint)
-                confidence = min(max(confidence, 0.58), 0.72)
+            if context_hint:
+                evidence.update(context_hint)
+                confidence = _confidence(context_hint.get("confidence"))
                 status = "needs_review"
+            if proposed_cast:
+                evidence["castProposal"] = "proposed_cast_from_speaker_attribution"
+                evidence["proposedCharacterId"] = character.id if character else None
         return self.container.speaker_attributions.upsert(
             project_id,
             segment.id,
@@ -379,6 +418,10 @@ def _aliases(character: CharacterRecord) -> list[str]:
     return [str(item) for item in aliases if str(item).strip()]
 
 
+def _character_names(character: CharacterRecord) -> list[str]:
+    return [character.display_name, character.canonical_name or "", *_aliases(character)]
+
+
 def _evidence(payload: str | None) -> dict[str, object]:
     try:
         loaded = json.loads(payload or "{}")
@@ -387,11 +430,63 @@ def _evidence(payload: str | None) -> dict[str, object]:
     return cast(dict[str, object], loaded if isinstance(loaded, dict) else {})
 
 
+def _speaker_context_hint(
+    segment: SegmentRecord,
+    segments: list[SegmentRecord],
+    position: int,
+    character_index: CharacterIndex,
+) -> dict[str, object] | None:
+    previous_segment = segments[position - 1] if position >= 1 else None
+    next_segment = segments[position + 1] if position + 1 < len(segments) else None
+    named_cue, cue_position = _adjacent_named_speech_cue(
+        segment, previous_segment, next_segment, character_index
+    )
+    if named_cue:
+        return {
+            "reason": "speech_action_cue",
+            "speakerName": named_cue,
+            "speechCue": named_cue,
+            "cuePosition": cue_position,
+            "confidence": 0.76,
+        }
+
+    pronoun_hint = _pronoun_coreference_hint(
+        segment, segments, position, previous_segment, next_segment, character_index
+    )
+    if pronoun_hint:
+        return pronoun_hint
+
+    nearby_hint = _nearby_turn_hint(segment, previous_segment, next_segment)
+    if nearby_hint:
+        return nearby_hint
+
+    return _alternation_hint(segment, segments, position)
+
+
+def _adjacent_named_speech_cue(
+    segment: SegmentRecord,
+    previous_segment: SegmentRecord | None,
+    next_segment: SegmentRecord | None,
+    character_index: CharacterIndex,
+) -> tuple[str | None, str]:
+    for candidate, position in (
+        (segment, "current"),
+        (next_segment, "next"),
+        (previous_segment, "previous"),
+    ):
+        if not candidate or candidate.scene_id != segment.scene_id:
+            continue
+        named_cue = _named_speech_cue(candidate.text_content, character_index)
+        if named_cue:
+            return named_cue, position
+    return None, ""
+
+
 def _nearby_turn_hint(
     segment: SegmentRecord,
     previous_segment: SegmentRecord | None,
     next_segment: SegmentRecord | None,
-) -> dict[str, str] | None:
+) -> dict[str, object] | None:
     pronoun = (
         _pronoun_cue(segment.text_content)
         or _pronoun_cue(next_segment.text_content if next_segment else "")
@@ -414,15 +509,160 @@ def _nearby_turn_hint(
         "previousSpeaker": previous_speaker or "",
         "nextSpeaker": next_speaker or "",
         "pronounCue": pronoun,
+        "confidence": 0.66,
     }
+
+
+def _pronoun_coreference_hint(
+    segment: SegmentRecord,
+    segments: list[SegmentRecord],
+    position: int,
+    previous_segment: SegmentRecord | None,
+    next_segment: SegmentRecord | None,
+    character_index: CharacterIndex,
+) -> dict[str, object] | None:
+    pronoun = _adjacent_pronoun_cue(segment, previous_segment, next_segment)
+    gender = _pronoun_gender(pronoun)
+    if not gender:
+        return None
+    active_speakers = _scene_labeled_speakers(segment, segments, position)
+    matches: list[CharacterRecord] = []
+    for speaker in active_speakers:
+        character = character_index.by_name.get(_name_key(speaker))
+        if character and _character_has_gender(character, gender):
+            matches.append(character)
+    unique = {character.id: character for character in matches}
+    if len(unique) != 1:
+        return None
+    character = next(iter(unique.values()))
+    return {
+        "reason": "pronoun_coreference",
+        "speakerName": character.display_name,
+        "pronounCue": pronoun or "",
+        "genderTrait": f"gender:{gender}",
+        "activeSpeakers": active_speakers,
+        "confidence": 0.7,
+    }
+
+
+def _adjacent_pronoun_cue(
+    segment: SegmentRecord,
+    previous_segment: SegmentRecord | None,
+    next_segment: SegmentRecord | None,
+) -> str | None:
+    for candidate in (segment, next_segment, previous_segment):
+        if not candidate or candidate.scene_id != segment.scene_id:
+            continue
+        pronoun = _pronoun_cue(candidate.text_content)
+        if pronoun:
+            return pronoun
+    return None
+
+
+def _scene_labeled_speakers(
+    segment: SegmentRecord, segments: list[SegmentRecord], position: int
+) -> list[str]:
+    speakers: list[str] = []
+    window = segments[max(0, position - 6) : position + 7]
+    for candidate in window:
+        if candidate.scene_id != segment.scene_id:
+            continue
+        speaker = candidate.speaker_candidate.strip() if candidate.speaker_candidate else ""
+        if candidate.segment_type == "dialogue" and speaker and speaker not in speakers:
+            speakers.append(speaker)
+    return speakers
+
+
+def _pronoun_gender(pronoun: str | None) -> str | None:
+    if pronoun in {"she", "her", "hers"}:
+        return "feminine"
+    if pronoun in {"he", "him", "his"}:
+        return "masculine"
+    if pronoun in {"they", "them", "their", "theirs"}:
+        return "neutral"
+    return None
+
+
+def _character_has_gender(character: CharacterRecord, gender: str) -> bool:
+    try:
+        traits = json.loads(character.traits_json or "[]")
+    except json.JSONDecodeError:
+        return False
+    return isinstance(traits, list) and f"gender:{gender}" in {str(item) for item in traits}
+
+
+def _alternation_hint(
+    segment: SegmentRecord, segments: list[SegmentRecord], position: int
+) -> dict[str, object] | None:
+    previous = _nearest_labeled_speakers(segment, segments[:position], reverse=True, limit=2)
+    following = _nearest_labeled_speakers(segment, segments[position + 1 :], reverse=False, limit=1)
+    if len(previous) < 2 or not following:
+        return None
+    previous_speaker, prior_speaker = previous[0], previous[1]
+    next_speaker = following[0]
+    if previous_speaker == prior_speaker or next_speaker not in {previous_speaker, prior_speaker}:
+        return None
+    return {
+        "reason": "turn_taking_alternation",
+        "speakerName": prior_speaker,
+        "previousSpeaker": previous_speaker,
+        "priorSpeaker": prior_speaker,
+        "nextSpeaker": next_speaker,
+        "confidence": 0.64,
+    }
+
+
+def _nearest_labeled_speakers(
+    segment: SegmentRecord,
+    candidates: list[SegmentRecord],
+    *,
+    reverse: bool,
+    limit: int,
+) -> list[str]:
+    speakers: list[str] = []
+    iterable = reversed(candidates) if reverse else iter(candidates)
+    for candidate in iterable:
+        if candidate.scene_id != segment.scene_id:
+            continue
+        speaker = candidate.speaker_candidate.strip() if candidate.speaker_candidate else ""
+        if candidate.segment_type == "dialogue" and speaker and speaker not in speakers:
+            speakers.append(speaker)
+        if len(speakers) >= limit:
+            break
+    return speakers
+
+
+def _named_speech_cue(text: str, character_index: CharacterIndex) -> str | None:
+    characters = {
+        character.id: character for character in character_index.by_name.values()
+    }.values()
+    verb_pattern = "|".join(sorted(SPEECH_VERBS))
+    for character in sorted(characters, key=lambda item: len(item.display_name), reverse=True):
+        for name in sorted(_character_names(character), key=len, reverse=True):
+            if not name.strip():
+                continue
+            escaped = re.escape(name)
+            if re.search(rf"\b{escaped}\b\s+(?:{verb_pattern})\b", text, re.IGNORECASE):
+                return character.display_name
+            if re.search(rf"\b(?:{verb_pattern})\s+\b{escaped}\b", text, re.IGNORECASE):
+                return character.display_name
+    return None
 
 
 def _pronoun_cue(text: str) -> str | None:
     lowered = text.casefold()
-    for pronoun in ("she", "he", "they"):
-        if re.search(rf"\b{pronoun}\b\s+(?:said|asked|replied|answered|whispered|called)", lowered):
+    verb_pattern = "|".join(sorted(SPEECH_VERBS))
+    for pronoun in ("she", "her", "hers", "he", "him", "his", "they", "them", "their", "theirs"):
+        if re.search(rf"\b{pronoun}\b\s+(?:{verb_pattern})\b", lowered):
+            return pronoun
+        if re.search(rf"\b(?:{verb_pattern})\s+{pronoun}\b", lowered):
             return pronoun
     return None
+
+
+def _can_propose_cast(name: str | None) -> bool:
+    key = _name_key(name)
+    return bool(key and key not in IGNORED_CAST_SPEAKER_NAMES)
 
 
 def _looks_like_dialogue(text: str) -> bool:

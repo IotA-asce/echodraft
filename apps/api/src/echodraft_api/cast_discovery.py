@@ -202,6 +202,44 @@ class CastDiscoveryService:
     def __init__(self, container: AppContainer) -> None:
         self.container = container
 
+    def propose_from_speaker_attribution(
+        self,
+        project_id: str,
+        *,
+        speaker_name: str,
+        segment_id: str | None,
+        chapter_id: str | None,
+        text: str,
+        confidence: float,
+    ) -> CharacterRecord | None:
+        candidate = CharacterCandidate(
+            display_name=speaker_name,
+            canonical_name=speaker_name,
+            aliases=[],
+            first_seen_segment_id=segment_id,
+            first_seen_chapter_id=chapter_id,
+            evidence=[
+                json.dumps(
+                    {
+                        "textPreview": text[:220],
+                        "sources": ["speaker_attribution"],
+                        "confidence": confidence,
+                        "segmentId": segment_id,
+                        "chapterId": chapter_id,
+                    },
+                    sort_keys=True,
+                )
+            ],
+            role_guess="supporting",
+            confidence=confidence,
+            source="speaker_attribution",
+            traits=_extract_traits(speaker_name, [text]),
+            generated_aliases=_alias_candidates(speaker_name),
+        )
+        index = self._character_index(project_id)
+        self._apply_candidate(project_id, None, candidate, None, index)
+        return _unique_active_character(self.container.casting.characters(project_id), speaker_name)
+
     def discover(
         self,
         project_id: str,
@@ -807,6 +845,21 @@ def _segment_batches(segments: list[ObservedSegment]) -> list[list[ObservedSegme
 
 def _character_names(character: CharacterRecord) -> list[str]:
     return [name for name, _source in _character_index_names(character)]
+
+
+def _unique_active_character(
+    characters: list[CharacterRecord], name: str | None
+) -> CharacterRecord | None:
+    key = _name_key(name)
+    if not key:
+        return None
+    matches = [
+        character
+        for character in characters
+        if not character.merged_into_character_id
+        and key in {_name_key(item) for item in _character_names(character)}
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _character_index_names(character: CharacterRecord) -> list[tuple[str, str]]:

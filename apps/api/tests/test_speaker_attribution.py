@@ -4,6 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import echodraft_api.speaker_attribution as speaker_attribution_module
+from echodraft_db.models import CharacterRecord, SpeakerAttributionRecord
+from sqlalchemy import delete
 
 
 def wait_for_job(client, job_id: str) -> dict:
@@ -164,6 +166,118 @@ def test_unlabeled_dialogue_uses_nearby_turn_evidence(client) -> None:
     assert contextual["status"] == "needs_review"
     assert contextual["evidence"]["previousSpeaker"] == "Mara"
     assert contextual["evidence"]["pronounCue"] == "she"
+
+
+def test_unlabeled_dialogue_uses_two_speaker_alternation(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Alternation", "rightsStatus": "declared"}
+    ).json()["id"]
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    _import_and_extract(
+        client,
+        project,
+        "Chapter 1\n\nMara: First.\n\nJon: Second.\n\n\"Third.\"\n\nJon: Fourth.",
+    )
+
+    rows = client.get(f"/api/v1/projects/{project}/speaker-attributions").json()
+    inferred = next(
+        row
+        for row in rows
+        if row["speakerName"] == "Mara"
+        and row["evidence"].get("reason") == "turn_taking_alternation"
+    )
+    assert inferred["status"] == "needs_review"
+    assert inferred["characterId"]
+    assert inferred["evidence"]["previousSpeaker"] == "Jon"
+    assert inferred["evidence"]["priorSpeaker"] == "Mara"
+    assert inferred["evidence"]["nextSpeaker"] == "Jon"
+
+
+def test_unlabeled_dialogue_uses_named_speech_action_cue(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Action Cue", "rightsStatus": "declared"}
+    ).json()["id"]
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    _import_and_extract(
+        client,
+        project,
+        "Chapter 1\n\nMara: Listen.\n\n\"Stay close,\" Mara muttered.",
+    )
+
+    rows = client.get(f"/api/v1/projects/{project}/speaker-attributions").json()
+    cued = next(
+        row
+        for row in rows
+        if row["speakerName"] == "Mara"
+        and row["evidence"].get("reason") == "speech_action_cue"
+    )
+    assert cued["status"] == "needs_review"
+    assert cued["evidence"]["speechCue"] == "Mara"
+
+
+def test_unlabeled_dialogue_uses_gendered_pronoun_coreference(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Pronoun Coreference", "rightsStatus": "declared"}
+    ).json()["id"]
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    mara = client.post(
+        f"/api/v1/projects/{project}/characters",
+        json={"displayName": "Mara", "traits": ["gender:feminine"]},
+    ).json()
+    client.post(
+        f"/api/v1/projects/{project}/characters",
+        json={"displayName": "Jon", "traits": ["gender:masculine"]},
+    )
+    _import_and_extract(
+        client,
+        project,
+        "Chapter 1\n\nMara: First.\n\nJon: Second.\n\n\"Third,\" she whispered.\n\nJon: Fourth.",
+    )
+
+    rows = client.get(f"/api/v1/projects/{project}/speaker-attributions").json()
+    coreferenced = next(
+        row
+        for row in rows
+        if row["speakerName"] == "Mara"
+        and row["evidence"].get("reason") == "pronoun_coreference"
+    )
+    assert coreferenced["characterId"] == mara["id"]
+    assert coreferenced["status"] == "needs_review"
+    assert coreferenced["evidence"]["pronounCue"] == "she"
+
+
+def test_speaker_attribution_proposes_missing_cast_from_confident_label(client, app) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Cast Proposal", "rightsStatus": "declared"}
+    ).json()["id"]
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    imported = client.post(
+        f"/api/v1/projects/{project}/source/import",
+        files={"file": ("cast.txt", b"Chapter 1\n\nTalia: Hold.", "text/plain")},
+        data={"rightsAcknowledged": "true"},
+    ).json()
+    assert wait_for_job(client, imported["id"])["status"] == "succeeded"
+    structured = client.post(f"/api/v1/projects/{project}/structure/extract", json={}).json()
+    assert wait_for_job(client, structured["id"])["status"] == "succeeded"
+
+    database = app.state.container.structure.database
+    with database.session() as session:
+        session.execute(
+            delete(SpeakerAttributionRecord).where(SpeakerAttributionRecord.project_id == project)
+        )
+        session.execute(delete(CharacterRecord).where(CharacterRecord.project_id == project))
+        session.commit()
+
+    rerun = client.post(f"/api/v1/projects/{project}/speaker-attributions/run", json={}).json()
+    assert wait_for_job(client, rerun["id"])["status"] == "succeeded"
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    talia = next(character for character in characters if character["displayName"] == "Talia")
+    rows = client.get(f"/api/v1/projects/{project}/speaker-attributions").json()
+    row = next(item for item in rows if item["speakerName"] == "Talia")
+    assert row["characterId"] == talia["id"]
+    assert row["status"] == "approved"
+    assert row["evidence"]["castProposal"] == "proposed_cast_from_speaker_attribution"
 
 
 def test_speaker_attribution_review_and_production_voice_resolution(client) -> None:
