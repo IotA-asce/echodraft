@@ -35,7 +35,8 @@ SPEECH_VERBS = (
 SPEECH_VERB_PATTERN = "|".join(re.escape(verb) for verb in SPEECH_VERBS)
 EXPLICIT_CHAPTER_RE = re.compile(
     r"^(?:chapter\s+(?:\d+|[ivxlcdm]+|[a-z]+)|prologue|epilogue|afterword|"
-    r"acknowledg(?:e)?ments|part\s+(?:\d+|[ivxlcdm]+|[a-z]+)|book\s+"
+    r"acknowledg(?:e)?ments|dedication|contents|table\s+of\s+contents|foreword|"
+    r"preface|about\s+the\s+author|appendix|index|part\s+(?:\d+|[ivxlcdm]+|[a-z]+)|book\s+"
     r"(?:\d+|[ivxlcdm]+|[a-z]+))\b",
     re.IGNORECASE,
 )
@@ -102,7 +103,23 @@ ALLOWED_PRODUCTION_TYPES = {
     "dialogue_with_tag",
     "action_beat",
     "performance_beat",
+    "footnote",
     "heading",
+}
+FRONT_MATTER_RE = re.compile(
+    r"^(?:dedication|contents|table\s+of\s+contents|foreword|preface)\b",
+    re.IGNORECASE,
+)
+BACK_MATTER_RE = re.compile(
+    r"^(?:afterword|acknowledg(?:e)?ments|about\s+the\s+author|appendix|index)\b",
+    re.IGNORECASE,
+)
+FOOTNOTE_RE = re.compile(r"^\s*(?:\[\d{1,3}\]|\d{1,3}[.)]|[*†‡])\s+\S+")
+LANGUAGE_MARKERS: dict[str, tuple[str, ...]] = {
+    "en": ("the", "and", "was", "that", "with", "said"),
+    "es": ("el", "la", "los", "las", "que", "una", "con", "para"),
+    "fr": ("le", "la", "les", "des", "que", "une", "avec", "pour"),
+    "de": ("der", "die", "das", "und", "nicht", "mit", "ein", "eine"),
 }
 # Chapter signals extracted from container structure (DOCX heading styles, EPUB
 # spine/TOC) rather than from in-text keyword headings. Only these source kinds
@@ -345,6 +362,7 @@ class StructureCompiler:
     ) -> CompileResult:
         warnings: list[dict[str, object]] = []
         blocks = self.block_map(text)
+        language = _detect_language(text)
         chapters = self.chapter_candidates(blocks, text, chapter_signals, warnings)
         if not chapters:
             chapter_id = stable_id("chap", self.source_id, 0, len(text), text[:180])
@@ -359,6 +377,9 @@ class StructureCompiler:
                     evidence={
                         "reason": "no_confirmed_heading",
                         "parserVersion": self.parser_version,
+                        "language": language["language"],
+                        "languageConfidence": language["confidence"],
+                        "languageEvidence": language,
                     },
                 )
             ]
@@ -389,6 +410,10 @@ class StructureCompiler:
                     evidence={
                         "reason": "text_before_first_confirmed_heading",
                         "parserVersion": self.parser_version,
+                        "language": language["language"],
+                        "languageConfidence": language["confidence"],
+                        "languageEvidence": language,
+                        "matterType": "front_matter",
                     },
                 ),
             )
@@ -400,6 +425,13 @@ class StructureCompiler:
                 end = chapter.end
             chapter_id = stable_id("chap", self.source_id, chapter.start, end, chapter.title)
             chapter_text = text[chapter.content_start:end]
+            chapter_language = _detect_language(chapter_text) if chapter_text.strip() else language
+            chapter_evidence = {
+                **chapter.evidence,
+                "language": chapter_language["language"],
+                "languageConfidence": chapter_language["confidence"],
+                "languageEvidence": chapter_language,
+            }
             chapter_blocks = [
                 block
                 for block in blocks
@@ -424,7 +456,7 @@ class StructureCompiler:
                         "end_offset": end,
                         "confidence": chapter.confidence,
                         "status": chapter.status,
-                        "parser_evidence_json": safe_json(chapter.evidence),
+                        "parser_evidence_json": safe_json(chapter_evidence),
                     },
                     "scenes": scenes,
                 }
@@ -496,19 +528,28 @@ class StructureCompiler:
                 "sourceBlockId": block.id,
             }
             next_block = _next_nonblank(blocks, index + 1)
-            if next_block and _is_title_line(next_block.text) and not EXPLICIT_CHAPTER_RE.match(next_block.text):
+            if (
+                next_block
+                and next_block.kind not in {"heading", "separator"}
+                and _is_title_line(next_block.text)
+                and not EXPLICIT_CHAPTER_RE.match(next_block.text)
+            ):
                 title = f"{title} - {next_block.text}"
                 content_start = next_block.end_offset
                 evidence["subtitleBlockId"] = next_block.id
                 evidence["subtitle"] = next_block.text
             confidence = 0.96 if markdown_level in {1, 2} else 0.9
+            status, matter_type = _chapter_status_for_heading(title)
+            if matter_type:
+                evidence["matterType"] = matter_type
+                evidence["reason"] = f"{matter_type}_heading"
             candidates_by_start[block.start_offset] = ChapterCandidate(
                 start=block.start_offset,
                 content_start=content_start,
                 end=None,
                 title=title,
                 confidence=confidence,
-                status="structured",
+                status=status,
                 evidence=evidence,
             )
 
@@ -581,21 +622,26 @@ class StructureCompiler:
             used_block_ids.add(match.id)
             existing = candidates_by_start.get(match.start_offset)
             confidence = max(signal.confidence, existing.confidence) if existing else signal.confidence
+            status, matter_type = _chapter_status_for_heading(signal.title or match.text)
+            reason = signal.source_kind
+            if matter_type:
+                reason = f"{matter_type}_container_signal"
             candidates_by_start[match.start_offset] = ChapterCandidate(
                 start=match.start_offset,
                 content_start=match.end_offset,
                 end=None,
                 title=signal.title or match.text,
                 confidence=confidence,
-                status="structured",
+                status=status,
                 evidence={
                     "parserVersion": self.parser_version,
-                    "reason": signal.source_kind,
+                    "reason": reason,
                     "sourceBlockId": match.id,
                     "sourceKind": signal.source_kind,
                     "containerSignal": True,
                     "signalConfidence": signal.confidence,
                     "signalLevel": signal.level,
+                    **({"matterType": matter_type} if matter_type else {}),
                 },
             )
 
@@ -850,13 +896,41 @@ class StructureCompiler:
         scene_id: str | None = None,
     ) -> list[TextAtom]:
         atoms: list[TextAtom] = []
-        for paragraph_index, (start, end, paragraph) in enumerate(_paragraph_spans(scene_text)):
+        paragraph_spans = _paragraph_spans(scene_text)
+        consumed_until = -1
+        for paragraph_index, (start, end, paragraph) in enumerate(paragraph_spans):
+            if start < consumed_until:
+                if end <= consumed_until:
+                    continue
+                paragraph = scene_text[consumed_until:end]
+                start = consumed_until
             absolute_start = base + start
             absolute_end = base + end
             stripped_start, stripped_end, stripped_text = _trim_span(
                 paragraph, absolute_start, absolute_end
             )
             if not stripped_text:
+                continue
+            multi_quote = _multi_paragraph_quote_span(scene_text, start, paragraph)
+            if multi_quote:
+                quote_start, quote_end = multi_quote
+                quote_text = scene_text[quote_start:quote_end].strip()
+                atoms.append(
+                    self._atom(
+                        "quote",
+                        quote_text,
+                        base + quote_start,
+                        base + quote_end,
+                        None,
+                        0.0,
+                        0.76,
+                        {
+                            "reason": "multi_paragraph_dialogue",
+                            "paragraphCount": _paragraph_count(scene_text[quote_start:quote_end]),
+                        },
+                    )
+                )
+                consumed_until = quote_end
                 continue
             if _is_performance_beat(stripped_text):
                 atoms.append(
@@ -869,6 +943,20 @@ class StructureCompiler:
                         0.0,
                         0.94,
                         {"reason": "bracketed_performance_beat"},
+                    )
+                )
+                continue
+            if _is_footnote_text(stripped_text):
+                atoms.append(
+                    self._atom(
+                        "footnote",
+                        stripped_text,
+                        stripped_start,
+                        stripped_end,
+                        None,
+                        0.0,
+                        0.7,
+                        {"reason": "footnote_routed", "reviewAction": "inspect_footnote"},
                     )
                 )
                 continue
@@ -933,6 +1021,36 @@ class StructureCompiler:
             if atom.kind == "performance_beat":
                 flush_narration()
                 drafts.append(self._draft([atom], "performance_beat", "performance_beat", None, 0.0, 0.92))
+                used.add(atom.id)
+                continue
+            if atom.kind == "footnote":
+                flush_narration()
+                draft = self._draft([atom], "narration", "footnote", None, 0.0, 0.7)
+                drafts.append(
+                    replace(
+                        draft,
+                        status="needs_review",
+                        evidence={
+                            **draft.evidence,
+                            "warningCodes": ["segment.footnote_routed"],
+                            "reviewAction": "inspect_footnote",
+                        },
+                    )
+                )
+                warnings.append(
+                    self.structure_issue(
+                        "segment",
+                        stable_id("seg", self.source_id, atom.start_offset, atom.end_offset, atom.text),
+                        "segment.footnote_routed",
+                        "warning",
+                        "Footnote-like text was routed out of normal narration.",
+                        "inspect_footnote",
+                        {"textPreview": atom.text[:160]},
+                        0.7,
+                        atom.start_offset,
+                        atom.end_offset,
+                    )
+                )
                 used.add(atom.id)
                 continue
             if atom.kind == "quote":
@@ -1235,6 +1353,7 @@ class StructureCompiler:
         container_chapters = sum(
             1 for chapter in chapters if _chapter_from_container_signal(chapter)
         )
+        language = _quality_language_from_chapters(chapters)
         return {
             "chapterCount": len(chapters),
             "chaptersFromContainerSignals": container_chapters,
@@ -1258,6 +1377,8 @@ class StructureCompiler:
             "possibleSceneBreakCount": warning_codes.count("scene.possible_break_detected"),
             "offsetValidationFailureCount": warning_codes.count("segment.offset_validation_failed"),
             "quoteUnclosedCount": warning_codes.count("segment.quote_unclosed"),
+            "detectedLanguage": language["language"],
+            "detectedLanguageConfidence": language["confidence"],
             "warningsNeedingReviewCount": sum(
                 1
                 for warning in warnings
@@ -1494,6 +1615,11 @@ class StructureCompiler:
                 "sources": ["block_map", "quote_aware_atomization", "deterministic_segment_builder"],
                 "confidence": confidence,
                 "atomKinds": [atom.kind for atom in atoms],
+                "atomReasons": [
+                    str(atom.evidence.get("reason"))
+                    for atom in atoms
+                    if atom.evidence.get("reason")
+                ],
                 "atomSpeakerHints": [
                     {
                         "name": atom.speaker_hint,
@@ -1516,8 +1642,17 @@ class StructureCompiler:
                 current = []
                 current_chars = 0
             if len(atom.text) > max_chars:
-                for sentence, start, end in _sentence_parts(atom.text, atom.start_offset):
-                    piece = self._atom("narration", sentence, start, end, None, 0.0, 0.78, {"reason": "long_atom_sentence_split"})
+                for sentence, start, end in _prosody_parts(atom.text, atom.start_offset, max_chars):
+                    piece = self._atom(
+                        "narration",
+                        sentence,
+                        start,
+                        end,
+                        None,
+                        0.0,
+                        0.78,
+                        {"reason": "prosody_clause_split"},
+                    )
                     drafts.append(self._draft([piece], "narration", "narration", None, 0.0, 0.78))
                 continue
             current.append(atom)
@@ -1567,6 +1702,71 @@ def _chapter_from_container_signal(chapter: object) -> bool:
     except json.JSONDecodeError:
         return False
     return isinstance(evidence, dict) and str(evidence.get("reason")) in CONTAINER_SIGNAL_KINDS
+
+
+def _chapter_status_for_heading(title: str) -> tuple[str, str | None]:
+    normalized = _strip_markdown_heading(title).strip()
+    if FRONT_MATTER_RE.match(normalized):
+        return "front_matter", "front_matter"
+    if BACK_MATTER_RE.match(normalized):
+        return "back_matter", "back_matter"
+    return "structured", None
+
+
+def _detect_language(text: str) -> dict[str, object]:
+    words = re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", text.casefold())
+    if not words:
+        return {"language": "unknown", "confidence": 0.0, "reason": "no_words"}
+    sample = words[:1000]
+    scores: dict[str, int] = {}
+    word_set = set(sample)
+    for code, markers in LANGUAGE_MARKERS.items():
+        scores[code] = sum(1 for marker in markers if marker in word_set)
+    accent_scores = {
+        "es": len(re.findall(r"[áéíóúñ¿¡]", text.casefold())),
+        "fr": len(re.findall(r"[àâçéèêëîïôùûüÿœ]", text.casefold())),
+        "de": len(re.findall(r"[äöüß]", text.casefold())),
+    }
+    for code, score in accent_scores.items():
+        scores[code] = scores.get(code, 0) + min(score, 6)
+    language, score = max(scores.items(), key=lambda item: item[1])
+    if score <= 0:
+        return {"language": "unknown", "confidence": 0.25, "reason": "no_language_markers"}
+    confidence = min(0.95, 0.45 + score / max(10, len(sample) / 6))
+    return {
+        "language": language,
+        "confidence": round(confidence, 2),
+        "reason": "marker_heuristic",
+        "scores": scores,
+    }
+
+
+def _quality_language_from_chapters(chapters: list[dict[str, object]]) -> dict[str, object]:
+    scores: dict[str, float] = {}
+    for chapter in chapters:
+        record = cast_dict(chapter).get("record")
+        try:
+            evidence = json.loads(str(cast_dict(record).get("parser_evidence_json") or "{}"))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(evidence, dict):
+            continue
+        language = str(evidence.get("language") or "")
+        if not language or language == "unknown":
+            continue
+        confidence = evidence.get("languageConfidence")
+        weight = 0.0
+        if isinstance(confidence, (int, float, str)):
+            try:
+                weight = float(confidence)
+            except ValueError:
+                weight = 0.0
+        scores[language] = scores.get(language, 0.0) + max(weight, 0.0)
+    if not scores:
+        return {"language": "unknown", "confidence": 0.0}
+    language, score = max(scores.items(), key=lambda item: item[1])
+    confidence = min(0.95, max(0.25, score / max(1, len(chapters))))
+    return {"language": language, "confidence": round(confidence, 2)}
 
 
 def _warning_code(warning: dict[str, object]) -> str:
@@ -1659,6 +1859,15 @@ def _is_time_shift(text: str) -> bool:
     return bool(TIME_SHIFT_RE.match(text.strip()))
 
 
+def _is_footnote_text(text: str) -> bool:
+    stripped = text.strip()
+    if len(stripped) > 500 or not FOOTNOTE_RE.match(stripped):
+        return False
+    # Avoid routing ordinary numbered dialogue or chapter prose lists unless the line is
+    # compact and citation-like.
+    return "\n" not in stripped and not stripped.endswith(":")
+
+
 def _is_performance_beat(text: str) -> bool:
     stripped = text.strip()
     return len(stripped) <= 140 and (
@@ -1681,6 +1890,75 @@ def _paragraph_spans(text: str) -> list[tuple[int, int, str]]:
     if cursor < len(text):
         spans.append((cursor, len(text), text[cursor:]))
     return spans
+
+
+def _paragraph_count(text: str) -> int:
+    return len([paragraph for _start, _end, paragraph in _paragraph_spans(text) if paragraph.strip()])
+
+
+def _multi_paragraph_quote_span(
+    scene_text: str, paragraph_start: int, paragraph: str
+) -> tuple[int, int] | None:
+    stripped_start, _stripped_end, stripped = _trim_span(
+        paragraph, paragraph_start, paragraph_start + len(paragraph)
+    )
+    if not stripped.startswith(('"', "“", "‘")):
+        return None
+    if _scan_quotes(stripped).spans:
+        return None
+    remainder = scene_text[stripped_start:]
+    scan = _scan_quotes(remainder)
+    if not scan.spans:
+        return None
+    quote_start, quote_end = scan.spans[0]
+    if quote_start != 0:
+        return None
+    candidate = scene_text[stripped_start : stripped_start + quote_end]
+    if _paragraph_count(candidate) < 2:
+        return None
+    return stripped_start, stripped_start + quote_end
+
+
+def _prosody_parts(text: str, base: int, max_chars: int) -> list[tuple[str, int, int]]:
+    parts: list[tuple[str, int, int]] = []
+    for sentence, start, end in _sentence_parts(text, base):
+        if len(sentence) <= max_chars:
+            parts.append((sentence, start, end))
+            continue
+        parts.extend(_clause_parts(sentence, start, max_chars))
+    return parts
+
+
+def _clause_parts(text: str, base: int, max_chars: int) -> list[tuple[str, int, int]]:
+    parts: list[tuple[str, int, int]] = []
+    cursor = 0
+    while cursor < len(text):
+        remaining = text[cursor:]
+        if len(remaining.strip()) <= max_chars:
+            start, end, stripped = _trim_span(remaining, base + cursor, base + len(text))
+            if stripped:
+                parts.append((stripped, start, end))
+            break
+        limit = min(len(text), cursor + max_chars)
+        cut = max(
+            text.rfind(",", cursor, limit),
+            text.rfind(";", cursor, limit),
+            text.rfind(":", cursor, limit),
+            text.rfind("—", cursor, limit),
+            text.rfind(" - ", cursor, limit),
+        )
+        if cut <= cursor:
+            cut = text.rfind(" ", cursor, limit)
+        if cut <= cursor:
+            cut = limit
+        include = cut + 1 if cut < len(text) and text[cut] in ",;:—" else cut
+        start, end, stripped = _trim_span(text[cursor:include], base + cursor, base + include)
+        if stripped:
+            parts.append((stripped, start, end))
+        cursor = include
+        while cursor < len(text) and text[cursor].isspace():
+            cursor += 1
+    return parts
 
 
 def _trim_span(text: str, start: int, end: int) -> tuple[int, int, str]:

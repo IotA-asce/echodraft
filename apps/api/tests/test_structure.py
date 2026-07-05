@@ -103,7 +103,7 @@ def test_structure_parser_v2_front_matter_dialogue_and_warnings(client) -> None:
     extract(client, project)
 
     chapters = client.get(f"/api/v1/projects/{project}/chapters").json()
-    assert [chapter["title"] for chapter in chapters][:2] == ["Front matter", "Prologue"]
+    assert [chapter["title"] for chapter in chapters][:2] == ["Dedication", "Prologue"]
     assert chapters[0]["status"] == "front_matter"
     warnings = client.get(f"/api/v1/projects/{project}/structure-warnings").json()
     assert any("Dialogue segment" in warning["message"] for warning in warnings)
@@ -113,6 +113,41 @@ def test_structure_parser_v2_front_matter_dialogue_and_warnings(client) -> None:
     assert any(item["segmentType"] == "performance_beat" for item in segments)
     assert any(item["segmentType"] == "dialogue" and item["speakerCandidate"] == "Mara" for item in segments)
     assert all("parserEvidence" in item for item in segments)
+
+
+def test_structure_depth_language_and_front_back_matter_evidence(client) -> None:
+    project = project_with_source(
+        client,
+        "Dedication\n\n"
+        "Para la familia y los amigos, con la memoria de una casa antigua.\n\n"
+        "Chapter 1\n\n"
+        "El viento cruzó la plaza con una luz extraña. La niña miró la puerta.\n\n"
+        "About the Author\n\n"
+        "Con la vida entre libros, la autora recuerda una ciudad pequeña.",
+    )
+    extract(client, project)
+
+    chapters = client.get(f"/api/v1/projects/{project}/chapters").json()
+    assert [chapter["title"] for chapter in chapters] == [
+        "Dedication",
+        "Chapter 1",
+        "About the Author",
+    ]
+    assert [chapter["status"] for chapter in chapters] == [
+        "front_matter",
+        "structured",
+        "back_matter",
+    ]
+    assert chapters[0]["parserEvidence"]["matterType"] == "front_matter"
+    assert chapters[2]["parserEvidence"]["matterType"] == "back_matter"
+    story_evidence = chapters[1]["parserEvidence"]
+    assert story_evidence["language"] == "es"
+    assert story_evidence["languageConfidence"] > 0
+    assert story_evidence["languageEvidence"]["reason"] == "marker_heuristic"
+
+    quality = client.get(f"/api/v1/projects/{project}/structure/quality").json()
+    assert quality["detectedLanguage"] == "es"
+    assert quality["detectedLanguageConfidence"] > 0
 
 
 def test_chapter_title_line_and_h3_h4_headings(client) -> None:
@@ -350,6 +385,72 @@ def test_alternating_unattributed_dialogue_remains_reviewable(client) -> None:
     assert len(dialogue) == 2
     assert all(segment["status"] == "needs_review" for segment in dialogue)
     assert "segment.dialogue_no_speaker" in warning_codes(client, project)
+
+
+def test_structure_depth_routes_multi_paragraph_dialogue_and_footnotes(client) -> None:
+    project = project_with_source(
+        client,
+        "Chapter 1\n\n"
+        "\"I began the story here,\n\n"
+        "and I finished it after the pause,\" Mara said.\n\n"
+        "[1] This source note should be inspected before narration.\n\n"
+        "The room settled.",
+    )
+    extract(client, project)
+
+    segments = all_segments(client, project)
+    dialogue = [segment for segment in segments if segment["segmentType"] == "dialogue"]
+    assert len(dialogue) == 1
+    assert "and I finished it after the pause" in dialogue[0]["textContent"]
+    assert dialogue[0]["status"] == "needs_review"
+    assert "multi_paragraph_dialogue" in dialogue[0]["parserEvidence"]["atomReasons"]
+
+    footnotes = [
+        segment
+        for segment in segments
+        if segment["parserEvidence"]["productionType"] == "footnote"
+    ]
+    assert len(footnotes) == 1
+    assert footnotes[0]["segmentType"] == "narration"
+    assert footnotes[0]["status"] == "needs_review"
+    assert footnotes[0]["parserEvidence"]["reviewAction"] == "inspect_footnote"
+    assert "segment.footnote_routed" in footnotes[0]["parserEvidence"]["warningCodes"]
+    assert "segment.footnote_routed" in warning_codes(client, project)
+    assert "segment.offset_validation_failed" not in warning_codes(client, project)
+    assert any(segment["textContent"] == "Mara said." for segment in segments)
+
+
+def test_structure_depth_prosody_clause_splitting() -> None:
+    compiler = StructureCompiler("project", "source", "structure-parser-0.4.0")
+    source = (
+        "Chapter 1\n\n"
+        "The corridor held its breath, the lamp trembled against the wall, "
+        "the old floor answered with a careful creak; the door remained closed, "
+        "and Mara waited without speaking until the clock struck midnight."
+    )
+
+    result = compiler.compile(source, max_chars=80)
+
+    segments = [
+        segment
+        for chapter in result.hierarchy
+        for scene in chapter["scenes"]
+        for segment in scene["segments"]
+    ]
+    narration = [segment for segment in segments if segment["segment_type"] == "narration"]
+    assert len(narration) >= 3
+    assert all(len(segment["text_content"]) <= 80 for segment in narration)
+    assert any(segment["text_content"].endswith((",", ";")) for segment in narration[:-1])
+    assert any(
+        "prosody_clause_split"
+        in json.loads(segment["parser_evidence_json"])["atomReasons"]
+        for segment in narration
+    )
+    assert all(
+        json.loads(str(warning["evidence_json"])).get("code")
+        != "segment.offset_validation_failed"
+        for warning in result.warnings
+    )
 
 
 def test_segment_split_merge_and_lock_survives_reextract(client) -> None:
