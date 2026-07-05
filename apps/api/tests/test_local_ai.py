@@ -23,7 +23,10 @@ def test_local_ai_catalog_exposes_required_capabilities(client) -> None:
     assert response.status_code == 200
     catalog = response.json()
     keys = {item["modelKey"] for item in catalog}
-    assert {"poppler", "tesseract", "ffmpeg", "ollama", "kokoro_82m_onnx"}.issubset(keys)
+    assert {"poppler", "tesseract", "ffmpeg", "ollama", "kokoro_82m_onnx", "whisper_cpp"}.issubset(keys)
+    whisper = next(item for item in catalog if item["modelKey"] == "whisper_cpp")
+    assert whisper["capability"] == "asr"
+    assert whisper["required"] is False
     required = [item for item in catalog if item["required"]]
     assert required
     assert all("health" in item and "installType" in item for item in catalog)
