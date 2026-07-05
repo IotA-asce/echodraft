@@ -7,6 +7,7 @@ import { SourcePreviewCard } from "./SourcePreviewCard";
 export function ManuscriptIntakePanel({
   busy,
   importJob,
+  structureJob,
   source,
   pages,
   cleaningIssues,
@@ -17,6 +18,7 @@ export function ManuscriptIntakePanel({
 }: {
   busy: boolean;
   importJob: Job | null;
+  structureJob: Job | null;
   source: SourceDocument | null;
   pages: SourcePage[];
   cleaningIssues: TextCleanlinessIssue[];
@@ -39,6 +41,12 @@ export function ManuscriptIntakePanel({
           <span>Rights-confirmed local import · 10 MB maximum</span>
         </label>
         <ImportProgress job={importJob} />
+        <ImportProgress
+          job={structureJob}
+          label="Structure & Cast Draft"
+          detail="Keep this project open while Echodraft builds chapters, scenes, cast candidates, and speaker links."
+          progressLabel="Structure extraction progress"
+        />
         {source ? (
           <SourcePreviewCard
             source={source}
