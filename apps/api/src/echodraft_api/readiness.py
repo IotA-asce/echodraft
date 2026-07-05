@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from echodraft_db.models import (
     ChapterRecord,
+    ChapterApprovalRecord,
     ChapterRenderRecord,
     CharacterRecord,
     CharacterVoiceAssignmentRecord,
@@ -587,6 +588,7 @@ class ReadinessService:
                 checks.append(
                     self._passed(f"chapter_audio_{chapter.id}", "audio", "Chapter audio is readable.")
                 )
+            checks.append(self._chapter_approval_check(session, chapter.id, render.id))
             if analysis is not None:
                 checks.append(self._chapter_audio_hot_check(chapter.id, analysis))
                 checks.append(self._chapter_audio_dead_air_check(chapter.id, analysis))
@@ -983,6 +985,37 @@ class ReadinessService:
             )
         return ReadinessService._passed(
             check_id, "audio", "No dead air detected in chapter audio."
+        )
+
+    @staticmethod
+    def _chapter_approval_check(
+        session: Session, chapter_id: str, chapter_render_id: str
+    ) -> CheckDraft:
+        approval = session.scalar(
+            select(ChapterApprovalRecord)
+            .where(ChapterApprovalRecord.chapter_id == chapter_id)
+            .order_by(ChapterApprovalRecord.created_at.desc(), ChapterApprovalRecord.id.desc())
+        )
+        check_id = f"chapter_approval_{chapter_id}"
+        if approval and approval.chapter_render_id == chapter_render_id:
+            return ReadinessService._passed(
+                check_id,
+                "approval",
+                "Active chapter render has a listened-and-approved attestation.",
+            )
+        return ReadinessService._issue(
+            check_id,
+            "approval",
+            "warning",
+            "readiness_approval",
+            "Chapter has not been listened to and approved",
+            "Listen to the active chapter render and approve it before marking review complete.",
+            chapter_id=chapter_id,
+            metadata={
+                "chapterRenderId": chapter_render_id,
+                "latestApprovalRenderId": approval.chapter_render_id if approval else None,
+                "reason": "approval_missing" if not approval else "approval_stale",
+            },
         )
 
     @staticmethod

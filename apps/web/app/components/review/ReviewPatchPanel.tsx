@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import type { Chapter, ChapterReviewTimeline, Comment, Issue, ReadinessReport, SegmentRenderComparison, SegmentReviewInspector } from "../../api";
+import type { Chapter, ChapterApproval, ChapterReviewTimeline, Comment, Issue, ReadinessReport, SegmentRenderComparison, SegmentReviewInspector, TtsProvider } from "../../api";
 import { EmptyState } from "../common/EmptyState";
 import { ReadinessReportPanel } from "./ReadinessReportPanel";
 import { SegmentInspectorPanel } from "./SegmentInspectorPanel";
@@ -10,6 +10,8 @@ import { IssueInspector } from "./IssueInspector";
 export function ReviewPatchPanel({
   selectedChapter,
   readiness,
+  approval,
+  provider,
   busy,
   inspector,
   timeline,
@@ -19,6 +21,7 @@ export function ReviewPatchPanel({
   comments,
   onGoProduce,
   onRunReadiness,
+  onApproveChapter,
   onSetReadinessIssue,
   onInspect,
   onOpenIssue,
@@ -28,6 +31,8 @@ export function ReviewPatchPanel({
 }: {
   selectedChapter: Chapter | null;
   readiness: ReadinessReport | null;
+  approval: ChapterApproval | null;
+  provider?: TtsProvider;
   busy: boolean;
   inspector: SegmentReviewInspector | null;
   timeline: ChapterReviewTimeline | null;
@@ -37,6 +42,7 @@ export function ReviewPatchPanel({
   comments: Comment[];
   onGoProduce: () => void;
   onRunReadiness: () => Promise<void>;
+  onApproveChapter: () => Promise<void>;
   onSetReadinessIssue: (issueId: string, status: "resolved" | "ignored" | "locked") => Promise<void>;
   onInspect: (segmentId: string) => void;
   onOpenIssue: (issue: Issue) => void;
@@ -58,7 +64,16 @@ export function ReviewPatchPanel({
       </div>
       <div className="studio-card review-workbench-grid">
         <ReadinessReportPanel report={readiness} busy={busy} onRun={onRunReadiness} onSetIssue={onSetReadinessIssue} />
-        <ChapterTranscriptReview timeline={timeline} inspector={inspector} issues={chapterIssues} onInspect={onInspect} onOpenIssue={onOpenIssue} />
+        <div className={approval?.current ? "chapter-approval current" : "chapter-approval"}>
+          <div>
+            <strong>{approval?.current ? "Chapter approved" : "Listen and approve"}</strong>
+            <p>{approval?.current ? `Approved by ${approval.approvedBy ?? "local-user"}.` : approval?.status === "stale" ? "A newer render needs a fresh approval." : "Approval is separate from automated readiness."}</p>
+          </div>
+          <button type="button" className="small-button" disabled={busy || !timeline?.chapterRender} onClick={() => void onApproveChapter()}>
+            Mark listened and approved
+          </button>
+        </div>
+        <ChapterTranscriptReview timeline={timeline} inspector={inspector} issues={chapterIssues} provider={provider} onInspect={onInspect} onOpenIssue={onOpenIssue} />
         <SegmentInspectorPanel inspector={inspector} comparison={comparison} />
         <div className="issue-list">
           {chapterIssues.length ? chapterIssues.map((issue) => <IssueCard key={issue.id} issue={issue} onOpen={onOpenIssue} onPatch={onPatch} onResolve={onResolveIssue} />) : <p className="import-placeholder">No open QA issues for this chapter.</p>}

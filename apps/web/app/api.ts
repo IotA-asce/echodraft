@@ -44,6 +44,7 @@ export type SegmentReviewInspector = { projectId: string; chapterId: string; cha
 export type ChapterTimelineMarker = { id: string; issueId?: string | null; segmentId?: string | null; startMs: number; endMs: number; severity: string; category: string; title: string; status: string };
 export type ChapterTimelineSegment = { id: string; sceneId: string; sceneIndex: number; orderIndex: number; text: string; segmentType: string; speaker?: string | null; characterId?: string | null; speakerStatus?: string | null; startMs: number; endMs: number; renderId?: string | null; issueMarkers: ChapterTimelineMarker[] };
 export type ChapterReviewTimeline = { projectId: string; chapterId: string; chapterTitle?: string | null; chapterRender?: ChapterRender | null; durationMs: number; waveform: number[]; segments: ChapterTimelineSegment[]; issueMarkers: ChapterTimelineMarker[] };
+export type ChapterApproval = { id?: string | null; projectId: string; chapterId: string; chapterRenderId?: string | null; approvedBy?: string | null; note?: string | null; current: boolean; status: string; createdAt?: string | null };
 export type ExportBlocker = { code: string; severity: string; message: string; scope: string; chapterId?: string | null; issueId?: string | null };
 export type ExportFormat = "wav" | "mp3" | "m4b";
 export type ExportQaOutput = { filename: string; method?: string; withinTolerance?: boolean; lufsIntegrated?: number; truePeakDb?: number; rmsDbfs?: number; durationMs: number; bytes: number; sha256: string; error?: string };
@@ -155,6 +156,8 @@ export const listRenderQueue = (projectId: string, chapterId?: string) => reques
 export const compareSegmentRenders = (projectId: string, segmentId: string) => request<SegmentRenderComparison>(`/api/v1/projects/${projectId}/segments/${segmentId}/renders/compare`);
 export const getSegmentReviewInspector = (projectId: string, segmentId: string) => request<SegmentReviewInspector>(`/api/v1/projects/${projectId}/segments/${segmentId}/review-inspector`);
 export const getChapterReviewTimeline = (projectId: string, chapterId: string) => request<ChapterReviewTimeline>(`/api/v1/projects/${projectId}/chapters/${chapterId}/review-timeline`);
+export const getChapterApproval = (projectId: string, chapterId: string) => request<ChapterApproval>(`/api/v1/projects/${projectId}/chapters/${chapterId}/approval`);
+export const approveChapter = (projectId: string, chapterId: string, payload: { approvedBy?: string; note?: string | null } = {}) => request<ChapterApproval>(`/api/v1/projects/${projectId}/chapters/${chapterId}/approval`, json("POST", payload));
 export const listSoundAssets = (projectId: string) => request<SoundAsset[]>(`/api/v1/projects/${projectId}/sound-assets`);
 export async function uploadSoundAsset(projectId: string, file: File, assetType: "ambience" | "music" | "sfx", name?: string, licenseNote?: string) { const form = new FormData(); form.set("file", file); form.set("asset_type", assetType); if (name) form.set("name", name); if (licenseNote) form.set("license_note", licenseNote); return request<SoundAsset>(`/api/v1/projects/${projectId}/sound-assets`, { method: "POST", body: form }); }
 export const listChapterSoundCues = (projectId: string, chapterId: string) => request<SoundCue[]>(`/api/v1/projects/${projectId}/chapters/${chapterId}/sound-cues`);

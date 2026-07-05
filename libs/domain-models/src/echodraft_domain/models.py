@@ -1017,6 +1017,23 @@ class ChapterReviewTimeline(ApiModel):
     issue_markers: list[ChapterTimelineMarker] = Field(default_factory=list, alias="issueMarkers")
 
 
+class ChapterApprovalRequest(ApiModel):
+    approved_by: str = Field(default="local-user", alias="approvedBy")
+    note: str | None = None
+
+
+class ChapterApproval(ApiModel):
+    id: str | None = None
+    project_id: str = Field(alias="projectId")
+    chapter_id: str = Field(alias="chapterId")
+    chapter_render_id: str | None = Field(default=None, alias="chapterRenderId")
+    approved_by: str | None = Field(default=None, alias="approvedBy")
+    note: str | None = None
+    current: bool = False
+    status: str = "missing"
+    created_at: datetime | None = Field(default=None, alias="createdAt")
+
+
 class ExportBlocker(ApiModel):
     code: str
     severity: str = "blocking"
