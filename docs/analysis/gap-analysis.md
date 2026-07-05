@@ -93,16 +93,14 @@ Format: **Current state → Vision target → Specific gaps (→ principle it se
   7. Re-parse silently orphans downstream locks/edits on any offset shift (→ P1).
   8. Story-map review lacks previews, visual boundary markers, user-directed split (→ P3/P6).
 
-### 3.3 Speaker attribution & dialogue — 2 → 5
-- **Current:** one-atom context; pronouns discarded; ambiguous exchanges flagged (only at 4+ lines) never resolved; can only point at existing cast; single 0.8 gate disconnected from cast discovery's 0.72 gate; LLM sent orphaned lines without surrounding turns; flat reshuffling review grid.
+### 3.3 Speaker attribution & dialogue — 3 → 5
+- **Current:** deterministic attribution now has conservative nearby-turn, two-speaker alternation, speech-action, and gendered pronoun-coreference hints for unlabeled dialogue; high-confidence missing speaker labels can be proposed back through Cast Discovery. Full scene active-speaker modeling, interruption handling, LLM scene windows, and transcript-level review remain incomplete.
 - **Target:** every line correctly attributed; back-and-forth resolves from turn-taking; scene speaker sets; differentiated confidence; rare, self-evident ambiguity; one fix resolves the pattern.
 - **Gaps:**
-  1. No turn-taking/alternation model (→ the biggest correctness lift).
-  2. No pronoun/coreference resolution (→ P5).
-  3. No propagation of confirmed attributions (→ P2).
-  4. Disconnected confidence gates create permanent dead-ends (→ P1).
-  5. LLM pass lacks scene context + few-shot (→ P5).
-  6. Review is a flat grid, not a scene-level color-coded transcript (→ P3).
+  1. Full scene active-speaker and interruption model remains incomplete (→ P5).
+  2. Coreference is limited to directly observed gender traits and nearby cues (→ P5).
+  3. LLM pass lacks contiguous scene context despite using few-shot exemplars (→ P5).
+  4. Review is a flat grid, not a scene-level color-coded transcript (→ P3).
 
 ### 3.4 Voice casting — 2 → 5
 - **Current:** manual free-text voice profiles; no acoustic facets; Kokoro locale+gender voice-ID convention discarded; casting is unranked string-matching against character name.
