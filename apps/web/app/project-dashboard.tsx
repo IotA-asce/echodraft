@@ -5,7 +5,7 @@ import {
   addComment, applyIssueAction, approveChapter, assembleChapter, assetUrl, compareSegmentRenders, createCharacter, createExport, createProject, createPronunciation, createSoundCue, createVoice, deleteVoice,
   estimateExport, extractStructure, getChapterApproval, getChapterReviewTimeline, getJob, getKokoroSetup, getLocalAiInstallJob, getProductionSettings, getProductionStatus, getSegmentReviewInspector,
   getSource, getStructureQuality, getTtsProviders, getTtsSettings, installKokoroSetup, installLocalAiModel,
-  importSource, listCharacters, listChapterSoundCues, listChapters, listCleaningIssues, listComments, listExports, listIssues, listPronunciations, listRenderQueue,
+  importSource, listCharacters, listChapterSoundCues, listChapters, listCleaningIssues, listComments, listExports, listIssues, listProjectJobs, listPronunciations, listRenderQueue,
   inferSegmentDirections, listLocalAiCatalog, listProjects, listScenes, listSegmentDirections, listSegments, listSoundAssets, listSourcePages, listSpeakerAttributions, listStructureWarnings, listVoiceSuggestions, listVoices, mergeCharacter, mergeSegment, patchSegment, previewVoice, produceChapter,
   rejectCharacterMerge, reparseSource, runReadiness, runSpeakerAttribution, saveProductionSettings, saveSegmentDirection, saveSegmentOverride, saveTtsSettings, testTtsSettings,
   setStructureLock, splitCharacter, splitSegment, updateCharacter, updateCleaningIssue, updateIssue, updateSegment, updateSpeakerAttribution, uploadSoundAsset, verifyLocalAiModel, type Chapter, type Character, type Comment, type Direction,
@@ -27,6 +27,7 @@ import { ProviderStatus } from "./components/setup/ProviderStatus";
 import { StoryMapPanel } from "./components/structure/StoryMapPanel";
 import { VoiceBiblePanel } from "./components/voices/VoiceBiblePanel";
 import { uiCopy } from "./lib/copy";
+import { jobProgressMessage, jobProgressPercent } from "./lib/format";
 import { buildWorkflowActions, buildWorkflowSteps, type WorkflowAction, type WorkflowStepId } from "./lib/workflow";
 
 const directionFor = (scopeType: string, scopeId: string): Direction => ({ scopeType, scopeId, pace: 1, intensity: 0.4, tone: "neutral", emotion: "neutral", pauseBeforeMs: 0, pauseAfterMs: 120, stylePrompt: "Clear, restrained audiobook narration", emphasis: false, whisper: false, noSfx: true });
@@ -93,6 +94,8 @@ export function ProjectDashboard() {
     [workflowSteps, readiness, exportEstimate, selectedChapter, chapterApproval, reviewTimeline],
   );
   const setSectionWorking = (section: string, value: boolean) => setSectionBusy((current) => ({ ...current, [section]: value }));
+  const activeStructureJob = structureJob && ["queued", "running"].includes(structureJob.status) ? structureJob : null;
+  const activeStructureJobPercent = activeStructureJob ? jobProgressPercent(activeStructureJob) : null;
 
   useEffect(() => { listProjects().then(setProjects).catch((cause) => setError(messageOf(cause))); getTtsSettings().then((next) => { setTts(next); setSelectedTtsProvider(next.provider); }).catch((cause) => setError(messageOf(cause))); getTtsProviders().then(setTtsProviders).catch((cause) => setError(messageOf(cause))); getKokoroSetup().then(setKokoroSetup).catch((cause) => setError(messageOf(cause))); void refreshLocalAi(); }, []);
   useEffect(() => {
@@ -203,8 +206,8 @@ export function ProjectDashboard() {
   async function loadProject(projectId: string, options: { activate?: WorkflowStepId | null } = { activate: "voice-engine" }) {
     if (options.activate) setActiveSection(options.activate);
     setSelectedProjectId(projectId); setError(null); setNotice(null); setSelectedChapter(null); setScenes([]); setSegments([]); setSpeakerAttributions([]); setSegmentDirections([]); setRenderQueue([]); setRenderCompare(null); setSegmentInspector(null); setSoundCues([]); setReadiness(null); setStructureQuality(null); setStructureJob(null);
-    const settled = await Promise.allSettled([getSource(projectId), listChapters(projectId), listStructureWarnings(projectId), getStructureQuality(projectId), listVoices(projectId), getProductionSettings(projectId), listIssues(projectId), listExports(projectId), listCharacters(projectId), listSpeakerAttributions(projectId), listSegmentDirections(projectId), listPronunciations(projectId), listSoundAssets(projectId)]);
-    const [nextSource, nextChapters, nextWarnings, nextQuality, nextVoices, nextProduction, nextIssues, nextExports, nextCharacters, nextAttributions, nextDirections, nextPronunciations, nextSoundAssets] = settled;
+    const settled = await Promise.allSettled([getSource(projectId), listChapters(projectId), listStructureWarnings(projectId), getStructureQuality(projectId), listVoices(projectId), getProductionSettings(projectId), listIssues(projectId), listExports(projectId), listCharacters(projectId), listSpeakerAttributions(projectId), listSegmentDirections(projectId), listPronunciations(projectId), listSoundAssets(projectId), listProjectJobs(projectId, { jobType: "structure.extract", status: ["queued", "running"], limit: 1 })]);
+    const [nextSource, nextChapters, nextWarnings, nextQuality, nextVoices, nextProduction, nextIssues, nextExports, nextCharacters, nextAttributions, nextDirections, nextPronunciations, nextSoundAssets, nextStructureJobs] = settled;
     setSource(nextSource.status === "fulfilled" ? nextSource.value : null); setChapters(nextChapters.status === "fulfilled" ? nextChapters.value : []);
     setStructureWarnings(nextWarnings.status === "fulfilled" ? nextWarnings.value : []);
     setStructureQuality(nextQuality.status === "fulfilled" ? nextQuality.value : null);
@@ -212,6 +215,11 @@ export function ProjectDashboard() {
     if (nextVoices.status === "fulfilled") setVoices(nextVoices.value); if (nextProduction.status === "fulfilled") setProduction(nextProduction.value);
     if (nextIssues.status === "fulfilled") setIssues(nextIssues.value); if (nextExports.status === "fulfilled") setExports(nextExports.value);
     if (nextCharacters.status === "fulfilled") setCharacters(nextCharacters.value); if (nextAttributions.status === "fulfilled") setSpeakerAttributions(nextAttributions.value); if (nextDirections.status === "fulfilled") setSegmentDirections(nextDirections.value); if (nextPronunciations.status === "fulfilled") setPronunciations(nextPronunciations.value); if (nextSoundAssets.status === "fulfilled") setSoundAssets(nextSoundAssets.value);
+    const restoredStructureJob = nextStructureJobs.status === "fulfilled" ? nextStructureJobs.value[0] : null;
+    if (restoredStructureJob) {
+      setStructureJob(restoredStructureJob);
+      setBusy(true);
+    }
   }
   async function waitFor(jobId: string, projectId: string) { for (let i = 0; i < 80; i += 1) { const next = await getJob(jobId); if (next.status === "succeeded") return; if (next.status === "failed" || next.status === "cancelled") throw new Error(next.errorMessage || "Background task failed."); await new Promise((resolve) => setTimeout(resolve, 250)); } throw new Error("The task is taking longer than expected."); }
   async function refreshLocalAi() { try { setLocalAiCatalog(await listLocalAiCatalog()); } catch (cause) { setError(messageOf(cause)); } }
@@ -352,6 +360,7 @@ export function ProjectDashboard() {
   return <div className="desk-shell"><div className="grain" aria-hidden="true" />
     <StudioHero tts={tts} setupJob={setupJob} job={job} selectedChapter={selectedChapter} status={status} />
     {error ? <InlineNotice tone="error">{error}</InlineNotice> : null}{notice ? <InlineNotice tone="success">{notice}</InlineNotice> : null}
+    {activeStructureJob ? <InlineNotice tone="info">Structure & Cast Draft is running: {jobProgressMessage(activeStructureJob, "Working locally")}{activeStructureJobPercent !== null ? ` (${activeStructureJobPercent}%)` : ""}</InlineNotice> : null}
     <StudioShell steps={workflowSteps} activeStep={activeSection} onStepChange={setActiveSection} nextAction={workflowActions[0] ?? null} onAction={followWorkflowAction}>
       {activeSection === "project" ? (
         <section className="workspace">
