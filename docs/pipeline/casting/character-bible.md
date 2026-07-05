@@ -31,7 +31,8 @@ Each character stores:
 - Split creates a new character and appends history on both records.
 - Voice links must reference a voice profile in the same project.
 - Approved speaker attributions use linked character voices during production unless a segment override is set.
-- Character voice suggestions rank existing project voice profiles against character traits and return evidence for why each voice matched.
+- Character voice suggestions rank existing project voice profiles against character traits, including derived Kokoro voice-ID facets such as `gender:feminine`, `accent:american`, and `locale:american`.
+- Voice suggestion auditions use an approved representative character line when available, falling back to a neutral audition sentence only when the character has no approved attributed dialogue.
 
 ## API Surface
 
@@ -50,6 +51,6 @@ Each character stores:
 
 ## UI Surface
 
-The dashboard Cast Review & Voice Bible panel supports creating character records, editing canonical names, aliases, traits, and roles, linking a voice, locking records, issuing merge or split operations, and reviewing speaker attribution rows in Cast Review. Speaker rows are ordered with unresolved, lowest-confidence items first, and propagated approvals report how many matching rows were updated.
+The dashboard Cast Review & Voice Bible panel supports creating character records, editing canonical names, aliases, traits, and roles, linking a voice, loading ranked voice suggestions, auditioning a suggested voice against the character's own line, locking records, issuing merge or split operations, and reviewing speaker attribution rows in Cast Review. Speaker rows are ordered with unresolved, lowest-confidence items first, and propagated approvals report how many matching rows were updated.
 
 The Structure & Cast Draft Parser Review queue surfaces cast-discovery issues alongside parser warnings. It offers apply, not-a-duplicate, and dismiss actions so evidence-backed character decisions can be completed without leaving the story map.

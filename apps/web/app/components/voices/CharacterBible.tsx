@@ -1,5 +1,5 @@
-import type { FormEvent } from "react";
-import type { Character, VoiceProfile } from "../../api";
+import { useState, type FormEvent } from "react";
+import type { Character, VoiceProfile, VoiceSuggestion } from "../../api";
 
 type CharacterUpdatePayload = Partial<
   Pick<
@@ -37,6 +37,8 @@ export function CharacterBible({
   onSave,
   onMerge,
   onSplit,
+  onLoadVoiceSuggestions,
+  onPreviewVoiceSuggestion,
 }: {
   characters: Character[];
   voices: VoiceProfile[];
@@ -50,8 +52,23 @@ export function CharacterBible({
   onSave: (characterId: string, payload: CharacterUpdatePayload) => Promise<void>;
   onMerge: (source: Character, targetId: string) => Promise<void>;
   onSplit: (character: Character) => Promise<void>;
+  onLoadVoiceSuggestions: (characterId: string) => Promise<VoiceSuggestion[]>;
+  onPreviewVoiceSuggestion: (voiceId: string, sampleText: string) => void;
 }) {
+  const [suggestionsByCharacter, setSuggestionsByCharacter] = useState<Record<string, VoiceSuggestion[]>>({});
+  const [loadingSuggestionsFor, setLoadingSuggestionsFor] = useState<string | null>(null);
   const activeCharacters = characters.filter((item) => !item.mergedIntoCharacterId);
+
+  async function loadSuggestions(characterId: string) {
+    setLoadingSuggestionsFor(characterId);
+    try {
+      const suggestions = await onLoadVoiceSuggestions(characterId);
+      setSuggestionsByCharacter((current) => ({ ...current, [characterId]: suggestions.slice(0, 3) }));
+    } finally {
+      setLoadingSuggestionsFor(null);
+    }
+  }
+
   return (
     <div className="character-bible">
       <div className="source-heading">
@@ -176,6 +193,41 @@ export function CharacterBible({
                     ))}
                 </select>
               </div>
+              {!merged ? (
+                <div className="voice-suggestion-panel" aria-label={`Suggestions for ${character.displayName}`}>
+                  <div className="voice-suggestion-heading">
+                    <strong>Voice suggestions</strong>
+                    <button type="button" className="small-button" disabled={loadingSuggestionsFor === character.id} onClick={() => void loadSuggestions(character.id)}>
+                      {loadingSuggestionsFor === character.id ? "Loading..." : "Suggest voices"}
+                    </button>
+                  </div>
+                  {(suggestionsByCharacter[character.id] ?? []).length ? (
+                    <div className="voice-suggestion-list">
+                      {(suggestionsByCharacter[character.id] ?? []).map((suggestion) => (
+                        <article key={suggestion.voiceProfileId} className="voice-suggestion-card">
+                          <div>
+                            <strong>{suggestion.name}</strong>
+                            <small>
+                              {Math.round(suggestion.score * 100)}% match
+                              {suggestion.matchedTraits.length ? ` · ${suggestion.matchedTraits.join(", ")}` : ""}
+                            </small>
+                            <p>{suggestion.sampleText}</p>
+                            {suggestion.facets?.length ? <small>{suggestion.facets.join(" · ")}</small> : null}
+                          </div>
+                          <span>
+                            <button type="button" className="small-button" onClick={() => onPreviewVoiceSuggestion(suggestion.voiceProfileId, suggestion.sampleText)}>
+                              Audition
+                            </button>
+                            <button type="button" className="small-button" onClick={() => void onSave(character.id, { voiceProfileId: suggestion.voiceProfileId })}>
+                              Assign
+                            </button>
+                          </span>
+                        </article>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {character.mergeHistory.length || character.splitHistory.length || character.lockReason ? (
                 <p className="character-history">
                   {character.lockReason ? `${character.lockReason} · ` : ""}

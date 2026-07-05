@@ -449,6 +449,7 @@ class VoiceProfile(ApiModel):
     backend: str
     provider_voice_id: str = Field(alias="providerVoiceId")
     style_prompt: str | None = Field(default=None, alias="stylePrompt")
+    facets: list[str] = Field(default_factory=list)
 
 
 class VoiceProfileCreate(ApiModel):
@@ -471,6 +472,7 @@ class VoiceSuggestion(ApiModel):
     backend: str
     score: float
     matched_traits: list[str] = Field(default_factory=list, alias="matchedTraits")
+    facets: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
     sample_text: str = Field(alias="sampleText")
 

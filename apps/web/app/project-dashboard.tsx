@@ -6,7 +6,7 @@ import {
   extractStructure, getJob, getKokoroSetup, getLocalAiInstallJob, getProductionSettings, getProductionStatus, getSegmentReviewInspector,
   getSource, getStructureQuality, getTtsProviders, getTtsSettings, installKokoroSetup, installLocalAiModel,
   importSource, listCharacters, listChapterSoundCues, listChapters, listCleaningIssues, listComments, listExports, listIssues, listPronunciations, listRenderQueue,
-  inferSegmentDirections, listLocalAiCatalog, listProjects, listScenes, listSegmentDirections, listSegments, listSoundAssets, listSourcePages, listSpeakerAttributions, listStructureWarnings, listVoices, mergeCharacter, mergeSegment, patchSegment, previewVoice, produceChapter,
+  inferSegmentDirections, listLocalAiCatalog, listProjects, listScenes, listSegmentDirections, listSegments, listSoundAssets, listSourcePages, listSpeakerAttributions, listStructureWarnings, listVoiceSuggestions, listVoices, mergeCharacter, mergeSegment, patchSegment, previewVoice, produceChapter,
   rejectCharacterMerge, reparseSource, runReadiness, runSpeakerAttribution, saveProductionSettings, saveSegmentDirection, saveSegmentOverride, saveTtsSettings, testTtsSettings,
   setStructureLock, splitCharacter, splitSegment, updateCharacter, updateCleaningIssue, updateIssue, updateSegment, updateSpeakerAttribution, uploadSoundAsset, verifyLocalAiModel, type Chapter, type Character, type Comment, type Direction,
   type ExportFormat, type ExportPackage, type Issue, type Job, type KokoroSetupStatus, type LocalAiCatalogItem, type LocalAiInstallJob, type ReadinessReport,
@@ -267,7 +267,7 @@ export function ProjectDashboard() {
   async function selectKokoroNarrator(voiceId: string) { try { const voice = await ensureKokoroVoice(voiceId); if (voice) await selectNarrator(voice.id); } catch (cause) { setError(messageOf(cause)); } }
   async function removeVoice(voiceId: string) { try { await deleteVoice(voiceId); setVoices((current) => current.filter((voice) => voice.id !== voiceId)); } catch (cause) { setError(messageOf(cause)); } }
   async function selectNarrator(voiceId: string) { if (!selectedProjectId) return; try { const next = await saveProductionSettings(selectedProjectId, { narratorVoiceProfileId: voiceId, defaultDirection: production?.defaultDirection ?? directionFor("project", selectedProjectId) }); setProduction(next); if (selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id); } catch (cause) { setError(messageOf(cause)); } }
-  async function playPreview(voiceId: string) { if (!selectedProjectId) return; try { const preview = await previewVoice(selectedProjectId, voiceId, directionFor("project", selectedProjectId)); const player = new Audio(assetUrl(preview.audioUrl)); await player.play(); } catch (cause) { setError(messageOf(cause)); } }
+  async function playPreview(voiceId: string, text?: string) { if (!selectedProjectId) return; try { const preview = await previewVoice(selectedProjectId, voiceId, directionFor("project", selectedProjectId), text); const player = new Audio(assetUrl(preview.audioUrl)); await player.play(); } catch (cause) { setError(messageOf(cause)); } }
   async function setOverride(segmentId: string, voiceProfileId: string) { if (!selectedProjectId) return; try { await saveSegmentOverride(selectedProjectId, segmentId, { voiceProfileId: voiceProfileId || null }); setNotice("Segment voice override saved for future production."); } catch (cause) { setError(messageOf(cause)); } }
   async function inferDirections() { if (!selectedProjectId) return; setBusy(true); try { const next = await inferSegmentDirections(selectedProjectId); await waitFor(next.id, selectedProjectId); setSegmentDirections(await listSegmentDirections(selectedProjectId)); setNotice("Direction inference completed."); if (selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
   async function saveDirection(segmentId: string, direction: Direction) { if (!selectedProjectId) return; try { const item = await saveSegmentDirection(selectedProjectId, segmentId, { direction, userLocked: true }); setSegmentDirections((current) => [...current.filter((candidate) => candidate.segmentId !== segmentId), item]); setNotice("Segment direction saved; affected renders will refresh on the next run."); if (selectedChapter) await refreshProduction(selectedProjectId, selectedChapter.id); } catch (cause) { setError(messageOf(cause)); } }
@@ -330,6 +330,8 @@ export function ProjectDashboard() {
           onSaveCharacter={saveCharacter}
           onMergeCharacter={mergeCast}
           onSplitCharacter={splitCast}
+          onLoadVoiceSuggestions={(characterId) => listVoiceSuggestions(characterId)}
+          onPreviewVoiceSuggestion={(voiceId, sampleText) => void playPreview(voiceId, sampleText)}
           onRunCastReview={runCastReview}
           onSaveAttribution={saveAttribution}
           onAddPronunciation={async (value) => {
