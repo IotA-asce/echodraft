@@ -1,22 +1,18 @@
 import type { FormEvent } from "react";
-import type { Chapter, Comment, Issue, Job, ProductionStatus, ReadinessReport, Segment, SegmentRenderComparison, SegmentReviewInspector, TtsProvider } from "../../api";
+import type { Chapter, ChapterReviewTimeline, Comment, Issue, ReadinessReport, SegmentRenderComparison, SegmentReviewInspector } from "../../api";
 import { EmptyState } from "../common/EmptyState";
-import { ChapterAudioPlayer } from "../production/ChapterAudioPlayer";
 import { ReadinessReportPanel } from "./ReadinessReportPanel";
 import { SegmentInspectorPanel } from "./SegmentInspectorPanel";
-import { ChapterTimeline } from "./ChapterTimeline";
+import { ChapterTranscriptReview } from "./ChapterTranscriptReview";
 import { IssueCard } from "./IssueCard";
 import { IssueInspector } from "./IssueInspector";
 
 export function ReviewPatchPanel({
   selectedChapter,
-  segments,
-  status,
-  job,
-  provider,
   readiness,
   busy,
   inspector,
+  timeline,
   comparison,
   issues,
   activeIssue,
@@ -31,13 +27,10 @@ export function ReviewPatchPanel({
   onComment,
 }: {
   selectedChapter: Chapter | null;
-  segments: Segment[];
-  status: ProductionStatus | null;
-  job: Job | null;
-  provider?: TtsProvider;
   readiness: ReadinessReport | null;
   busy: boolean;
   inspector: SegmentReviewInspector | null;
+  timeline: ChapterReviewTimeline | null;
   comparison: SegmentRenderComparison | null;
   issues: Issue[];
   activeIssue: Issue | null;
@@ -65,8 +58,7 @@ export function ReviewPatchPanel({
       </div>
       <div className="studio-card review-workbench-grid">
         <ReadinessReportPanel report={readiness} busy={busy} onRun={onRunReadiness} onSetIssue={onSetReadinessIssue} />
-        <ChapterAudioPlayer chapter={selectedChapter} activeRender={status?.activeRender} job={job} provider={provider} />
-        <ChapterTimeline segments={segments} issues={chapterIssues} inspector={inspector} onInspect={onInspect} />
+        <ChapterTranscriptReview timeline={timeline} inspector={inspector} issues={chapterIssues} onInspect={onInspect} onOpenIssue={onOpenIssue} />
         <SegmentInspectorPanel inspector={inspector} comparison={comparison} />
         <div className="issue-list">
           {chapterIssues.length ? chapterIssues.map((issue) => <IssueCard key={issue.id} issue={issue} onOpen={onOpenIssue} onPatch={onPatch} onResolve={onResolveIssue} />) : <p className="import-placeholder">No open QA issues for this chapter.</p>}

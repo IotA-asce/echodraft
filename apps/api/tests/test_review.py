@@ -393,6 +393,44 @@ def test_segment_review_inspector_layers_patch_history_and_waveform(client) -> N
     assert inspector["patchQueue"][0]["newRenderId"] == patched["render"]["id"]
 
 
+def test_chapter_review_timeline_exposes_audio_offsets_and_issue_markers(client) -> None:
+    project, chapter, segment = prepared_segment(client)
+    rendered = client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/generate", json=render_payload(project)
+    ).json()
+    assembled = client.post(f"/api/v1/projects/{project}/chapters/{chapter}/assemble").json()
+    issue = client.post(
+        f"/api/v1/projects/{project}/issues",
+        json={
+            "chapterId": chapter,
+            "segmentId": segment,
+            "category": "audio_qa",
+            "severity": "warning",
+            "title": "Check this moment",
+            "description": "Jump to the exact audio moment for this segment.",
+        },
+    ).json()
+
+    manifest = json.loads(Path(assembled["manifestPath"]).read_text(encoding="utf-8"))
+    assert manifest["timeline"][0]["segmentId"] == segment
+    assert manifest["timeline"][0]["segmentRenderId"] == rendered["id"]
+    assert manifest["timeline"][0]["startMs"] >= 1000
+    assert manifest["timeline"][0]["endMs"] > manifest["timeline"][0]["startMs"]
+
+    timeline = client.get(
+        f"/api/v1/projects/{project}/chapters/{chapter}/review-timeline"
+    ).json()
+
+    assert timeline["chapterRender"]["id"] == assembled["id"]
+    assert timeline["chapterRender"]["audioUrl"]
+    assert len(timeline["waveform"]) == 200
+    assert timeline["segments"][0]["id"] == segment
+    assert timeline["segments"][0]["renderId"] == rendered["id"]
+    assert timeline["segments"][0]["startMs"] == manifest["timeline"][0]["startMs"]
+    assert timeline["segments"][0]["issueMarkers"][0]["issueId"] == issue["id"]
+    assert timeline["issueMarkers"][0]["startMs"] == manifest["timeline"][0]["startMs"]
+
+
 def test_segment_revision_stales_only_the_edited_render(client) -> None:
     project = client.post(
         "/api/v1/projects", json={"title": "Selective stale", "rightsStatus": "declared"}
