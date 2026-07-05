@@ -145,6 +145,10 @@ class StructureService:
             if manifest_quality:
                 live.update(
                     {
+                        "detectedLanguage": manifest_quality.get("detectedLanguage", "unknown"),
+                        "detectedLanguageConfidence": manifest_quality.get(
+                            "detectedLanguageConfidence", 0.0
+                        ),
                         "llmRefinementUsed": manifest_quality.get("llmRefinementUsed", False),
                         "llmAcceptedBatchCount": manifest_quality.get("llmAcceptedBatchCount", 0),
                         "llmRejectedBatchCount": manifest_quality.get("llmRejectedBatchCount", 0),

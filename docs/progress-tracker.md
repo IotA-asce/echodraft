@@ -14,12 +14,12 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Status Summary
 
 - Numbered gaps tracked: 20
-- Complete: 16
-- Remaining: 4
+- Complete: 17
+- Remaining: 3
 - In progress: 0
-- Approximate roadmap completion: 80%
-- Complete phases: Phase 0, Phase 1, Phase 2
-- Remaining phases: Phase 3, Phase 4
+- Approximate roadmap completion: 85%
+- Complete phases: Phase 0, Phase 1, Phase 2, Phase 3
+- Remaining phases: Phase 4
 
 ## Recently Shipped
 
@@ -39,6 +39,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - Evidence: `feat/evidence-based-direction-inference`; documented in `docs/pipeline/direction/direction-studio.md`.
 - [x] G16 local ASR word-match verification shipped.
   - Evidence: `feat/g16-local-asr-word-match`; documented in `docs/pipeline/qa/qa-rulebook.md`.
+- [x] G18 structure depth shipped.
+  - Evidence: `feat/g18-structure-depth`; documented in `docs/pipeline/structure/structure-parser-v2.md`.
 
 ## Phase 0 - Trust Foundation
 
@@ -144,11 +146,12 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - [x] Flag mispronunciation, dropped words, and truncation.
   - [x] Feed ASR verification evidence into QA and readiness.
   - Evidence: `feat/g16-local-asr-word-match`; optional whisper.cpp-compatible ASR writes render metadata, opens review warnings, and feeds readiness when configured.
-- [ ] G18 - Structure depth.
-  - [ ] Add multilingual detection.
-  - [ ] Classify front matter and back matter.
-  - [ ] Handle multi-paragraph dialogue and footnotes.
-  - [ ] Improve prosody-tuned segmentation.
+- [x] G18 - Structure depth.
+  - [x] Add multilingual detection.
+  - [x] Classify front matter and back matter.
+  - [x] Handle multi-paragraph dialogue and footnotes.
+  - [x] Improve prosody-tuned segmentation.
+  - Evidence: `feat/g18-structure-depth`; parser quality exposes detected language, chapter evidence records language and matter type, multi-paragraph dialogue remains dialogue, footnotes route to review, and long narration uses clause-aware prosody splitting.
 
 ## Phase 4 - Workflow Experience
 
@@ -170,8 +173,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Completion Estimate
 
 - Roadmap items tracked: 20 numbered gaps.
-- Completed: 16 numbered gaps.
+- Completed: 17 numbered gaps.
 - In progress: 0 numbered gaps.
-- Remaining: 4 numbered gaps.
-- Approximate roadmap completion: 80%.
-- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 83%, Phase 4 0%.
+- Remaining: 3 numbered gaps.
+- Approximate roadmap completion: 85%.
+- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 100%, Phase 4 0%.
