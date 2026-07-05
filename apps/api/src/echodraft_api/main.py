@@ -24,6 +24,7 @@ from echodraft_domain import (
     AssignVoice,
     Chapter,
     ChapterAssemblyRequest,
+    ChapterReviewTimeline,
     ChapterRender,
     ChapterUpdate,
     Character,
@@ -1441,6 +1442,27 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                         segment_render_with_url(project_id, item)
                         for item in inspector.render_history
                     ]
+                }
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/projects/{project_id}/chapters/{chapter_id}/review-timeline",
+        response_model=ChapterReviewTimeline,
+    )
+    def get_chapter_review_timeline(
+        project_id: str, chapter_id: str, request: Request
+    ) -> ChapterReviewTimeline:
+        try:
+            timeline = ReviewWorkbenchService(request.app.state.container).chapter_timeline(
+                project_id, chapter_id
+            )
+            return timeline.model_copy(
+                update={
+                    "chapter_render": chapter_render_with_url(project_id, timeline.chapter_render)
+                    if timeline.chapter_render
+                    else None,
                 }
             )
         except ValueError as error:

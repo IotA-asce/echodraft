@@ -127,3 +127,19 @@ select { min-height:36px; border:1px solid var(--line); border-radius:0; backgro
 .provider-direction { margin-top:6px; font-size:.72rem; color:var(--muted); }
 .direction-unsupported { opacity:.62; }
 .direction-unhonored { color:var(--muted); font-style:italic; font-size:.7rem; }
+.transcript-review { padding:14px; border:1px solid var(--line); background:#fffaf0; }
+.transcript-review.empty { color:var(--muted); }
+.waveform-strip { position:relative; display:flex; align-items:center; gap:2px; height:62px; margin:12px 0; padding:8px 6px; border:1px solid var(--line); background:#f4ecdf; overflow:hidden; }
+.waveform-bar { flex:1 1 2px; min-width:2px; align-self:center; padding:0; border:0; border-radius:2px; background:var(--moss); opacity:.58; }
+.waveform-bar:hover,.waveform-bar:focus-visible { opacity:1; outline:2px solid var(--clay); outline-offset:1px; }
+.waveform-marker { position:absolute; top:6px; bottom:6px; width:4px; padding:0; border:0; border-radius:3px; background:var(--clay); box-shadow:0 0 0 2px rgba(255,250,240,.9); }
+.waveform-marker.blocking { background:#a42b22; }
+.waveform-marker.warning { background:#b76f2a; }
+.transcript-lines { display:grid; gap:8px; max-height:430px; overflow:auto; padding-right:4px; }
+.transcript-line { display:grid; grid-template-columns:72px 150px minmax(0,1fr) auto; gap:10px; align-items:start; width:100%; padding:10px; border:1px solid var(--line); border-left:5px solid var(--moss); background:#f9f2e5; color:var(--ink); text-align:left; }
+.transcript-line.active { background:#eef1e6; outline:2px solid rgba(58,81,67,.25); }
+.transcript-time { color:var(--muted); font-size:.7rem; letter-spacing:.07em; text-transform:uppercase; }
+.speaker-chip { width:max-content; max-width:140px; padding:4px 7px; border-radius:999px; font-size:.68rem; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.transcript-text { min-width:0; overflow-wrap:anywhere; font-size:.86rem; line-height:1.45; }
+.transcript-issues { color:var(--clay); font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; white-space:nowrap; }
+@media (max-width:760px) { .transcript-line { grid-template-columns:1fr; } .speaker-chip { max-width:100%; } }
