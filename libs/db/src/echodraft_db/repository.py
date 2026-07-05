@@ -168,6 +168,12 @@ def _speaker_attribution(
 
 
 def _segment_direction(record: SegmentDirectionRecord) -> SegmentDirection:
+    try:
+        evidence = json.loads(record.evidence_json)
+    except (AttributeError, json.JSONDecodeError):
+        evidence = {}
+    if not isinstance(evidence, dict):
+        evidence = {}
     return SegmentDirection.model_validate(
         {
             "segmentId": record.segment_id,
@@ -175,6 +181,7 @@ def _segment_direction(record: SegmentDirectionRecord) -> SegmentDirection:
             "direction": DirectionProfile.model_validate(json.loads(record.direction_json)),
             "source": record.source,
             "userLocked": record.user_locked,
+            "evidence": evidence,
             "directionFingerprint": record.direction_fingerprint,
             "createdAt": record.created_at,
             "updatedAt": record.updated_at,
@@ -1683,11 +1690,12 @@ class SegmentDirectionRepository:
         source: str,
         user_locked: bool,
         direction_fingerprint: str,
+        evidence_json: str = "{}",
     ) -> SegmentDirection:
         now = datetime.now(UTC)
         with self.database.session() as session:
             record = session.get(SegmentDirectionRecord, segment_id)
-            if record and record.user_locked and source == "inferred":
+            if record and record.user_locked and source in {"inferred", "llm_inferred"}:
                 return _segment_direction(record)
             if not record:
                 record = SegmentDirectionRecord(
@@ -1696,6 +1704,7 @@ class SegmentDirectionRepository:
                     direction_json=direction_json,
                     source=source,
                     user_locked=user_locked,
+                    evidence_json=evidence_json,
                     direction_fingerprint=direction_fingerprint,
                     created_at=now,
                     updated_at=now,
@@ -1706,6 +1715,7 @@ class SegmentDirectionRepository:
                 record.direction_json = direction_json
                 record.source = source
                 record.user_locked = user_locked
+                record.evidence_json = evidence_json
                 record.direction_fingerprint = direction_fingerprint
                 record.updated_at = now
             session.commit()

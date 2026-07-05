@@ -40,6 +40,7 @@ from echodraft_domain import (
     ExportRequest,
     EmbeddingRequest,
     EmbeddingResult,
+    DirectionInferenceRunRequest,
     Issue,
     IssueApplyActionRequest,
     IssueApplyActionResponse,
@@ -107,7 +108,7 @@ from echodraft_domain import (
     SegmentProductionOverrideUpdate,
     ChapterProductionStatus,
 )
-from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -1057,7 +1058,11 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         response_model=Job,
         status_code=202,
     )
-    def infer_segment_directions(project_id: str, request: Request) -> Job:
+    def infer_segment_directions(
+        project_id: str,
+        request: Request,
+        payload: DirectionInferenceRunRequest = Body(default_factory=DirectionInferenceRunRequest),
+    ) -> Job:
         container: AppContainer = request.app.state.container
         service = DirectionService(container)
         try:
@@ -1066,7 +1071,12 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
         def run(job_id: str) -> None:
-            service.infer_segment_directions(project_id, job_id)
+            service.infer_segment_directions(
+                project_id,
+                job_id,
+                use_local_llm=payload.use_local_llm,
+                model=payload.model,
+            )
 
         return container.jobs.submit_with_job(
             "directions.infer",

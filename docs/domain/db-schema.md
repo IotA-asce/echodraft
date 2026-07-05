@@ -310,13 +310,15 @@ Key columns:
 - `direction_json` TEXT
 - `source` TEXT
 - `user_locked` BOOLEAN
+- `evidence_json` TEXT
 - `direction_fingerprint` TEXT
 - `created_at` DATETIME
 - `updated_at` DATETIME
 
 Rules:
 - one active direction row per segment
-- inference skips locked rows
+- deterministic and LLM inference skip locked rows
+- `evidence_json` stores review traceability such as deterministic reason or LLM run/window/confidence metadata
 - production resolves direction from segment override, then `segment_directions`, then project default
 - render cache keys include the resolved direction payload
 
