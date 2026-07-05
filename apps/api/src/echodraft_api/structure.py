@@ -77,9 +77,10 @@ class StructureService:
     def extract(self, project_id: str, max_chars: int, job_id: str | None = None) -> None:
         source = self.container.sources.latest(project_id)
         project = self.container.projects.get(project_id)
-        if not source or not source.canonical_path or not project:
-            raise ValueError("A successfully imported canonical source is required.")
-        text = Path(source.canonical_path).read_text(encoding="utf-8")
+        canonical_path = self._canonical_source_path(source)
+        if not project or not source or not canonical_path:
+            raise ValueError(self._canonical_source_error(source, project_exists=project is not None))
+        text = canonical_path.read_text(encoding="utf-8")
         if job_id:
             self.container.jobs_repository.set_progress(
                 job_id,
@@ -128,6 +129,34 @@ class StructureService:
         return [
             ChapterSignal.from_payload(item) for item in payload if isinstance(item, dict)
         ]
+
+    @staticmethod
+    def _canonical_source_path(source: object | None) -> Path | None:
+        if not source or getattr(source, "status", None) != "succeeded":
+            return None
+        raw_path = getattr(source, "canonical_path", None)
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            return None
+        path = Path(raw_path)
+        return path if path.is_file() else None
+
+    @staticmethod
+    def _canonical_source_error(source: object | None, *, project_exists: bool) -> str:
+        if not project_exists:
+            return "Project not found."
+        if not source:
+            return "A successfully imported canonical source is required before structure extraction."
+        status = getattr(source, "status", None) or "unknown"
+        error_message = getattr(source, "error_message", None)
+        if isinstance(error_message, str) and error_message.strip():
+            return (
+                "A successfully imported canonical source is required before structure extraction. "
+                f"Latest source status is {status}: {error_message.strip()}"
+            )
+        return (
+            "A successfully imported canonical source is required before structure extraction. "
+            f"Latest source status is {status}; re-import the manuscript and retry."
+        )
 
     def quality(
         self,
