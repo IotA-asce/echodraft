@@ -45,6 +45,26 @@ def _unlink_all(client, rows: list[dict]) -> None:
         )
 
 
+def _attribution_for_text(client, project: str, needle: str) -> dict:
+    chapters = client.get(f"/api/v1/projects/{project}/chapters").json()
+    segment_id = ""
+    for chapter in chapters:
+        scenes = client.get(f"/api/v1/chapters/{chapter['id']}/scenes").json()
+        for scene in scenes:
+            segments = client.get(f"/api/v1/scenes/{scene['id']}/segments").json()
+            match = next(
+                (segment for segment in segments if needle in segment["textContent"]), None
+            )
+            if match:
+                segment_id = match["id"]
+                break
+        if segment_id:
+            break
+    assert segment_id
+    rows = client.get(f"/api/v1/projects/{project}/speaker-attributions").json()
+    return next(row for row in rows if row["segmentId"] == segment_id)
+
+
 def test_confirmation_propagates_to_sibling_attributions(client) -> None:
     project = client.post(
         "/api/v1/projects", json={"title": "Propagate", "rightsStatus": "declared"}
@@ -191,6 +211,65 @@ def test_unlabeled_dialogue_uses_two_speaker_alternation(client) -> None:
     assert inferred["evidence"]["previousSpeaker"] == "Jon"
     assert inferred["evidence"]["priorSpeaker"] == "Mara"
     assert inferred["evidence"]["nextSpeaker"] == "Jon"
+
+
+def test_unlabeled_dialogue_uses_interruption_exchange(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Interruption", "rightsStatus": "declared"}
+    ).json()["id"]
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    _import_and_extract(
+        client,
+        project,
+        'Chapter 1\n\nMara: First.\n\nJon: Second.\n\nMara: I told you—\n\n"Enough."',
+    )
+
+    inferred = _attribution_for_text(client, project, "Enough.")
+    assert inferred["speakerName"] == "Jon"
+    assert inferred["status"] == "needs_review"
+    assert inferred["evidence"]["reason"] == "interruption_exchange"
+    assert inferred["evidence"]["interruptedSpeaker"] == "Mara"
+    assert inferred["evidence"]["activeSpeakers"] == ["Mara", "Jon"]
+
+
+def test_unlabeled_dialogue_uses_vocative_exchange(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Vocative", "rightsStatus": "declared"}
+    ).json()["id"]
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    _import_and_extract(
+        client,
+        project,
+        'Chapter 1\n\nMara: First.\n\nJon: Second.\n\n"Mara, listen to me."',
+    )
+
+    inferred = _attribution_for_text(client, project, "Mara, listen")
+    assert inferred["speakerName"] == "Jon"
+    assert inferred["status"] == "needs_review"
+    assert inferred["evidence"]["reason"] == "vocative_exchange"
+    assert inferred["evidence"]["addressedSpeaker"] == "Mara"
+    assert inferred["evidence"]["activeSpeakers"] == ["Mara", "Jon"]
+
+
+def test_three_speaker_scene_skips_two_speaker_exchange_rules(client) -> None:
+    project = client.post(
+        "/api/v1/projects",
+        json={"title": "Three Speaker Exchange", "rightsStatus": "declared"},
+    ).json()["id"]
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    _import_and_extract(
+        client,
+        project,
+        (
+            "Chapter 1\n\nMara: First.\n\nJon: Second.\n\n"
+            'Talia: Third.\n\nMara: I told you—\n\n"Enough."'
+        ),
+    )
+
+    unresolved = _attribution_for_text(client, project, "Enough.")
+    assert unresolved["speakerName"] is None
+    assert unresolved["status"] == "needs_review"
+    assert unresolved["evidence"]["reason"] == "dialogue_without_speaker"
 
 
 def test_unlabeled_dialogue_uses_named_speech_action_cue(client) -> None:
@@ -461,6 +540,7 @@ def test_llm_prompt_includes_same_scene_context_window(client, monkeypatch) -> N
     assert wait_for_job(client, rerun["id"])["status"] == "succeeded"
 
     assert "prompt" in captured
+    assert "Active speakers in this scene: Mara" in captured["prompt"]
     assert f"CONTEXT {context_segment['id']}: Mara: Hold the bridge." in captured["prompt"]
     assert f"TARGET {target_segment['id']}: \"Who goes there?\"" in captured["prompt"]
     assert "Return attributions only for TARGET segment IDs" in captured["prompt"]
@@ -472,3 +552,4 @@ def test_llm_prompt_includes_same_scene_context_window(client, monkeypatch) -> N
     target_after = next(row for row in rows_after if row["segmentId"] == target_segment["id"])
     assert target_after["evidence"]["sceneWindowSegmentIds"]
     assert target_after["evidence"]["targetSegmentIds"] == [target_segment["id"]]
+    assert target_after["evidence"]["activeSpeakers"] == ["Mara"]

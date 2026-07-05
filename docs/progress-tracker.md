@@ -14,10 +14,10 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Status Summary
 
 - Numbered gaps tracked: 20
-- Complete: 13
-- Remaining: 7
-- In progress: 1
-- Approximate roadmap completion: 66%
+- Complete: 14
+- Remaining: 6
+- In progress: 0
+- Approximate roadmap completion: 70%
 - Complete phases: Phase 0, Phase 1, Phase 2
 - Remaining phases: Phase 3, Phase 4
 
@@ -31,6 +31,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - Evidence: `feat/g11-real-audio-qa` (`ef42a32`, `df1e332`, merged `d8e7cad`), `feat/g5-mastered-audio` (`5d3ad3f`, merged `3dedf83`), and `feat/g13-export-polish` (`7f27089`, merged `66fcf7a`).
 - [x] G14 casting traits and audition-first suggestions shipped.
   - Evidence: `feat/phase-3-cast-depth`, `feat/g14-voice-facets-auditions`.
+- [x] G10 speaker attribution depth shipped.
+  - Evidence: `feat/phase-3-cast-depth`, `feat/g10-speaker-attribution-depth`, `feat/g10-scene-window-attribution`, `feat/g10-active-speaker-model`.
 
 ## Phase 0 - Trust Foundation
 
@@ -107,14 +109,14 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - [x] Add initial title/nickname alias enrichment.
   - [x] Extract conservative casting-relevant character traits from observed evidence.
   - Evidence: `feat/phase-3-cast-depth`, `feat/g9-disambiguation`; documented in `docs/pipeline/casting/character-bible.md`.
-- [ ] G10 - Speaker attribution depth.
+- [x] G10 - Speaker attribution depth.
   - [x] Add initial nearby-turn and pronoun-cue evidence for unlabeled dialogue.
   - [x] Add conservative two-speaker alternation for same-scene unlabeled dialogue.
   - [x] Add broader speech-action cue and gendered pronoun coreference support.
   - [x] Let attribution propose confident missing speaker labels back through Cast Discovery.
-  - [ ] Expand into full scene active-speaker and interruption model.
+  - [x] Expand into full scene active-speaker and interruption model.
   - [x] Send contiguous scene windows to the LLM attribution pass.
-  - Evidence: `feat/phase-3-cast-depth`, `feat/g10-speaker-attribution-depth`, `feat/g10-scene-window-attribution`; documented in `docs/pipeline/casting/speaker-attribution.md`.
+  - Evidence: `feat/phase-3-cast-depth`, `feat/g10-speaker-attribution-depth`, `feat/g10-scene-window-attribution`, `feat/g10-active-speaker-model`; documented in `docs/pipeline/casting/speaker-attribution.md`.
 - [x] G14 - Casting traits and audition-first suggestions.
   - [x] Add initial gender, age, accent, and role traits where directly observed.
   - [x] Extract Kokoro voice-ID facets.
@@ -159,8 +161,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Completion Estimate
 
 - Roadmap items tracked: 20 numbered gaps.
-- Completed: 13 numbered gaps.
-- In progress: 1 numbered gap.
-- Remaining: 7 numbered gaps.
-- Approximate roadmap completion: 66%.
-- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 40%, Phase 4 0%.
+- Completed: 14 numbered gaps.
+- In progress: 0 numbered gaps.
+- Remaining: 6 numbered gaps.
+- Approximate roadmap completion: 70%.
+- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 50%, Phase 4 0%.
