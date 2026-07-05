@@ -46,6 +46,24 @@ def test_job_transitions_are_durable(app, client) -> None:
     assert response.json()["status"] == "succeeded"
 
 
+def test_project_jobs_can_be_filtered_for_active_structure_work(app, client) -> None:
+    project = client.post("/api/v1/projects", json=create_payload()).json()
+    structure_job = app.state.container.jobs_repository.create(
+        "structure.extract", project_id=project["id"]
+    )
+    app.state.container.jobs_repository.create("source.import", project_id=project["id"])
+    app.state.container.jobs_repository.transition(structure_job.id, JobState.RUNNING)
+
+    response = client.get(
+        f"/api/v1/projects/{project['id']}/jobs",
+        params={"job_type": "structure.extract", "status": "queued,running", "limit": 1},
+    )
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == [structure_job.id]
+    assert response.json()[0]["status"] == "running"
+
+
 def test_job_rejects_invalid_transition(app) -> None:
     job = app.state.container.jobs.enqueue("foundation.check")
     app.state.container.jobs_repository.transition(job.id, JobState.CANCELLED)

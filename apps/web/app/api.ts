@@ -91,6 +91,14 @@ const json = (method: string, body?: object): RequestInit => ({ method, body: bo
 export const listProjects = () => request<Project[]>("/api/v1/projects");
 export const createProject = (payload: { title: string; author?: string; rightsStatus: "declared" }) => request<Project>("/api/v1/projects", json("POST", payload));
 export const getJob = (id: string) => request<Job>(`/api/v1/jobs/${id}`);
+export const listProjectJobs = (projectId: string, options: { jobType?: string; status?: Job["status"][]; limit?: number } = {}) => {
+  const query = new URLSearchParams();
+  if (options.jobType) query.set("job_type", options.jobType);
+  if (options.status?.length) query.set("status", options.status.join(","));
+  if (options.limit) query.set("limit", String(options.limit));
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request<Job[]>(`/api/v1/projects/${projectId}/jobs${suffix}`);
+};
 export const getSource = (projectId: string) => request<SourceDocument>(`/api/v1/projects/${projectId}/source`);
 export const getSourceById = (sourceId: string) => request<SourceDocument>(`/api/v1/sources/${sourceId}`);
 export const listSourcePages = (sourceId: string) => request<SourcePage[]>(`/api/v1/sources/${sourceId}/pages`);
