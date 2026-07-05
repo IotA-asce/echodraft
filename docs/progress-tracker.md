@@ -14,10 +14,10 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Status Summary
 
 - Numbered gaps tracked: 20
-- Complete: 14
-- Remaining: 6
+- Complete: 15
+- Remaining: 5
 - In progress: 0
-- Approximate roadmap completion: 70%
+- Approximate roadmap completion: 75%
 - Complete phases: Phase 0, Phase 1, Phase 2
 - Remaining phases: Phase 3, Phase 4
 
@@ -33,6 +33,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - Evidence: `feat/phase-3-cast-depth`, `feat/g14-voice-facets-auditions`.
 - [x] G10 speaker attribution depth shipped.
   - Evidence: `feat/phase-3-cast-depth`, `feat/g10-speaker-attribution-depth`, `feat/g10-scene-window-attribution`, `feat/g10-active-speaker-model`.
+- [x] G19 persistent local TTS worker shipped.
+  - Evidence: `feat/g19-persistent-tts-worker`; documented in `docs/pipeline/tts/tts-production-upgrade.md`.
 
 ## Phase 0 - Trust Foundation
 
@@ -123,10 +125,11 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - [x] Rank existing project voice suggestions by character traits.
   - [x] Audition voices against representative character lines.
   - Evidence: `feat/phase-3-cast-depth`, `feat/g14-voice-facets-auditions`; documented in `docs/pipeline/casting/character-bible.md`.
-- [ ] G19 - Persistent local TTS worker.
-  - [ ] Keep local models resident.
-  - [ ] Speed up auditioning.
-  - [ ] Enable evidence-based LLM direction workflows.
+- [x] G19 - Persistent local TTS worker.
+  - [x] Keep local models resident.
+  - [x] Speed up auditioning.
+  - [x] Enable evidence-based LLM direction workflows.
+  - Evidence: `feat/g19-persistent-tts-worker`; managed Kokoro ONNX now uses a resident JSON worker and exposes worker status at `GET /api/v1/settings/tts/worker`.
 - [ ] Direction follow-on - Evidence-based LLM direction inference.
   - [ ] Use scene, character, and mood continuity evidence.
   - [ ] Preserve direction evidence for review.
@@ -161,8 +164,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Completion Estimate
 
 - Roadmap items tracked: 20 numbered gaps.
-- Completed: 14 numbered gaps.
+- Completed: 15 numbered gaps.
 - In progress: 0 numbered gaps.
-- Remaining: 6 numbered gaps.
-- Approximate roadmap completion: 70%.
-- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 50%, Phase 4 0%.
+- Remaining: 5 numbered gaps.
+- Approximate roadmap completion: 75%.
+- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 67%, Phase 4 0%.
