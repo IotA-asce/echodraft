@@ -19,7 +19,7 @@ The manual Cast Review action can be rerun from the dashboard or by calling `POS
 
 ## Local LLM Fallback
 
-The run endpoint accepts `useLocalLlm=true`. When enabled, unresolved rows are sent to the local Ollama-backed LLM service in bounded segment batches with a schema-constrained prompt. Up to five approved, user-locked speaker rows from the same project are included as reviewer-confirmed examples so corrections compound inside the book. Failures keep deterministic review rows and create a local review issue; there is no cloud fallback.
+The run endpoint accepts `useLocalLlm=true`. When enabled, unresolved rows are sent to the local Ollama-backed LLM service inside bounded contiguous same-scene windows with a schema-constrained prompt. Prompt rows are marked as `TARGET` or `CONTEXT`: the model may use context lines as evidence, but only target segment IDs are accepted back into attribution rows. Up to five approved, user-locked speaker rows from the same project are included as reviewer-confirmed examples so corrections compound inside the book. Failures keep deterministic review rows and create a local review issue; there is no cloud fallback.
 
 ## Production Voice Resolution
 
@@ -42,3 +42,4 @@ This means character voice assignment changes can make affected segment renders 
 - Two-speaker alternation rows record `reason = "turn_taking_alternation"` with prior, previous, and next speaker evidence.
 - Cast-back proposals record `castProposal = "proposed_cast_from_speaker_attribution"` on the attribution evidence.
 - Propagated rows record `evidence.method = "propagated_from_confirmation"` and the source attribution id.
+- LLM rows record `sceneWindowSegmentIds` and `targetSegmentIds`; context-only segment IDs returned by the model are ignored.
