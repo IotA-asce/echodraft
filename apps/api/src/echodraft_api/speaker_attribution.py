@@ -65,6 +65,12 @@ class CharacterIndex:
                 self.by_name[key] = character
 
 
+@dataclass(frozen=True)
+class SpeakerAttributionWindow:
+    segments: list[SegmentRecord]
+    target_segment_ids: set[str]
+
+
 class SpeakerAttributionService:
     def __init__(self, container: AppContainer) -> None:
         self.container = container
@@ -259,15 +265,19 @@ class SpeakerAttributionService:
             for item in unresolved
             if item.segment_id in segment_map
         ]
-        batches = list(_segment_batches(unresolved_segments))
-        for batch_index, batch in enumerate(batches, 1):
+        windows = list(_scene_context_windows(segments, unresolved_segments))
+        for batch_index, window in enumerate(windows, 1):
+            scene_window_segment_ids = [segment.id for segment in window.segments]
+            target_segment_ids = [
+                segment.id for segment in window.segments if segment.id in window.target_segment_ids
+            ]
             if job_id:
                 self.container.jobs_repository.set_progress(
                     job_id,
                     {
                         "phase": "llm_speaker_attribution",
                         "current": batch_index,
-                        "total": len(batches),
+                        "total": len(windows),
                     },
                 )
             try:
@@ -277,7 +287,12 @@ class SpeakerAttributionService:
                         model=model,
                         task="speaker_attribution",
                         schema=SPEAKER_ATTRIBUTION_SCHEMA,
-                        prompt=self._llm_prompt(batch, character_index, exemplars),
+                        prompt=self._llm_prompt(
+                            window.segments,
+                            character_index,
+                            exemplars,
+                            target_segment_ids=window.target_segment_ids,
+                        ),
                     ),
                     job_id,
                 )
@@ -288,8 +303,8 @@ class SpeakerAttributionService:
                     severity="warning",
                     title="LLM speaker attribution skipped a segment window",
                     description="Local Ollama failed while assigning speakers; deterministic review rows remain.",
-                    metadata={"error": str(error)[:500], "segmentIds": [segment.id for segment in batch]},
-                    dedupe_key=f"speaker-llm:{project_id}:{batch[0].id}",
+                    metadata={"error": str(error)[:500], "segmentIds": target_segment_ids},
+                    dedupe_key=f"speaker-llm:{project_id}:{target_segment_ids[0]}",
                 )
                 continue
             attributions = result.result.get("attributions")
@@ -301,6 +316,8 @@ class SpeakerAttributionService:
                 payload = cast(dict[str, object], item)
                 segment_id = payload.get("segmentId")
                 if not isinstance(segment_id, str) or segment_id not in segment_map:
+                    continue
+                if segment_id not in window.target_segment_ids:
                     continue
                 speaker_name = str(payload.get("speakerName") or "")
                 character_name = str(payload.get("characterName") or speaker_name)
@@ -318,6 +335,8 @@ class SpeakerAttributionService:
                         "textPreview": segment_map[segment_id].text_content[:160],
                         "evidence": payload.get("evidence"),
                         "structure": _evidence(segment_map[segment_id].parser_evidence_json),
+                        "sceneWindowSegmentIds": scene_window_segment_ids,
+                        "targetSegmentIds": target_segment_ids,
                     },
                     confidence=confidence,
                     status="approved" if character and confidence >= 0.8 else "needs_review",
@@ -368,6 +387,8 @@ class SpeakerAttributionService:
         segments: list[SegmentRecord],
         character_index: CharacterIndex,
         exemplars: list[tuple[str, str]] | None = None,
+        *,
+        target_segment_ids: set[str] | None = None,
     ) -> str:
         characters = sorted(
             {character.id: character for character in character_index.by_name.values()}.values(),
@@ -379,7 +400,8 @@ class SpeakerAttributionService:
             alias_suffix = f" (aliases: {', '.join(aliases)})" if aliases else ""
             character_lines.append(f"{character.display_name}{alias_suffix}")
         segment_lines = "\n".join(
-            f"- {segment.id}: {segment.text_content[:500].replace(chr(10), ' ')}"
+            f"- {'TARGET' if not target_segment_ids or segment.id in target_segment_ids else 'CONTEXT'} "
+            f"{segment.id}: {segment.text_content[:500].replace(chr(10), ' ')}"
             for segment in segments
         )
         exemplar_block = ""
@@ -395,7 +417,8 @@ class SpeakerAttributionService:
         return (
             "Assign likely speakers for this bounded audiobook segment window. Use only the supplied "
             "Character Bible cast when linking a character. Leave uncertain speakers in review by "
-            "returning low confidence. Return JSON that matches the supplied schema.\n\n"
+            "returning low confidence. Return attributions only for TARGET segment IDs; CONTEXT lines "
+            "are same-scene evidence only. Return JSON that matches the supplied schema.\n\n"
             f"{exemplar_block}"
             f"Cast: {'; '.join(character_lines) if character_lines else 'No cast records yet'}\n\n"
             f"Segments:\n{segment_lines}"
@@ -677,6 +700,77 @@ def _confidence(value: object) -> float:
         except ValueError:
             return 0.0
     return 0.0
+
+
+def _scene_context_windows(
+    segments: list[SegmentRecord],
+    target_segments: list[SegmentRecord],
+) -> list[SpeakerAttributionWindow]:
+    if not target_segments:
+        return []
+    scene_segments: dict[str, list[SegmentRecord]] = {}
+    for segment in segments:
+        scene_segments.setdefault(segment.scene_id, []).append(segment)
+    targets_by_scene: dict[str, list[SegmentRecord]] = {}
+    for target in target_segments:
+        targets_by_scene.setdefault(target.scene_id, []).append(target)
+
+    windows: list[SpeakerAttributionWindow] = []
+    for scene_id, targets in targets_by_scene.items():
+        ordered_scene = scene_segments.get(scene_id, [])
+        if not ordered_scene:
+            continue
+        if _fits_llm_window(ordered_scene):
+            windows.append(
+                SpeakerAttributionWindow(
+                    segments=ordered_scene,
+                    target_segment_ids={target.id for target in targets},
+                )
+            )
+            continue
+        for target_batch in _segment_batches(targets):
+            windows.append(
+                SpeakerAttributionWindow(
+                    segments=_bounded_scene_window(ordered_scene, {target.id for target in target_batch}),
+                    target_segment_ids={target.id for target in target_batch},
+                )
+            )
+    return windows
+
+
+def _bounded_scene_window(
+    scene_segments: list[SegmentRecord], target_segment_ids: set[str]
+) -> list[SegmentRecord]:
+    target_positions = [
+        index for index, segment in enumerate(scene_segments) if segment.id in target_segment_ids
+    ]
+    if not target_positions:
+        return []
+    start = min(target_positions)
+    end = max(target_positions)
+    window = scene_segments[start : end + 1]
+    left = start - 1
+    right = end + 1
+    while left >= 0 or right < len(scene_segments):
+        added = False
+        if left >= 0 and _fits_llm_window([scene_segments[left], *window]):
+            window = [scene_segments[left], *window]
+            left -= 1
+            added = True
+        if right < len(scene_segments) and _fits_llm_window([*window, scene_segments[right]]):
+            window = [*window, scene_segments[right]]
+            right += 1
+            added = True
+        if not added:
+            break
+    return window
+
+
+def _fits_llm_window(segments: list[SegmentRecord]) -> bool:
+    return (
+        len(segments) <= SPEAKER_ATTRIBUTION_BATCH_SEGMENTS
+        and sum(len(segment.text_content) for segment in segments) <= SPEAKER_ATTRIBUTION_BATCH_CHARS
+    )
 
 
 def _segment_batches(segments: list[SegmentRecord]) -> list[list[SegmentRecord]]:

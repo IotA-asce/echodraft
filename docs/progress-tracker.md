@@ -17,7 +17,7 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 - Complete: 13
 - Remaining: 7
 - In progress: 1
-- Approximate roadmap completion: 65%
+- Approximate roadmap completion: 66%
 - Complete phases: Phase 0, Phase 1, Phase 2
 - Remaining phases: Phase 3, Phase 4
 
@@ -113,8 +113,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - [x] Add broader speech-action cue and gendered pronoun coreference support.
   - [x] Let attribution propose confident missing speaker labels back through Cast Discovery.
   - [ ] Expand into full scene active-speaker and interruption model.
-  - [ ] Send contiguous scene windows to the LLM attribution pass.
-  - Evidence: `feat/phase-3-cast-depth`, `feat/g10-speaker-attribution-depth`; documented in `docs/pipeline/casting/speaker-attribution.md`.
+  - [x] Send contiguous scene windows to the LLM attribution pass.
+  - Evidence: `feat/phase-3-cast-depth`, `feat/g10-speaker-attribution-depth`, `feat/g10-scene-window-attribution`; documented in `docs/pipeline/casting/speaker-attribution.md`.
 - [x] G14 - Casting traits and audition-first suggestions.
   - [x] Add initial gender, age, accent, and role traits where directly observed.
   - [x] Extract Kokoro voice-ID facets.
@@ -162,5 +162,5 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 - Completed: 13 numbered gaps.
 - In progress: 1 numbered gap.
 - Remaining: 7 numbered gaps.
-- Approximate roadmap completion: 65%.
-- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 36%, Phase 4 0%.
+- Approximate roadmap completion: 66%.
+- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 40%, Phase 4 0%.

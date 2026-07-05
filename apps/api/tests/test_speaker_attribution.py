@@ -399,3 +399,76 @@ def test_locked_attribution_exemplars_injected_into_llm_prompt(client, monkeypat
     assert "prompt" in captured
     assert "→ Speaker: Bran" in captured["prompt"]
     assert "We leave now." in captured["prompt"]
+
+
+def test_llm_prompt_includes_same_scene_context_window(client, monkeypatch) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Scene Window", "rightsStatus": "declared"}
+    ).json()["id"]
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    _import_and_extract(
+        client,
+        project,
+        'Chapter 1\n\nMara: Hold the bridge.\n\nThe torches hissed in the rain.\n\n"Who goes there?"',
+    )
+    chapter = client.get(f"/api/v1/projects/{project}/chapters").json()[0]
+    scene = client.get(f"/api/v1/chapters/{chapter['id']}/scenes").json()[0]
+    segments = client.get(f"/api/v1/scenes/{scene['id']}/segments").json()
+    context_segment = next(item for item in segments if "Mara: Hold" in item["textContent"])
+    target_segment = next(item for item in segments if "Who goes there" in item["textContent"])
+    rows_before = client.get(f"/api/v1/projects/{project}/speaker-attributions").json()
+    context_before = next(row for row in rows_before if row["segmentId"] == context_segment["id"])
+    assert context_before["speakerName"] == "Mara"
+    assert context_before["status"] == "approved"
+    target_before = next(row for row in rows_before if row["segmentId"] == target_segment["id"])
+    assert target_before["status"] == "needs_review"
+
+    captured: dict[str, str] = {}
+
+    def fake_extract(_self, _project_id, request, _job_id=None):
+        if request.task == "speaker_attribution":
+            captured["prompt"] = request.prompt
+        return SimpleNamespace(
+            run=SimpleNamespace(id="llmrun_scene_window"),
+            result={
+                "attributions": [
+                    {
+                        "segmentId": context_segment["id"],
+                        "speakerName": "Wrong",
+                        "characterName": "Wrong",
+                        "confidence": 0.1,
+                        "evidence": "context line should be ignored",
+                    },
+                    {
+                        "segmentId": target_segment["id"],
+                        "speakerName": "Mara",
+                        "characterName": "Mara",
+                        "confidence": 0.4,
+                        "evidence": "scene context",
+                    },
+                ],
+                "warnings": [],
+            },
+        )
+
+    monkeypatch.setattr(
+        speaker_attribution_module.LocalLlmService, "extract", fake_extract, raising=False
+    )
+    rerun = client.post(
+        f"/api/v1/projects/{project}/speaker-attributions/run",
+        json={"useLocalLlm": True},
+    ).json()
+    assert wait_for_job(client, rerun["id"])["status"] == "succeeded"
+
+    assert "prompt" in captured
+    assert f"CONTEXT {context_segment['id']}: Mara: Hold the bridge." in captured["prompt"]
+    assert f"TARGET {target_segment['id']}: \"Who goes there?\"" in captured["prompt"]
+    assert "Return attributions only for TARGET segment IDs" in captured["prompt"]
+
+    rows_after = client.get(f"/api/v1/projects/{project}/speaker-attributions").json()
+    context_after = next(row for row in rows_after if row["segmentId"] == context_segment["id"])
+    assert context_after["speakerName"] == "Mara"
+    assert context_after["status"] == "approved"
+    target_after = next(row for row in rows_after if row["segmentId"] == target_segment["id"])
+    assert target_after["evidence"]["sceneWindowSegmentIds"]
+    assert target_after["evidence"]["targetSegmentIds"] == [target_segment["id"]]
