@@ -19,6 +19,7 @@ from echodraft_db.models import (
 )
 from sqlalchemy import select
 
+from .asr_verification import LocalAsrVerifier
 from .audio_analysis import AudioAnalysis, analyze_wav
 from .container import AppContainer
 
@@ -85,6 +86,7 @@ class ReviewService:
                 metadata={"segmentRenderId": render.id},
                 dedupe_key=f"segment:{render.id}:{category}",
             )
+        self._qa_asr_segment(project_id, render, chapter.id if chapter else None, payload)
 
     def qa_chapter(
         self,
@@ -307,3 +309,69 @@ class ReviewService:
                     )
                 )
         return rules
+
+    def _qa_asr_segment(
+        self,
+        project_id: str,
+        render: SegmentRenderRecord,
+        chapter_id: str | None,
+        request_payload: dict[str, object],
+    ) -> None:
+        expected = request_payload.get("synthesisText")
+        if not isinstance(expected, str) or not expected.strip():
+            return
+        verifier = LocalAsrVerifier(self.container.settings)
+        if not verifier.configured():
+            return
+        result = verifier.verify(
+            Path(render.audio_path),
+            expected,
+            Path(render.metadata_path).parent / "asr",
+        )
+        metadata = {
+            **result.evidence,
+            "segmentRenderId": render.id,
+            "audioPath": render.audio_path,
+        }
+        self._merge_render_metadata(render.metadata_path, {"asrVerification": metadata})
+        if result.status == "failed":
+            match_ratio = result.evidence.get("matchRatio")
+            match_percent = float(match_ratio) if isinstance(match_ratio, (int, float)) else 0.0
+            self.container.review.create_issue(
+                project_id=project_id,
+                chapter_id=chapter_id,
+                segment_id=render.segment_id,
+                category="asr_word_mismatch",
+                severity="warning",
+                title="ASR Word Mismatch",
+                description=(
+                    f"Local ASR transcript matched {match_percent:.0%} "
+                    "of expected words."
+                ),
+                metadata=metadata,
+                dedupe_key=f"segment:{render.id}:asr_word_mismatch",
+            )
+        elif result.status == "error":
+            self.container.review.create_issue(
+                project_id=project_id,
+                chapter_id=chapter_id,
+                segment_id=render.segment_id,
+                category="asr_verification_error",
+                severity="warning",
+                title="ASR Verification Error",
+                description=result.error or "Local ASR verification failed.",
+                metadata=metadata,
+                dedupe_key=f"segment:{render.id}:asr_verification_error",
+            )
+
+    @staticmethod
+    def _merge_render_metadata(path: str, patch: dict[str, object]) -> None:
+        metadata_path = Path(path)
+        try:
+            payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        payload.update(patch)
+        metadata_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")

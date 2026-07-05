@@ -36,7 +36,7 @@ Each capability and principle is scored on a 0–5 maturity scale against the vi
 | Voice casting | 3 | 5 | **2** | Trait-ranked suggestions now use Kokoro facets and own-line auditions; no lineup/confusable-voice check yet |
 | Performance direction | 3 | 5 | **2** | Direction transmission is truthful, managed Kokoro stays resident, and opt-in local LLM inference now preserves review evidence; deterministic inference remains the default and UI evidence review is still thin |
 | Audio production quality | 1 | 5 | **4** | 16 kHz mono, aliasing resample, no loudness/limiter, no M4B, no metadata embedding |
-| QA (catching real issues) | 1 | 5 | **4** | Checklist not listener; telemetry faked; rulebook checks unimplemented; no ASR verification |
+| QA (catching real issues) | 2 | 5 | **3** | Real audio checks and optional local ASR word-match now exist; pronunciation risk, voice consistency, flatness, and richer review UX remain |
 | Review/patch workflow | 2 | 5 | **3** | Resolve-trap; patch can be a no-op; patch uses wrong voice; issue scoping bugs |
 
 ### 2.2 Cross-cutting principles (the multipliers)
@@ -120,10 +120,10 @@ Format: **Current state → Vision target → Specific gaps (→ principle it se
 - **Target:** 44.1 kHz masters; LUFS-normalized + true-peak-limited; M4B with chapters/metadata/cover; tagged MP3; retail sample; QA scorecard; real waveform player.
 - **Gaps:** every item above (→ mostly engineering + P4 for faked telemetry). Highest-leverage: loudness normalization + limiter, and 44.1 kHz resampling.
 
-### 3.7 QA — 1 → 5
-- **Current:** metadata/state checklist; the only audio-byte checks are duration, a naive clip threshold, and 100%-zero silence (dead against real speech); telemetry hardcoded; rulebook's loudness/pronunciation/truncation/voice-confusion checks unimplemented; nothing verifies the TTS said the words.
+### 3.7 QA — 2 → 5
+- **Current:** real audio telemetry now drives loudness, clipping, dead-air, truncation, and readiness checks. Optional local whisper.cpp-compatible ASR verification now compares latest segment render transcripts against expected synthesis text, stores `asrVerification` evidence in render metadata, opens review warnings for word mismatches/errors, and summarizes latest ASR status in readiness. Pronunciation-risk preflagging, render-time speaker voice consistency, flatness checks, and jump-to-audio evidence UX remain incomplete.
 - **Target:** catches mispronunciation, wrong actor, flat delivery, truncation, loudness jumps, dead air, bad pacing.
-- **Gaps:** real peak/RMS/LUFS/true-peak; RMS dead-air; duration-vs-text truncation; pronunciation-risk pre-flagging; **local ASR word-match** (the definitive intelligibility gate); render-time voice-consistency; flatness heuristic (→ P1/P4).
+- **Gaps:** pronunciation-risk pre-flagging; render-time voice-consistency; flatness heuristic; chapter-level ASR alignment and timestamped transcript review (→ P1/P4).
 
 ### 3.8 Review/patch workflow — 2 → 5
 - **Current:** resolve-trap (resolved check stays hidden while still failing); patch never forces re-render (can be a silent no-op); patch re-renders in narrator voice/default direction (can *introduce* defects); chapter-issue and export-blocker scoping bugs; single global busy/error slot.

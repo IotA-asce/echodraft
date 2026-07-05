@@ -47,6 +47,20 @@ models:
       apt: ffmpeg
       winget: Gyan.FFmpeg
 
+  whisper_cpp:
+    display_name: whisper.cpp CLI
+    capability: asr
+    provider: whisper_cpp
+    install_type: system_tool
+    required: false
+    command: whisper-cli
+    version_args: ["--help"]
+    size_mb: 60
+    license_summary: MIT for whisper.cpp runtime; ASR model licenses vary.
+    description: Optional local ASR executable for segment word-match verification.
+    packages:
+      homebrew: whisper-cpp
+
   ollama:
     display_name: Ollama Runtime
     capability: local_llm_runtime

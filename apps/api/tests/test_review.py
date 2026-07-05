@@ -2,9 +2,11 @@ import json
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from audio_fixtures import wav_bytes_from_segments
 from echodraft_api.rendering import SegmentRenderer
+from echodraft_api import review as review_module
 from echodraft_api.review import ReviewService
 from echodraft_db.models import SegmentRenderRecord
 from echodraft_domain import SegmentRenderRequest
@@ -131,6 +133,84 @@ def test_qa_issues_are_durable_and_deduplicated_per_render(client) -> None:
         )
         == 1
     )
+
+
+def test_asr_pass_updates_render_metadata_without_issue(client, monkeypatch) -> None:
+    class PassingVerifier:
+        def __init__(self, _settings) -> None:
+            pass
+
+        def configured(self) -> bool:
+            return True
+
+        def verify(self, _audio_path, _expected_text, _output_root):
+            return SimpleNamespace(
+                status="passed",
+                error=None,
+                evidence={
+                    "reason": "asr_word_match",
+                    "status": "passed",
+                    "matchRatio": 1.0,
+                    "wordErrorRate": 0.0,
+                    "expectedPreview": "A reviewable sentence.",
+                    "transcriptPreview": "A reviewable sentence.",
+                    "provider": "test-asr",
+                    "model": "test.bin",
+                },
+            )
+
+    monkeypatch.setattr(review_module, "LocalAsrVerifier", PassingVerifier)
+    project, _, segment = prepared_segment(client)
+
+    rendered = client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/generate", json=render_payload(project)
+    ).json()
+
+    metadata = json.loads(Path(rendered["metadataPath"]).read_text(encoding="utf-8"))
+    assert metadata["asrVerification"]["status"] == "passed"
+    assert metadata["asrVerification"]["segmentRenderId"] == rendered["id"]
+    issues = client.get(f"/api/v1/projects/{project}/issues?segment_id={segment}").json()
+    assert not [issue for issue in issues if issue["category"] == "asr_word_mismatch"]
+
+
+def test_asr_mismatch_creates_review_issue_with_evidence(client, monkeypatch) -> None:
+    class FailingVerifier:
+        def __init__(self, _settings) -> None:
+            pass
+
+        def configured(self) -> bool:
+            return True
+
+        def verify(self, _audio_path, _expected_text, _output_root):
+            return SimpleNamespace(
+                status="failed",
+                error=None,
+                evidence={
+                    "reason": "asr_word_match",
+                    "status": "failed",
+                    "matchRatio": 0.5,
+                    "wordErrorRate": 0.5,
+                    "missingWords": ["reviewable"],
+                    "extraWords": ["different"],
+                    "expectedPreview": "A reviewable sentence.",
+                    "transcriptPreview": "A different sentence.",
+                    "provider": "test-asr",
+                    "model": "test.bin",
+                },
+            )
+
+    monkeypatch.setattr(review_module, "LocalAsrVerifier", FailingVerifier)
+    project, _, segment = prepared_segment(client)
+
+    rendered = client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/generate", json=render_payload(project)
+    ).json()
+
+    issues = client.get(f"/api/v1/projects/{project}/issues?segment_id={segment}").json()
+    mismatch = next(issue for issue in issues if issue["category"] == "asr_word_mismatch")
+    assert mismatch["metadata"]["segmentRenderId"] == rendered["id"]
+    assert mismatch["metadata"]["matchRatio"] == 0.5
+    assert mismatch["metadata"]["missingWords"] == ["reviewable"]
 
 
 def test_patch_auto_resolves_render_qa_issue_when_new_render_passes(client, app) -> None:

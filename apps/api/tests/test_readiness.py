@@ -1,7 +1,10 @@
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from audio_fixtures import wav_bytes_from_segments
+from echodraft_api import readiness as readiness_module
+from echodraft_api import review as review_module
 from echodraft_db.models import ChapterRenderRecord
 
 
@@ -337,6 +340,64 @@ def test_readiness_auto_resolves_segment_audio_missing_check(client) -> None:
         if item["id"] == issue_id
     )
     assert issue["status"] == "resolved"
+
+
+def _asr_verifier(status: str):
+    class FakeVerifier:
+        def __init__(self, _settings) -> None:
+            pass
+
+        def configured(self) -> bool:
+            return True
+
+        def verify(self, _audio_path, _expected_text, _output_root):
+            match_ratio = 1.0 if status == "passed" else 0.5
+            return SimpleNamespace(
+                status=status,
+                error=None,
+                evidence={
+                    "reason": "asr_word_match",
+                    "status": status,
+                    "matchRatio": match_ratio,
+                    "wordErrorRate": 1.0 - match_ratio,
+                    "provider": "test-asr",
+                    "model": "test.bin",
+                    "expectedPreview": "Ready checks need audio.",
+                    "transcriptPreview": "Ready checks need audio.",
+                },
+            )
+
+    return FakeVerifier
+
+
+def test_readiness_reports_asr_word_match_passed(client, monkeypatch) -> None:
+    fake = _asr_verifier("passed")
+    monkeypatch.setattr(review_module, "LocalAsrVerifier", fake)
+    monkeypatch.setattr(readiness_module, "LocalAsrVerifier", fake)
+    project, chapter = produced_chapter(client)
+
+    report = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+
+    check = next(item for item in report["checks"] if item["id"] == "segment_asr_word_match")
+    assert check["status"] == "passed"
+
+
+def test_readiness_warns_on_asr_word_mismatch(client, monkeypatch) -> None:
+    fake = _asr_verifier("failed")
+    monkeypatch.setattr(review_module, "LocalAsrVerifier", fake)
+    monkeypatch.setattr(readiness_module, "LocalAsrVerifier", fake)
+    project, chapter = produced_chapter(client)
+
+    report = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+
+    check = next(item for item in report["checks"] if item["id"] == "segment_asr_word_match")
+    assert check["status"] == "failed"
+    assert check["metadata"]["statusCounts"]["failed"] == 1
+    assert check["resolutionStatus"] == "open"
 
 
 def test_readiness_reports_chapter_audio_hot_and_dead_air_with_stable_ids(client, app) -> None:

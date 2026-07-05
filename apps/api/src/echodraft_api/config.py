@@ -18,6 +18,8 @@ class AppSettings:
     xtts_reference_voice_path: Path | None = None
     xtts_reference_voice_consent: bool = False
     xtts_language: str = "en"
+    asr_executable: str | None = None
+    asr_model_path: Path | None = None
     local_ai_root: Path = Path(".echodraft/local-ai")
     ollama_base_url: str = "http://127.0.0.1:11434"
     tts_settings_path: Path = Path(".echodraft/tts-settings.json")
@@ -70,6 +72,12 @@ class AppSettings:
             ).lower()
             in {"1", "true", "yes"},
             xtts_language=os.getenv("ECHODRAFT_XTTS_LANGUAGE", "en"),
+            asr_executable=os.getenv("ECHODRAFT_ASR_EXECUTABLE"),
+            asr_model_path=(
+                Path(value).expanduser().resolve()
+                if (value := os.getenv("ECHODRAFT_ASR_MODEL_PATH"))
+                else None
+            ),
             local_ai_root=Path(
                 os.getenv("ECHODRAFT_LOCAL_AI_ROOT", ".echodraft/local-ai")
             ).expanduser().resolve(),
