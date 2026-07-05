@@ -66,6 +66,20 @@ Required checks:
 - probable attribution mismatch detection
 - unsupported symbol detection
 
+**Implemented** (Phase 3 G16): local ASR word-match verification can run after each segment
+render when `ECHODRAFT_ASR_EXECUTABLE` or `whisper-cli` on `PATH` and
+`ECHODRAFT_ASR_MODEL_PATH` are configured. The first adapter targets whisper.cpp's CLI
+contract (`-m <model> -f <wav> -oj -of <output_prefix>`). It writes
+`asrVerification` into the segment render metadata, including transcript preview,
+expected preview, match ratio, word error rate, missing/extra word samples, provider, model,
+and segment render ID.
+
+Rules:
+- `asr_word_mismatch` is a `warning` when the normalized word match ratio is below `0.90`
+- `asr_verification_error` is a `warning` when configured local ASR fails closed
+- very short expected text below 4 normalized tokens is skipped as `skipped_short_text`
+- readiness check `segment_asr_word_match` summarizes latest segment render ASR evidence
+
 Rules:
 - repeated word anomalies are `warning`
 - attribution mismatch is `warning` or `error` depending on confidence
@@ -117,6 +131,8 @@ Rate each 1 to 5:
 - `dead_air`
 - `excessive_silence`
 - `truncation_suspected`
+- `asr_word_mismatch`
+- `asr_verification_error`
 - `missing_audio`
 - `corrupt_audio`
 - `voice_drift`

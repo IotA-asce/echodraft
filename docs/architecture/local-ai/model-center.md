@@ -13,6 +13,7 @@ Stage 1 includes:
 - Poppler PDF tools for page rendering;
 - Tesseract for baseline OCR;
 - FFmpeg for audio conversion and future mixing;
+- whisper.cpp CLI as the optional local ASR executable for word-match verification;
 - Ollama as the first local LLM runtime;
 - Qwen3 Ollama model entries for local LLM and embeddings;
 - managed Kokoro 82M ONNX as the default local TTS entry.
@@ -36,6 +37,9 @@ Install requests require explicit confirmation for network downloads, third-part
 Health checks are runtime checks, while installation records are persisted verification snapshots.
 
 - System tools are checked with `PATH` lookup and version commands.
+- ASR word-match verification uses `ECHODRAFT_ASR_EXECUTABLE` when set, otherwise
+  `whisper-cli` on `PATH`, and requires `ECHODRAFT_ASR_MODEL_PATH` to point at a local
+  whisper.cpp model file before render QA runs ASR.
 - Ollama models are checked through the local Ollama tags API at `http://127.0.0.1:11434/api/tags`.
   Untagged catalog names such as `qwen3-embedding` match Ollama's reported
   `qwen3-embedding:latest` entry.

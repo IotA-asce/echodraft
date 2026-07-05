@@ -14,10 +14,10 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Status Summary
 
 - Numbered gaps tracked: 20
-- Complete: 15
-- Remaining: 5
+- Complete: 16
+- Remaining: 4
 - In progress: 0
-- Approximate roadmap completion: 75%
+- Approximate roadmap completion: 80%
 - Complete phases: Phase 0, Phase 1, Phase 2
 - Remaining phases: Phase 3, Phase 4
 
@@ -37,6 +37,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - Evidence: `feat/g19-persistent-tts-worker`; documented in `docs/pipeline/tts/tts-production-upgrade.md`.
 - [x] Direction follow-on evidence-based LLM inference shipped.
   - Evidence: `feat/evidence-based-direction-inference`; documented in `docs/pipeline/direction/direction-studio.md`.
+- [x] G16 local ASR word-match verification shipped.
+  - Evidence: `feat/g16-local-asr-word-match`; documented in `docs/pipeline/qa/qa-rulebook.md`.
 
 ## Phase 0 - Trust Foundation
 
@@ -137,10 +139,11 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - [x] Preserve direction evidence for review.
   - Evidence: `feat/evidence-based-direction-inference`; deterministic inference remains default, optional local LLM direction rows persist `evidence_json`, and locked rows remain protected.
   - Note: this is not counted as a separate G1-G20 gap, but remains a roadmap follow-on after G4 and depends on G19.
-- [ ] G16 - Local ASR word-match verification.
-  - [ ] Verify generated speech matches expected text.
-  - [ ] Flag mispronunciation, dropped words, and truncation.
-  - [ ] Feed ASR verification evidence into QA and readiness.
+- [x] G16 - Local ASR word-match verification.
+  - [x] Verify generated speech matches expected text.
+  - [x] Flag mispronunciation, dropped words, and truncation.
+  - [x] Feed ASR verification evidence into QA and readiness.
+  - Evidence: `feat/g16-local-asr-word-match`; optional whisper.cpp-compatible ASR writes render metadata, opens review warnings, and feeds readiness when configured.
 - [ ] G18 - Structure depth.
   - [ ] Add multilingual detection.
   - [ ] Classify front matter and back matter.
@@ -167,8 +170,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Completion Estimate
 
 - Roadmap items tracked: 20 numbered gaps.
-- Completed: 15 numbered gaps.
+- Completed: 16 numbered gaps.
 - In progress: 0 numbered gaps.
-- Remaining: 5 numbered gaps.
-- Approximate roadmap completion: 75%.
-- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 75%, Phase 4 0%.
+- Remaining: 4 numbered gaps.
+- Approximate roadmap completion: 80%.
+- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 83%, Phase 4 0%.
