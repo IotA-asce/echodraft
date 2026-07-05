@@ -175,6 +175,55 @@ def test_export_refuses_open_blocking_issues(client) -> None:
     )
 
 
+def test_export_blockers_are_scoped_to_selected_chapters(client) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Scoped Export", "rightsStatus": "declared"}
+    ).json()["id"]
+    imported = client.post(
+        f"/api/v1/projects/{project}/source/import",
+        files={
+            "file": (
+                "book.txt",
+                b"Chapter 1\n\nSelected chapter text.\n\nChapter 2\n\nOther chapter text.",
+                "text/plain",
+            )
+        },
+        data={"rightsAcknowledged": "true"},
+    ).json()
+    assert wait_for_job(client, imported["id"])["status"] == "succeeded"
+    structured = client.post(f"/api/v1/projects/{project}/structure/extract", json={}).json()
+    assert wait_for_job(client, structured["id"])["status"] == "succeeded"
+    chapters = client.get(f"/api/v1/projects/{project}/chapters").json()
+    selected, other = chapters[0]["id"], chapters[1]["id"]
+    voice = client.post(
+        f"/api/v1/projects/{project}/voices",
+        json={"name": "Narrator", "backend": "mock", "providerVoiceId": "mock-narrator"},
+    ).json()
+    client.put(
+        f"/api/v1/projects/{project}/production-settings",
+        json={"narratorVoiceProfileId": voice["id"]},
+    )
+    produced = client.post(f"/api/v1/projects/{project}/chapters/{selected}/produce").json()
+    assert wait_for_job(client, produced["id"])["status"] == "succeeded"
+    client.post(
+        f"/api/v1/projects/{project}/issues",
+        json={
+            "chapterId": other,
+            "category": "readiness",
+            "severity": "blocking",
+            "title": "Other chapter blocker",
+            "description": "This should not block a selected-chapter export.",
+        },
+    )
+
+    estimate = client.post(
+        f"/api/v1/projects/{project}/exports/estimate",
+        json={"format": "wav", "chapterIds": [selected]},
+    ).json()
+
+    assert estimate["blockers"] == []
+
+
 def test_export_estimate_marks_mixed_gate_and_accepts_m4b(client, monkeypatch) -> None:
     monkeypatch.setattr(
         exporting.shutil,

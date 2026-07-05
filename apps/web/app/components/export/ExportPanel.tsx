@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ExportFormat, ExportPackage, Project, Chapter } from "../../api";
+import type { Chapter, ExportEstimate, ExportFormat, ExportPackage, Project } from "../../api";
 import { assetUrl } from "../../api";
 import { formatBytes } from "../../lib/format";
 import { EmptyState } from "../common/EmptyState";
@@ -16,6 +16,8 @@ export function ExportPanel({
   language,
   coverPath,
   exports,
+  estimate,
+  busy,
   onGoStructure,
   onSelectionChange,
   onAudioVariantChange,
@@ -38,6 +40,8 @@ export function ExportPanel({
   language: string;
   coverPath: string;
   exports: ExportPackage[];
+  estimate: ExportEstimate | null;
+  busy?: boolean;
   onGoStructure: () => void;
   onSelectionChange: (chapterIds: string[]) => void;
   onAudioVariantChange: (value: "active" | "clean" | "mixed") => void;
@@ -52,6 +56,7 @@ export function ExportPanel({
   const [includeRetailSample, setIncludeRetailSample] = useState(false);
   const latestExport = exports[0] ?? null;
   const latestScores = latestExport?.qa?.outputs ?? [];
+  const hasBlockers = Boolean(estimate?.blockers.length);
 
   if (!chapters.length) {
     return <EmptyState title="No chapters ready for export." description="Produce at least one chapter before creating a package." onAction={onGoStructure} actionLabel="Go to structure" />;
@@ -116,16 +121,34 @@ export function ExportPanel({
           </label>
         </div>
         <div className="export-actions">
-          <button type="button" disabled={!selectedChapterIds.length} onClick={() => onExport("wav", { includeRetailSample: false })}>
+          <button type="button" disabled={!selectedChapterIds.length || hasBlockers || busy} onClick={() => onExport("wav", { includeRetailSample: false })}>
             Export WAV ZIP
           </button>
-          <button type="button" disabled={!selectedChapterIds.length} onClick={() => onExport("mp3", { includeRetailSample })}>
+          <button type="button" disabled={!selectedChapterIds.length || hasBlockers || busy} onClick={() => onExport("mp3", { includeRetailSample })}>
             Export MP3 ZIP
           </button>
-          <button type="button" disabled={!selectedChapterIds.length} onClick={() => onExport("m4b", { includeRetailSample })}>
+          <button type="button" disabled={!selectedChapterIds.length || hasBlockers || busy} onClick={() => onExport("m4b", { includeRetailSample })}>
             Export M4B
           </button>
         </div>
+        {estimate ? (
+          <div className={hasBlockers ? "export-estimate blocked" : "export-estimate"}>
+            <div className="source-heading">
+              <strong>Export readiness</strong>
+              <span>{hasBlockers ? `${estimate.blockers.length} blocker${estimate.blockers.length === 1 ? "" : "s"}` : `${formatBytes(estimate.estimatedSizeBytes)} estimated`}</span>
+            </div>
+            {hasBlockers ? (
+              estimate.blockers.slice(0, 8).map((blocker) => (
+                <p key={`${blocker.code}-${blocker.chapterId ?? "global"}-${blocker.issueId ?? "none"}`}>
+                  <b>{blocker.scope}</b>
+                  <span>{blocker.message}</span>
+                </p>
+              ))
+            ) : (
+              <p><b>Ready</b><span>Selected chapters can be packaged with the current settings.</span></p>
+            )}
+          </div>
+        ) : null}
         {latestExport && latestScores.length ? (
           <div className="export-scorecard" aria-label="Latest export QA scorecard">
             <div className="scorecard-header">

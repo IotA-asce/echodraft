@@ -19,11 +19,13 @@ from echodraft_db.models import (
     ExportPackageRecord,
     IssueRecord,
     ReadinessReportRecord,
+    SceneRecord,
     SegmentRenderRecord,
+    SegmentRecord,
     SourceDocumentRecord,
 )
 from echodraft_domain import ExportBlocker, ExportEstimate, ExportPackage, ExportQa, ExportRequest
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from . import mastering
 from .audio_analysis import analyze_wav
@@ -365,7 +367,6 @@ class ExportService:
 
         planned: list[PlannedChapter] = []
         with self.container.structure.database.session() as session:
-            blockers.extend(self._blocking_issue_blockers(session, project_id))
             chapters = list(
                 session.scalars(
                     select(ChapterRecord)
@@ -394,6 +395,10 @@ class ExportService:
                         scope="chapter",
                     )
                 )
+            selected_chapter_ids = {chapter.id for chapter in chapters}
+            blockers.extend(
+                self._blocking_issue_blockers(session, project_id, selected_chapter_ids)
+            )
             for chapter in chapters:
                 render = self._active_render(session, chapter.id)
                 if not render:
@@ -866,13 +871,27 @@ class ExportService:
         )
 
     @staticmethod
-    def _blocking_issue_blockers(session: Any, project_id: str) -> list[ExportBlocker]:
+    def _blocking_issue_blockers(
+        session: Any, project_id: str, chapter_ids: set[str]
+    ) -> list[ExportBlocker]:
+        selected_segment_ids = set(
+            session.scalars(
+                select(SegmentRecord.id)
+                .join(SceneRecord, SegmentRecord.scene_id == SceneRecord.id)
+                .where(SceneRecord.chapter_id.in_(chapter_ids))
+            )
+        )
         issues = list(
             session.scalars(
                 select(IssueRecord).where(
                     IssueRecord.project_id == project_id,
                     IssueRecord.severity == "blocking",
                     IssueRecord.status == "open",
+                    or_(
+                        IssueRecord.chapter_id.in_(chapter_ids),
+                        IssueRecord.segment_id.in_(selected_segment_ids),
+                        and_(IssueRecord.chapter_id.is_(None), IssueRecord.segment_id.is_(None)),
+                    ),
                 )
             )
         )

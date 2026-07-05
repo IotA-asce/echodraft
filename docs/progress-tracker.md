@@ -14,10 +14,10 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Status Summary
 
 - Numbered gaps tracked: 20
-- Complete: 17
-- Remaining: 3
+- Complete: 19
+- Remaining: 1
 - In progress: 0
-- Approximate roadmap completion: 85%
+- Approximate roadmap completion: 95%
 - Complete phases: Phase 0, Phase 1, Phase 2, Phase 3
 - Remaining phases: Phase 4
 
@@ -41,6 +41,10 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - Evidence: `feat/g16-local-asr-word-match`; documented in `docs/pipeline/qa/qa-rulebook.md`.
 - [x] G18 structure depth shipped.
   - Evidence: `feat/g18-structure-depth`; documented in `docs/pipeline/structure/structure-parser-v2.md`.
+- [x] G15 scene-level transcript review shipped.
+  - Evidence: `feat/g15-transcript-review`; documented in `docs/pipeline/review/review-patch-workbench.md`.
+- [x] G17 scoped issues, export blocking, and ranked worklist shipped.
+  - Evidence: `feat/g17-scoped-worklist`; documented in `docs/pipeline/qa/readiness-qa.md` and `docs/pipeline/export/export-polish.md`.
 
 ## Phase 0 - Trust Foundation
 
@@ -155,15 +159,17 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 
 ## Phase 4 - Workflow Experience
 
-- [ ] G15 - Scene-level dialogue transcript review.
-  - [ ] Color-code speakers in transcript view.
-  - [ ] Add waveform player with issue markers.
-  - [ ] Jump from issue to exact audio moment.
-- [ ] G17 - Scoped issues, export blocking, and ranked worklist.
-  - [ ] Scope chapter issues to selected chapters.
-  - [ ] Scope export blockers to the selected export set.
-  - [ ] Add severity-weighted readiness worklist.
-  - [ ] Replace global busy/error with per-section state where needed.
+- [x] G15 - Scene-level dialogue transcript review.
+  - [x] Color-code speakers in transcript view.
+  - [x] Add waveform player with issue markers.
+  - [x] Jump from issue to exact audio moment.
+  - Evidence: `feat/g15-transcript-review`; active chapter review timeline uses manifest segment offsets, speaker colors, waveform markers, and issue deep links.
+- [x] G17 - Scoped issues, export blocking, and ranked worklist.
+  - [x] Scope chapter issues to selected chapters.
+  - [x] Scope export blockers to the selected export set.
+  - [x] Add severity-weighted readiness worklist.
+  - [x] Replace global busy/error with per-section state where needed.
+  - Evidence: `feat/g17-scoped-worklist`; readiness and export preflight now respect selected chapter scope, and the dashboard surfaces ranked findings plus export blockers.
 - [ ] G20 - Unified next-best action.
   - [ ] Merge workflow step rail and readiness worklist signals.
   - [ ] Rank actions by impact.
@@ -173,8 +179,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Completion Estimate
 
 - Roadmap items tracked: 20 numbered gaps.
-- Completed: 17 numbered gaps.
+- Completed: 19 numbered gaps.
 - In progress: 0 numbered gaps.
-- Remaining: 3 numbered gaps.
-- Approximate roadmap completion: 85%.
-- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 100%, Phase 4 0%.
+- Remaining: 1 numbered gap.
+- Approximate roadmap completion: 95%.
+- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 100%, Phase 4 67%.
