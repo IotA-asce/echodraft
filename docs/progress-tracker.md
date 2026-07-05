@@ -35,6 +35,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - Evidence: `feat/phase-3-cast-depth`, `feat/g10-speaker-attribution-depth`, `feat/g10-scene-window-attribution`, `feat/g10-active-speaker-model`.
 - [x] G19 persistent local TTS worker shipped.
   - Evidence: `feat/g19-persistent-tts-worker`; documented in `docs/pipeline/tts/tts-production-upgrade.md`.
+- [x] Direction follow-on evidence-based LLM inference shipped.
+  - Evidence: `feat/evidence-based-direction-inference`; documented in `docs/pipeline/direction/direction-studio.md`.
 
 ## Phase 0 - Trust Foundation
 
@@ -130,9 +132,10 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - [x] Speed up auditioning.
   - [x] Enable evidence-based LLM direction workflows.
   - Evidence: `feat/g19-persistent-tts-worker`; managed Kokoro ONNX now uses a resident JSON worker and exposes worker status at `GET /api/v1/settings/tts/worker`.
-- [ ] Direction follow-on - Evidence-based LLM direction inference.
-  - [ ] Use scene, character, and mood continuity evidence.
-  - [ ] Preserve direction evidence for review.
+- [x] Direction follow-on - Evidence-based LLM direction inference.
+  - [x] Use scene, character, and mood continuity evidence.
+  - [x] Preserve direction evidence for review.
+  - Evidence: `feat/evidence-based-direction-inference`; deterministic inference remains default, optional local LLM direction rows persist `evidence_json`, and locked rows remain protected.
   - Note: this is not counted as a separate G1-G20 gap, but remains a roadmap follow-on after G4 and depends on G19.
 - [ ] G16 - Local ASR word-match verification.
   - [ ] Verify generated speech matches expected text.
@@ -168,4 +171,4 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 - In progress: 0 numbered gaps.
 - Remaining: 5 numbered gaps.
 - Approximate roadmap completion: 75%.
-- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 67%, Phase 4 0%.
+- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 75%, Phase 4 0%.

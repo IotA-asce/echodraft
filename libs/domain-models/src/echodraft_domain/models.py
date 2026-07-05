@@ -516,9 +516,15 @@ class SegmentDirection(ApiModel):
     direction: DirectionProfile
     source: str
     user_locked: bool = Field(default=False, alias="userLocked")
+    evidence: dict[str, object] = Field(default_factory=dict)
     direction_fingerprint: str = Field(alias="directionFingerprint")
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
+
+
+class DirectionInferenceRunRequest(ApiModel):
+    use_local_llm: bool = Field(default=False, alias="useLocalLlm")
+    model: str = "qwen3:4b"
 
 
 class SegmentDirectionUpdate(ApiModel):

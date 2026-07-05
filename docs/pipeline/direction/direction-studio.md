@@ -13,7 +13,17 @@ Direction Studio stores delivery controls per segment without changing canonical
 
 ## Inference
 
-`POST /api/v1/projects/{projectId}/directions/infer` runs deterministic local inference across project segments. It uses text cues such as exclamation marks, questions, whisper words, and somber terms. Locked rows are preserved.
+`POST /api/v1/projects/{projectId}/directions/infer` runs deterministic local inference across project segments by default. It uses text cues such as exclamation marks, questions, whisper words, and somber terms. Locked rows are preserved.
+
+The endpoint also accepts an optional local-LLM payload:
+
+```json
+{ "useLocalLlm": true, "model": "qwen3:4b" }
+```
+
+When `useLocalLlm=true`, Echodraft first writes the deterministic fallback for unlocked rows, then sends bounded same-scene windows to the local Ollama extractor. The prompt marks `TARGET` and `CONTEXT` segments, includes segment type, parser speaker candidates, approved speaker attribution when available, nearby scene context, and the existing deterministic direction as a hint. Only returned rows for target segment IDs are applied; invalid, missing, or context-only results leave the deterministic row in place. Local LLM failures create a warning review issue and do not block the job.
+
+LLM-applied rows use `source="llm_inferred"`, stay unlocked, and store review evidence on the segment direction row: reason, `llmRunId`, model, confidence, scene-window segment IDs, target segment IDs, speaker name, text preview, and the LLM evidence note.
 
 ## Production Resolution
 

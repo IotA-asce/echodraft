@@ -317,6 +317,7 @@ Fields:
 - `direction`
 - `source`
 - `user_locked`
+- `evidence`
 - `direction_fingerprint`
 - `created_at`
 - `updated_at`
