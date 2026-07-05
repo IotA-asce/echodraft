@@ -100,10 +100,13 @@ class IssueActionService:
                 raise ValueError("targetCharacterId must be an active character.")
             return target
 
-        possible = [
-            self._character_by_name(project_id, name)
-            for name in _string_list(metadata.get("possibleMatches"))
-        ]
+        possible: list[CharacterRecord | None] = []
+        possible.extend(self._characters_by_ids(project_id, metadata.get("possibleMatchIds")))
+        if not possible:
+            possible = [
+                self._character_by_name(project_id, name)
+                for name in _string_list(metadata.get("possibleMatches"))
+            ]
         matches = [item for item in possible if item and not item.merged_into_character_id]
         if len(matches) == 1:
             return matches[0]
@@ -155,6 +158,14 @@ class IssueActionService:
             if key in {_name_key(item) for item in names}:
                 return character
         return None
+
+    def _characters_by_ids(self, project_id: str, value: object) -> list[CharacterRecord]:
+        matches: list[CharacterRecord] = []
+        for character_id in _string_list(value):
+            character = self.container.casting.character(character_id)
+            if character and character.project_id == project_id:
+                matches.append(character)
+        return matches
 
 
 def _metadata(issue: IssueRecord) -> dict[str, object]:

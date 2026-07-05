@@ -710,6 +710,152 @@ def test_cast_duplicate_metadata_for_honorific_alias(client) -> None:
     assert quality["possibleDuplicateCastCount"] == 0
 
 
+def test_same_name_conflicting_traits_requires_review(client) -> None:
+    project = project_with_source(
+        client,
+        "Chapter 1\n\nAlex: Wait.\n\nThe old man Alex lowered his voice.",
+    )
+    existing = client.post(
+        f"/api/v1/projects/{project}/characters",
+        json={"displayName": "Alex", "traits": ["gender:feminine"]},
+    ).json()
+
+    extract(client, project)
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    active = [character for character in characters if not character["mergedIntoCharacterId"]]
+    assert [character["displayName"] for character in active] == [existing["displayName"]]
+    assert active[0]["traits"] == ["gender:feminine"]
+
+    issues = client.get(f"/api/v1/projects/{project}/issues").json()
+    issue = next(
+        issue
+        for issue in issues
+        if issue["metadata"].get("code") == "cast.possible_duplicate"
+    )
+    assert issue["metadata"]["candidateName"] == "Alex"
+    assert issue["metadata"]["possibleMatches"] == ["Alex"]
+    assert "conflicting observed traits" in issue["metadata"]["reason"]
+    assert "gender:masculine" in issue["metadata"]["traits"]
+
+
+def test_fuzzy_name_variant_routes_to_duplicate_review(client) -> None:
+    project = project_with_source(client, "Chapter 1\n\nElisabeth: Wait.")
+    existing = client.post(
+        f"/api/v1/projects/{project}/characters",
+        json={"displayName": "Elizabeth"},
+    ).json()
+
+    extract(client, project)
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    active = [character for character in characters if not character["mergedIntoCharacterId"]]
+    assert [character["displayName"] for character in active] == [existing["displayName"]]
+
+    issues = client.get(f"/api/v1/projects/{project}/issues").json()
+    issue = next(
+        issue
+        for issue in issues
+        if issue["metadata"].get("code") == "cast.possible_duplicate"
+    )
+    assert issue["metadata"]["candidateName"] == "Elisabeth"
+    assert issue["metadata"]["possibleMatches"] == ["Elizabeth"]
+
+
+def test_duplicate_exact_display_names_require_explicit_review_target(client) -> None:
+    project = project_with_source(client, "Chapter 1\n\nAlex: Hold.")
+    first = client.post(f"/api/v1/projects/{project}/characters", json={"displayName": "Alex"}).json()
+    second = client.post(f"/api/v1/projects/{project}/characters", json={"displayName": "Alex"}).json()
+
+    extract(client, project)
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    active = [character for character in characters if not character["mergedIntoCharacterId"]]
+    assert [character["id"] for character in active] == [first["id"], second["id"]]
+
+    issues = client.get(f"/api/v1/projects/{project}/issues").json()
+    issue = next(
+        issue
+        for issue in issues
+        if issue["metadata"].get("code") == "cast.possible_duplicate"
+    )
+    assert issue["metadata"]["candidateName"] == "Alex"
+    assert issue["metadata"]["possibleMatches"] == ["Alex", "Alex"]
+    assert set(issue["metadata"]["possibleMatchIds"]) == {first["id"], second["id"]}
+    assert "Multiple existing characters" in issue["metadata"]["reason"]
+
+
+def test_generated_title_alias_requires_review_against_existing_character(client) -> None:
+    project = project_with_source(client, "Chapter 1\n\nCaptain John: Stand down.")
+    existing = client.post(
+        f"/api/v1/projects/{project}/characters",
+        json={"displayName": "John"},
+    ).json()
+
+    extract(client, project)
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    active = [character for character in characters if not character["mergedIntoCharacterId"]]
+    assert [character["displayName"] for character in active] == ["John"]
+    assert active[0]["id"] == existing["id"]
+    assert "Captain John" not in active[0]["aliases"]
+
+    issues = client.get(f"/api/v1/projects/{project}/issues").json()
+    issue = next(
+        issue
+        for issue in issues
+        if issue["metadata"].get("code") == "cast.possible_duplicate"
+    )
+    assert issue["metadata"]["candidateName"] == "Captain John"
+    assert issue["metadata"]["possibleMatches"] == ["John"]
+    assert issue["metadata"]["possibleMatchIds"] == [existing["id"]]
+    assert "generated alias" in issue["metadata"]["reason"]
+
+
+def test_nickname_alias_clusters_without_duplicate(client) -> None:
+    project = project_with_source(client, "Chapter 1\n\nElizabeth: Wait.\n\nLiz: Go.")
+
+    extract(client, project)
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    active = [character for character in characters if not character["mergedIntoCharacterId"]]
+    assert [character["displayName"] for character in active] == ["Elizabeth"]
+    assert "Liz" in active[0]["aliases"]
+
+    issues = client.get(f"/api/v1/projects/{project}/issues").json()
+    duplicate_issues = [
+        issue
+        for issue in issues
+        if issue["metadata"].get("code") == "cast.possible_duplicate"
+    ]
+    assert duplicate_issues == []
+
+
+def test_nickname_siblings_cluster_without_canonical_mention(client) -> None:
+    project = project_with_source(client, "Chapter 1\n\nLiz: Go.\n\nBeth: Wait.")
+
+    extract(client, project)
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    active = [character for character in characters if not character["mergedIntoCharacterId"]]
+    assert [character["displayName"] for character in active] == ["Liz"]
+    assert {"Beth", "Elizabeth"} <= set(active[0]["aliases"])
+
+
+def test_transitive_nickname_aliases_refresh_discovery_index(client) -> None:
+    project = project_with_source(
+        client,
+        "Chapter 1\n\nRob: Go.\n\nRobert: Wait.\n\nBob: Listen.",
+    )
+
+    extract(client, project)
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    active = [character for character in characters if not character["mergedIntoCharacterId"]]
+    assert [character["displayName"] for character in active] == ["Rob"]
+    assert {"Robert", "Bob"} <= set(active[0]["aliases"])
+
+
 def test_cast_discovery_extracts_title_aliases_and_traits(client) -> None:
     project = project_with_source(
         client,
