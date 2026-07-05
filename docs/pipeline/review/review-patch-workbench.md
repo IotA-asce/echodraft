@@ -44,6 +44,10 @@ The dashboard’s segment action is now `Inspect`. It loads the existing render 
 
 The chapter transcript review color-codes speakers, shows issue markers over the active waveform, and jumps both the player and inspector to the selected segment or issue moment.
 
+The workflow shell now shows a single ranked "next best action" card. It merges workflow-step blockers, readiness findings, export blockers, timeline issue markers, and chapter approval state, then deep-links to the relevant section and, when possible, the exact issue or segment.
+
+Review complete is separate from automated checks. The Review & Patch panel has a "Mark listened and approved" action that writes an append-only `chapter_approvals` row for the current active chapter render. A newer render makes the previous approval stale and asks for a fresh listen-through.
+
 Patch attempts remain append-only. A patch creates a new segment render, records the previous render as the parent, reassembles the owning chapter, and adds a `patch_attempts` row. Segment text edits continue to create revisions and stale only the affected segment render fingerprint.
 
 The Structure & Cast Draft `Parser Review` queue combines parser warnings with open cast-discovery issues. Reviewers can apply cast actions, reject duplicate suggestions, or dismiss resolved review items from the queue while preserving the evidence metadata on the issue record.
@@ -59,3 +63,4 @@ Stage 12 tests cover:
 - patch queue lineage after selective patching
 - segment revision staling only the edited segment in a multi-segment chapter
 - chapter transcript timeline offsets and issue markers from the active chapter render
+- current vs stale chapter approval state for active chapter renders
