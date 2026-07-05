@@ -1,4 +1,4 @@
-import type { Chapter, ExportPackage, Issue, Job, ProductionSettings, ProductionStatus, Project, SourceDocument, StructureParserWarning, TtsSettings, VoiceProfile } from "../api";
+import type { Chapter, ChapterApproval, ChapterReviewTimeline, ExportEstimate, ExportPackage, Issue, Job, ProductionSettings, ProductionStatus, Project, ReadinessReport, SourceDocument, StructureParserWarning, TtsSettings, VoiceProfile } from "../api";
 
 export type WorkflowStepId =
   | "project"
@@ -19,6 +19,17 @@ export type WorkflowStep = {
   description: string;
   blockedReason?: string;
   issueCount?: number;
+};
+
+export type WorkflowAction = {
+  id: string;
+  title: string;
+  description: string;
+  step: WorkflowStepId;
+  priority: number;
+  issueId?: string | null;
+  segmentId?: string | null;
+  audioStartMs?: number | null;
 };
 
 export function buildWorkflowSteps({
@@ -123,4 +134,86 @@ export function buildWorkflowSteps({
       blockedReason: chapters.length ? undefined : "Extract structure before exporting chapters.",
     },
   ];
+}
+
+export function buildWorkflowActions({
+  steps,
+  readiness,
+  exportEstimate,
+  selectedChapter,
+  approval,
+  timeline,
+}: {
+  steps: WorkflowStep[];
+  readiness: ReadinessReport | null;
+  exportEstimate: ExportEstimate | null;
+  selectedChapter: Chapter | null;
+  approval: ChapterApproval | null;
+  timeline: ChapterReviewTimeline | null;
+}): WorkflowAction[] {
+  const actions: WorkflowAction[] = [];
+  const blockedStep = steps.find((step) => step.status === "blocked");
+  const attentionStep = steps.find((step) => step.status === "needs_attention" || step.status === "available");
+  if (blockedStep) {
+    actions.push({
+      id: `step-${blockedStep.id}`,
+      title: `Continue with ${blockedStep.label}`,
+      description: blockedStep.blockedReason ?? blockedStep.description,
+      step: blockedStep.id,
+      priority: 80,
+    });
+  } else if (attentionStep) {
+    actions.push({
+      id: `step-${attentionStep.id}`,
+      title: `Continue with ${attentionStep.label}`,
+      description: attentionStep.description,
+      step: attentionStep.id,
+      priority: attentionStep.status === "needs_attention" ? 85 : 60,
+    });
+  }
+  for (const check of readiness?.checks ?? []) {
+    if (check.status === "passed" || (check.resolutionStatus && check.resolutionStatus !== "open")) continue;
+    actions.push({
+      id: `readiness-${check.id}`,
+      title: check.title,
+      description: check.description,
+      step: check.scope === "export-blocker" ? "export" : "review-patch",
+      priority: check.severity === "blocking" ? 100 : 75,
+      issueId: check.issueId,
+      segmentId: typeof check.metadata.segmentId === "string" ? check.metadata.segmentId : null,
+    });
+  }
+  for (const blocker of exportEstimate?.blockers ?? []) {
+    actions.push({
+      id: `export-${blocker.code}-${blocker.issueId ?? blocker.chapterId ?? "global"}`,
+      title: blocker.message,
+      description: `Export blocker: ${blocker.scope}`,
+      step: "export",
+      priority: blocker.severity === "blocking" ? 95 : 70,
+      issueId: blocker.issueId,
+    });
+  }
+  const firstMarker = timeline?.issueMarkers[0];
+  if (firstMarker) {
+    actions.push({
+      id: `audio-${firstMarker.id}`,
+      title: `Review audio issue: ${firstMarker.title}`,
+      description: `Jump to ${Math.round(firstMarker.startMs / 1000)}s in ${selectedChapter?.title ?? "the selected chapter"}.`,
+      step: "review-patch",
+      priority: firstMarker.severity === "blocking" ? 98 : 78,
+      issueId: firstMarker.issueId,
+      segmentId: firstMarker.segmentId,
+      audioStartMs: firstMarker.startMs,
+    });
+  }
+  if (selectedChapter && approval && !approval.current) {
+    actions.push({
+      id: `approval-${selectedChapter.id}`,
+      title: "Listen and approve this chapter",
+      description: approval.status === "stale" ? "A newer render needs a fresh approval." : "Approval is separate from automated readiness.",
+      step: "review-patch",
+      priority: 72,
+    });
+  }
+  return actions.sort((a, b) => b.priority - a.priority);
 }

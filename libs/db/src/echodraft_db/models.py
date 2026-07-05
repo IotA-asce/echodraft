@@ -363,6 +363,20 @@ class ChapterRenderRecord(Base):
     )
 
 
+class ChapterApprovalRecord(Base):
+    __tablename__ = "chapter_approvals"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    chapter_id: Mapped[str] = mapped_column(ForeignKey("chapters.id"), nullable=False, index=True)
+    chapter_render_id: Mapped[str] = mapped_column(
+        ForeignKey("chapter_renders.id"), nullable=False, index=True
+    )
+    approved_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class AmbienceAssetRecord(Base):
     __tablename__ = "ambience_assets"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

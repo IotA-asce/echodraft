@@ -1,5 +1,5 @@
 import { useMemo, useRef } from "react";
-import { assetUrl, type ChapterReviewTimeline, type Issue, type SegmentReviewInspector } from "../../api";
+import { assetUrl, type ChapterReviewTimeline, type Issue, type SegmentReviewInspector, type TtsProvider } from "../../api";
 import { formatDuration } from "../../lib/format";
 
 function speakerHue(speaker: string) {
@@ -12,12 +12,14 @@ export function ChapterTranscriptReview({
   timeline,
   inspector,
   issues,
+  provider,
   onInspect,
   onOpenIssue,
 }: {
   timeline: ChapterReviewTimeline | null;
   inspector: SegmentReviewInspector | null;
   issues: Issue[];
+  provider?: TtsProvider;
   onInspect: (segmentId: string) => void;
   onOpenIssue: (issue: Issue) => void;
 }) {
@@ -53,7 +55,19 @@ export function ChapterTranscriptReview({
         <strong>Dialogue transcript</strong>
         <span>{timeline.segments.length} lines - {formatDuration(durationMs)}</span>
       </div>
-      {render?.audioUrl ? <audio ref={audioRef} controls src={assetUrl(render.audioUrl)} className="audio-player" /> : <p className="import-placeholder">No chapter audio yet.</p>}
+      {render?.audioUrl ? (
+        <article className="chapter-audio-player transcript-audio-player" aria-label="Active chapter audio">
+          <div className="chapter-audio-heading">
+            <div>
+              <p className="eyebrow">Active chapter audio</p>
+              <h3>{render.renderMode === "clean" ? "Clean narration" : `${render.renderMode} chapter mix`}</h3>
+            </div>
+            <small>{formatDuration(durationMs)}</small>
+          </div>
+          <audio ref={audioRef} controls src={assetUrl(render.audioUrl)} className="audio-player" />
+          {provider === "mock" ? <p className="chapter-audio-note">Mock voice engine creates silent workflow audio.</p> : null}
+        </article>
+      ) : <p className="import-placeholder">No chapter audio yet.</p>}
       <div className="waveform-strip" aria-label="Chapter waveform with issue markers">
         {(timeline.waveform.length ? timeline.waveform : Array.from({ length: 80 }, () => 0)).map((peak, index) => (
           <button

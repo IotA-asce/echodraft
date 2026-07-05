@@ -14,12 +14,12 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Status Summary
 
 - Numbered gaps tracked: 20
-- Complete: 19
-- Remaining: 1
+- Complete: 20
+- Remaining: 0
 - In progress: 0
-- Approximate roadmap completion: 95%
-- Complete phases: Phase 0, Phase 1, Phase 2, Phase 3
-- Remaining phases: Phase 4
+- Approximate roadmap completion: 100%
+- Complete phases: Phase 0, Phase 1, Phase 2, Phase 3, Phase 4
+- Remaining phases: None
 
 ## Recently Shipped
 
@@ -45,6 +45,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - Evidence: `feat/g15-transcript-review`; documented in `docs/pipeline/review/review-patch-workbench.md`.
 - [x] G17 scoped issues, export blocking, and ranked worklist shipped.
   - Evidence: `feat/g17-scoped-worklist`; documented in `docs/pipeline/qa/readiness-qa.md` and `docs/pipeline/export/export-polish.md`.
+- [x] G20 unified next-best action shipped.
+  - Evidence: `feat/g20-next-best-action`; documented in `docs/pipeline/review/review-patch-workbench.md` and `docs/pipeline/qa/readiness-qa.md`.
 
 ## Phase 0 - Trust Foundation
 
@@ -170,17 +172,18 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
   - [x] Add severity-weighted readiness worklist.
   - [x] Replace global busy/error with per-section state where needed.
   - Evidence: `feat/g17-scoped-worklist`; readiness and export preflight now respect selected chapter scope, and the dashboard surfaces ranked findings plus export blockers.
-- [ ] G20 - Unified next-best action.
-  - [ ] Merge workflow step rail and readiness worklist signals.
-  - [ ] Rank actions by impact.
-  - [ ] Deep-link each action to the exact control or audio moment.
-  - [ ] Add listened-and-approved chapter attestation.
+- [x] G20 - Unified next-best action.
+  - [x] Merge workflow step rail and readiness worklist signals.
+  - [x] Rank actions by impact.
+  - [x] Deep-link each action to the exact control or audio moment.
+  - [x] Add listened-and-approved chapter attestation.
+  - Evidence: `feat/g20-next-best-action`; shell actions merge workflow, readiness, export, timeline, and approval signals, and chapter approvals are tied to active chapter renders.
 
 ## Completion Estimate
 
 - Roadmap items tracked: 20 numbered gaps.
-- Completed: 19 numbered gaps.
+- Completed: 20 numbered gaps.
 - In progress: 0 numbered gaps.
-- Remaining: 1 numbered gap.
-- Approximate roadmap completion: 95%.
-- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 100%, Phase 4 67%.
+- Remaining: 0 numbered gaps.
+- Approximate roadmap completion: 100%.
+- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 100%, Phase 4 100%.

@@ -444,3 +444,28 @@ def test_readiness_reports_chapter_audio_hot_and_dead_air_with_stable_ids(client
     rerun_dead_air = next(check for check in rerun["checks"] if check["id"] == dead_air_id)
     assert rerun_hot["status"] == "passed"
     assert rerun_dead_air["status"] == "passed"
+
+
+def test_readiness_warns_until_active_chapter_render_is_approved(client) -> None:
+    project, chapter = produced_chapter(client)
+
+    report = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+    approval = next(check for check in report["checks"] if check["id"] == f"chapter_approval_{chapter}")
+    assert approval["severity"] == "warning"
+    assert approval["status"] == "failed"
+    assert approval["metadata"]["reason"] == "approval_missing"
+
+    client.post(
+        f"/api/v1/projects/{project}/chapters/{chapter}/approval",
+        json={"approvedBy": "qa"},
+    )
+    rerun = client.post(
+        f"/api/v1/projects/{project}/readiness/run", json={"chapterId": chapter}
+    ).json()
+    rerun_approval = next(
+        check for check in rerun["checks"] if check["id"] == f"chapter_approval_{chapter}"
+    )
+
+    assert rerun_approval["status"] == "passed"

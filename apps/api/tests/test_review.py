@@ -431,6 +431,43 @@ def test_chapter_review_timeline_exposes_audio_offsets_and_issue_markers(client)
     assert timeline["issueMarkers"][0]["startMs"] == manifest["timeline"][0]["startMs"]
 
 
+def test_chapter_approval_is_current_only_for_active_render(client) -> None:
+    project, chapter, segment = prepared_segment(client)
+    client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/generate", json=render_payload(project)
+    )
+    assembled = client.post(f"/api/v1/projects/{project}/chapters/{chapter}/assemble").json()
+
+    missing = client.get(
+        f"/api/v1/projects/{project}/chapters/{chapter}/approval"
+    ).json()
+    assert missing["status"] == "missing"
+    assert missing["current"] is False
+    approval = client.post(
+        f"/api/v1/projects/{project}/chapters/{chapter}/approval",
+        json={"approvedBy": "reviewer", "note": "Listened all the way through."},
+    ).json()
+    assert approval["status"] == "current"
+    assert approval["current"] is True
+    assert approval["chapterRenderId"] == assembled["id"]
+
+    client.post(
+        f"/api/v1/projects/{project}/segments/{segment}/generate",
+        json={**render_payload(project), "force": True},
+    )
+    next_assembled = client.post(
+        f"/api/v1/projects/{project}/chapters/{chapter}/assemble"
+    ).json()
+    stale = client.get(
+        f"/api/v1/projects/{project}/chapters/{chapter}/approval"
+    ).json()
+
+    assert next_assembled["id"] != assembled["id"]
+    assert stale["status"] == "stale"
+    assert stale["current"] is False
+    assert stale["chapterRenderId"] == assembled["id"]
+
+
 def test_segment_revision_stales_only_the_edited_render(client) -> None:
     project = client.post(
         "/api/v1/projects", json={"title": "Selective stale", "rightsStatus": "declared"}
