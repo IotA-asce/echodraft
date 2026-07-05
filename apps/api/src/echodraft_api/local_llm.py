@@ -68,8 +68,18 @@ class OllamaProvider:
             {
                 "model": model,
                 "prompt": prompt,
+                "system": (
+                    "Return exactly one JSON object that satisfies the supplied JSON schema. "
+                    "Do not include markdown, commentary, or reasoning text."
+                ),
                 "stream": False,
                 "format": schema,
+                "think": False,
+                "options": {
+                    "temperature": 0,
+                    "top_p": 0.9,
+                    "num_predict": 4096,
+                },
             },
             timeout=180,
         )
