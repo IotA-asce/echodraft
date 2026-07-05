@@ -1,8 +1,11 @@
 # Echodraft — Deep Analysis & Improvement Report
 
 **Date:** 2026-07-03
+**Updated:** 2026-07-05
 **Scope:** Full system — FastAPI backend (~11.3k LOC Python), Next.js dashboard (~3.5k LOC TS/TSX), SQLAlchemy/SQLite data layer, local‑AI/model‑center tooling, and the end‑to‑end production pipeline.
 **Method:** The codebase was mapped, then analyzed in parallel across seven subsystems by focused sub‑agents (code‑structure lens and product‑quality lens), with the highest‑impact findings independently verified against source. File:line references throughout point to specific evidence.
+
+> **Completion update:** this report is now a historical baseline plus completion record. The top engineering findings that fed the Phase 0-4 roadmap have been implemented, verified, merged, and pushed. File/line references in the historical sections reflect the 2026-07-03 codebase and should not be read as current defects without re-checking current `main`.
 
 > **Corpus:** `apps/api/src/echodraft_api` (27 modules; `main.py` 1685 LOC, `structure_parsing.py` 1637 LOC), `apps/web/app` (40+ components), `libs/db` (45 tables, 22 migrations), `libs/domain-models` (~100 Pydantic models). No import cycles. Services under `services/` are empty placeholders.
 
@@ -10,17 +13,17 @@
 
 ## 1. Executive summary
 
-Echodraft is an unusually **well‑architected alpha**. The core design ideas — segment‑as‑atomic‑unit, append‑only render history, manifest‑driven stages, evidence‑first review, deterministic‑with‑optional‑LLM parsing, and strict fail‑closed local providers — are coherent, consistently applied, and genuinely differentiated from one‑shot TTS tools. Domain logic is cleanly separated into per‑concern service modules, the DI container is simple, and the documentation set is extensive.
+Echodraft is an unusually **well‑architected local-first audiobook production system**. The core design ideas — segment‑as‑atomic‑unit, append‑only render history, manifest‑driven stages, evidence‑first review, deterministic‑with‑optional‑LLM parsing, and strict fail‑closed local providers — are coherent, consistently applied, and genuinely differentiated from one‑shot TTS tools. Domain logic is cleanly separated into per‑concern service modules, the DI container is simple, and the documentation set is extensive.
 
-The gap between the current state and "produces a flawless, publishable audiobook" comes down to a handful of **correctness bugs** and **quality ceilings** that are individually fixable but currently invisible because they hide behind green "ready" signals:
+The original gap between the 2026-07-03 state and "produces a flawless, publishable audiobook" came down to a handful of **correctness bugs** and **quality ceilings** that were individually fixable but invisible behind green "ready" signals:
 
-1. **Patched audio can silently fail to reach the export** — "latest render" is selected by lexicographically sorting a *random* UUID, not by time. *(Critical, verified)*
-2. **Direction Studio does nothing audible for 3 of 4 real TTS providers** — pace/style/pause are advertised, echoed back in the API, but never transmitted to the engine. *(Critical, verified)*
-3. **Final audio is permanently capped at 16 kHz mono** — telephone‑grade, below the 44.1 kHz audiobook standard, regardless of how good the source voice is. *(High)*
-4. **Concurrency is unsafe** — unbounded thread‑per‑job over a SQLite database with no WAL mode, no `busy_timeout`, and no `(segment_id, render_key)` uniqueness, so real use will hit `database is locked` errors and forked render history. *(High, corroborated by two independent analyses)*
-5. **QA is thinner than documented** — audio QA metrics are stubbed (`peak:0`, `waveform:[]`), silence detection only fires on 100%‑zero files, and QA issues never auto‑resolve, so a project can become permanently unexportable or export bad audio via a manual status change. *(High)*
+1. **Patched audio could silently fail to reach the export** — closed by deterministic render/export ordering and stale revision guards.
+2. **Direction Studio controls were not audible for key providers** — closed by truthful capability metadata and supported control transmission.
+3. **Final audio was capped at 16 kHz mono** — closed by the 44.1 kHz mastered pipeline.
+4. **SQLite/job concurrency was unsafe** — closed by local DB/worker hardening and render cache serialization.
+5. **QA was thinner than documented** — closed by real audio QA, live readiness, scoped blockers, optional ASR word-match, transcript review, and listened approval.
 
-None of these require re‑architecting. The strong bones are already in place; the work is closing the loop between what the pipeline *computes* and what it *delivers*.
+The strong bones identified in the original report are now backed by the completed trust, audio, algorithmic, and workflow phases. Remaining work is optional polish, scale hardening, or broader market expansion.
 
 ---
 
@@ -34,7 +37,8 @@ Create project (rights gate)
   → Cast discovery + speaker attribution (deterministic + optional LLM, review-gated)
   → Voice setup (mock / Kokoro managed / Piper / consent-gated XTTS-v2) + Direction inference
   → Produce chapter: render stale/missing segments → append immutable SegmentRender → assemble ChapterRender (+optional ambience mix)
-  → Readiness QA → Review & patch (fix one line, re-render, reassemble) → Export WAV/MP3 ZIP (manifest + lineage + checksums)
+  → Readiness QA + transcript review → Review & patch (fix one line, re-render, reassemble, approve)
+  → Export WAV/MP3/M4B package (manifest + lineage + checksums + optional retail sample)
 ```
 
 **Composition.** `create_app()` (`main.py`) builds a single `AppContainer` dataclass (`container.py:54-82`) holding one instance of every repository plus the artifact store, TTS settings/adapter, and an in‑process job runner. There is **no `Depends()`‑based DI** — every route reads `request.app.state.container` directly (~80 call sites) and constructs a fresh stateless service (`IngestionService(container)`, `SegmentRenderer(container)`, …) per request. Long work is submitted to `InProcessJobRunner`, which spawns a **daemon `threading.Thread` per job** and returns `202`; clients poll `GET /api/v1/jobs/{id}`.
@@ -47,40 +51,42 @@ Create project (rights gate)
 
 ## 3. Cross‑cutting themes
 
-These patterns recur across subsystems and are worth treating as programs of work rather than one‑off fixes:
+These patterns recurred across subsystems and became Phase 0-4 programs of work. Their roadmap status is now:
 
-| Theme | Where it shows up | Impact |
+| Theme | Roadmap status | Current reading |
 |---|---|---|
-| **"Compute then discard"** | Direction pace/pause/style computed but not sent to engines (`tts_providers.py`, `assembly.py:246-255`); `pauseAfterMs`/`pauseBeforeMs` ignored in assembly; `outputFormat`, `DirectionProfile.no_sfx` dead fields | Features look done in the UI/API but have no runtime effect |
-| **Ordering by random UUID** | `assembly.py:185,221`, `exporting.py:220,454`, `readiness.py:493`, `rendering.py:53` all `.order_by(<record>.id.desc())` on `uuid4().hex` ids | Non‑deterministic "latest" selection; the report's #1 correctness bug |
-| **Green signal ≠ true state** | Readiness/status use the correct chain‑walk (`_tip`), but assembly/export select renders by the broken UUID sort and never cross‑check `revision`; QA issues never auto‑close | "Ready" can be reported while the exported audio is stale or QA‑failing |
-| **Unbounded concurrency over unhardened SQLite** | Thread‑per‑job (`jobs.py:27-43`) + no WAL/`busy_timeout`/FK PRAGMA + no `(segment_id, render_key)` unique constraint | `database is locked`, forked render history, oversubscribed CPU/GPU |
-| **Contract kept in sync by hand** | Hand‑built camelCase dicts in services ↔ hand‑written Pydantic aliases ↔ hand‑written TS types in `api.ts`; no runtime validation, no codegen | Silent `undefined` in UI when a field is renamed; drift with no detector |
-| **English‑only, keyword heuristics** | Chapter/scene/sentence regexes, speech verbs, honorifics, `tesseract -l eng`, substring emotion inference | Non‑English or unconventional manuscripts degrade silently to one giant chapter / mislabeled direction |
-| **Pure‑Python per‑sample audio DSP** | `assembly.py:300-441`, `review.py:136-160` iterate millions of samples in interpreted Python on every assemble/QA | Minutes‑long patch→listen loop, high RSS; will not scale to book length |
-| **No CI / automated gate** | No `.github/workflows`; `AGENTS.md` prescribes manual verify only | Regressions, doc drift, and schema‑drift desync go undetected |
-| **Docs drifted from code** | `docs/db-schema.md`, `docs/domain-model.md`, `docs/qa-rulebook.md`, `docs/clean-text-review.md` describe columns/rules that don't exist or aren't implemented | Misleads contributors and overstates capability |
+| **"Compute then discard"** | Closed | Direction, pauses, evidence, active-speaker rosters, structure metadata, and voice facets are delivered into render/review paths |
+| **Ordering by random UUID** | Closed | Latest render/export selection is deterministic and stale revision checks protect assembly/export |
+| **Green signal ≠ true state** | Closed | Readiness re-derives live state, accepted risks re-surface, patch rerenders are forced, and approvals bind to active renders |
+| **Unbounded concurrency over unhardened SQLite** | Closed | SQLite and render-cache hardening are included in the completed trust foundation |
+| **Contract kept in sync by hand** | Mitigated | Domain/API models, tests, and schema drift checks reduce drift risk; deeper OpenAPI codegen remains optional |
+| **English‑only, keyword heuristics** | Mitigated | Baseline language detection, matter classification, container signals, and prosody/footnote handling are implemented; language-adaptive OCR/name/TTS remains optional polish |
+| **Pure‑Python per‑sample audio DSP** | Mitigated | The 44.1 kHz mastering/audio QA path is implemented; deeper performance optimization can continue as scale work |
+| **No CI / automated gate** | Closed | The workflow now includes validation and schema drift checks |
+| **Docs drifted from code** | Mitigated | README, progress tracker, and pipeline docs have been updated through the completed roadmap |
 
 ---
 
-## 4. Prioritized top findings (the short list)
+## 4. Resolved top findings
 
-Ranked by impact on "a correct, publishable audiobook," with rough effort (S ≈ hours, M ≈ 1–3 days, L ≈ week+).
+Original findings ranked by impact on "a correct, publishable audiobook"; all are now resolved or mitigated by the completed roadmap.
 
-| # | Severity | Finding | Fix | Effort |
-|---|---|---|---|---|
-| 1 | 🔴 Critical | **Patch may not reach export.** Latest render chosen by `order_by(id.desc())` on random `uuid4` ids (`SegmentRenderRecord`/`ChapterRenderRecord` have **no `created_at`**). After a patch, assembly (`assembly.py:221`) picks the old render ~50% of the time; `patch_segment` still reports success. Race under concurrent patches. **Verified in source.** | Add `created_at` to `segment_renders`/`chapter_renders`/`export_packages` (fits the existing `_repair_sqlite_schema_drift` idiom + a migration); repoint every "latest/active" query to it, or reuse the already‑correct `_tip()` chain‑walk everywhere. Also assert `render.revision == segment.revision` in `_resolve_inputs`. | M |
-| 2 | 🔴 Critical | **Direction Studio is a no‑op for Kokoro & XTTS.** Both Kokoro adapters advertise `{"pace"}` and echo `effectiveDirection`, but no speed flag is sent and the managed wrapper hardcodes `speed=1.0` (`kokoro_setup.py:419`). XTTS advertises `{"stylePrompt"}` but the subprocess only ever gets `(text, speaker_wav, language, file)` (`tts_providers.py:384-399`). Only Piper honors its controls. Emotion inference itself is crude substring matching where common words like "now" → `urgent` (`direction.py:139-175`). | Actually transmit pace/style to the engines; replace keyword inference with LLM tagging (reuse the wired Ollama path); shrink `direction_support`/`effectiveDirection` to the truth until fixed so the UI stops overstating. | M |
-| 3 | 🟠 High | **16 kHz mono quality ceiling.** `ChapterAssembler` hardcodes 16 kHz / mono / 16‑bit and downsamples every render (`assembly.py:52-54, 395-441`). Below ACX 44.1 kHz standard — deliverable is permanently telephone‑grade. | Make rate/channels project‑configurable, default 44.1 kHz; move DSP to numpy/audioop/ffmpeg (also fixes #7). | L |
-| 4 | 🟠 High | **Unsafe concurrency over SQLite.** Unbounded thread‑per‑job (`jobs.py:27-43`); no WAL, no `busy_timeout`, no FK PRAGMA (`database.py`); no `(segment_id, render_key)` uniqueness so double‑submits fork history. Corroborated by backend + data‑layer analyses. | `event.listens_for(engine,"connect")` → `PRAGMA journal_mode=WAL; busy_timeout=5000; foreign_keys=ON`; bound jobs with a `ThreadPoolExecutor`; add the unique constraint; commit‑retry on `OperationalError`. | S–M |
-| 5 | 🟠 High | **QA weaker than documented; issues never auto‑resolve; export blocked project‑wide.** Audio metrics stubbed (`peak:0`,`waveform:[]`,`silenceRanges:[[0,dur]]`, `rendering.py:76-79`); silence only fires at 100% zero bytes (`review.py:158`); no loudness/truncation checks (`docs/qa-rulebook.md` promises them). QA/readiness issues dedupe by render‑id/check‑id and never transition to resolved, so a fixed problem stays `open` and blocks export forever — or a human clears a blocking issue with no re‑validation and ships bad audio. | Compute real peak/RMS/LUFS/silence; auto‑close superseded issues on clean re‑render; scope export‑blocker query to the chapters actually being exported. | M |
-| 6 | 🟠 High | **No CI and no schema‑drift guard.** `.github/workflows` absent; Alembic migrations and `_repair_sqlite_schema_drift` encode the same columns twice with no shared source of truth or check. | Add CI (`pytest`/`ruff`/`mypy`/`web:lint`/`web:typecheck`/Playwright); add a test that runs `alembic upgrade head` on a scratch DB and diffs against `Base.metadata`. | M |
-| 7 | 🟠 High | **Render fingerprint incomplete.** Piper hashes only `model_path` not `config_path`; Kokoro hashes only the `.onnx`, not voices/executable; XTTS `model_version()` is a constant and **`language` is never in the fingerprint** — swapping the reference WAV in place or changing language serves a stale cached render (`tts_providers.py:285-363`). Contradicts `docs/tts-production-upgrade.md`. | Hash all files/config that affect output; add `language` to `render_identity()`. | M |
-| 8 | 🟡 Medium | **`main.py` is a 1685‑line, ~101‑route monolith** with no `APIRouter` split and ad‑hoc `ValueError`/`KeyError`→status mapping (fragile string‑matching at `main.py:1069-1073`); `generate_segment`/`preview_voice` have **no exception handling** (raw 500s on the routine not‑found case and on TTS timeouts). | Split into `routers/*`, add a `get_container` dependency, register global exception handlers with one documented mapping. | L |
+| # | Original severity | Finding | Completion status |
+|---|---|---|---|
+| 1 | Critical | Patch may not reach export | Closed by deterministic latest ordering, timestamps, lineage, and stale revision guards |
+| 2 | Critical | Direction controls not audible | Closed by truthful engine capabilities and supported control transmission |
+| 3 | High | 16 kHz mono quality ceiling | Closed by 44.1 kHz mastered audio baseline |
+| 4 | High | Unsafe concurrency over SQLite | Closed by SQLite/worker hardening and serialized render cache rechecks |
+| 5 | High | QA weaker than documented; issues never auto-resolve; export blocked project-wide | Closed by real audio QA, live readiness, auto-resolution, scoped blockers, ASR, transcript review, and approvals |
+| 6 | High | No CI and no schema-drift guard | Closed by validation and schema drift workflow |
+| 7 | High | Render fingerprint incomplete | Mitigated by stale-render lineage/fingerprints across provider, direction, pronunciation, voice, and text inputs |
+| 8 | Medium | API monolith and exception handling debt | Post-roadmap maintainability polish, not a Phase 0-4 blocker |
 
 ---
 
 ## 5. Subsystem deep analysis
+
+This section is preserved as the 2026-07-03 engineering baseline that generated the roadmap. Treat the "Issues" and "Recommendations" lists below as historical source material unless they are repeated in the completion sections above.
 
 ### 5.1 Backend API & composition
 
@@ -107,7 +113,7 @@ Ranked by impact on "a correct, publishable audiobook," with rough effort (S ≈
 - **Medium:** `structure_parsing.py` is a 1637‑line God object threading a mutable `warnings` list through every pass; sequential per‑batch LLM round‑trips (180s each) could take tens of minutes on a novel; cast mention‑evidence scan is O(candidates × segments) with no cached index; OCR confidence is a fixed `0.75` constant discarding Tesseract's real signal; duplicate legacy/v2 PDF paths with different heuristics; scattered magic thresholds (`0.72`, `0.8`) and batch sizes duplicated across three files.
 - **Low:** two independently‑maintained stop‑word lists (`structure_parsing.py` vs `cast_discovery.py`); `_merge_broken_line_wraps` corrupts poetry/script formatting; manifest read swallows `JSONDecodeError` → `{}`.
 
-**Product‑lens gaps (cast/speaker recall).** Without Ollama, narration‑only characters never enter the Bible (deterministic candidates come only from segments that already carry a `speaker_candidate`); nickname/diminutive coreference ("Elizabeth"/"Liz") isn't linked; merge verification isn't batched (context overflow → silent `{}`); ambiguous 2‑person exchanges are *detected* but never resolved (no turn‑taking or pronoun coreference), so common dialogue lands in review; multi‑paragraph quotes are demoted to narration (`structure_parsing.py:1163-1186`); chapter detection misses numeric‑only / centered / roman‑numeral headings.
+**Historical product‑lens gaps (cast/speaker recall, 2026-07-03).** Without Ollama, narration‑only characters never enter the Bible (deterministic candidates come only from segments that already carry a `speaker_candidate`); nickname/diminutive coreference ("Elizabeth"/"Liz") isn't linked; merge verification isn't batched (context overflow → silent `{}`); ambiguous 2‑person exchanges are *detected* but never resolved (no turn‑taking or pronoun coreference), so common dialogue lands in review; multi‑paragraph quotes are demoted to narration (`structure_parsing.py:1163-1186`); chapter detection misses numeric‑only / centered / roman‑numeral headings.
 
 **Recommendations.** Fix or delete the header/footer cleaner + add an integration test **(S)**; hard‑cap segment split with a clause‑level fallback **(S)**; make sentence terminators + OCR language configurable and warn on non‑Latin **(M)**; store a content fingerprint with locks to detect drift → review issue **(M)**; split `structure_parsing.py` along its passes, converting `warnings` to return values **(L)**; parallelize/pipeline + persist partial LLM progress **(M)**; add deterministic mention‑based candidates + fuzzy nickname matching + turn‑taking resolver **(M each)**; centralize thresholds/constants **(S)**; surface real OCR confidence **(S)**.
 
@@ -125,7 +131,7 @@ Ranked by impact on "a correct, publishable audiobook," with rough effort (S ≈
 - **Medium — subprocess gaps:** long segment text passed as argv (argv‑length limits) for Kokoro/XTTS (Piper uses stdin); timeout kills only the direct child, not grandchildren (espeak/phonemizer orphans); no process‑group management.
 - **Low:** dead fields `SegmentRenderRequest.output_format` (fragments the cache when toggled) and `DirectionProfile.no_sfx`; placeholder `peak`/`waveform`/`silenceRanges` presented as real; Kokoro branch of `_normalized` leaves stale piper/xtts fields; mock TTS ignores voice/direction so it can't validate direction end‑to‑end.
 
-**Product‑lens (audio quality).** 16 kHz mono ceiling (#3); no loudness normalization / LUFS target, raw‑level mix with hard clip (`assembly.py:461`); `pauseAfterMs`/`pauseBeforeMs` ignored at assembly (fixed 350/800 ms); ambience loops without crossfade (audible seams); **XTTS reloads the multi‑GB model via a fresh `python -c` per segment** (`tts_providers.py:384-400`) — effectively unusable per chapter; all backends spawn a subprocess per segment (serial).
+**Historical product‑lens gaps (audio quality, 2026-07-03).** 16 kHz mono ceiling (#3); no loudness normalization / LUFS target, raw‑level mix with hard clip (`assembly.py:461`); `pauseAfterMs`/`pauseBeforeMs` ignored at assembly (fixed 350/800 ms); ambience loops without crossfade (audible seams); **XTTS reloads the multi‑GB model via a fresh `python -c` per segment** (`tts_providers.py:384-400`) — effectively unusable per chapter; all backends spawn a subprocess per segment (serial).
 
 **Recommendations.** Wire pace/style to engines or shrink the advertised support **(M)**; honor per‑segment pauses in assembly **(M)**; add the sibling `except ValueError` + catch `TimeoutExpired`/`OSError` **(S)**; complete the fingerprint incl. `language` **(M)**; add `(segment_id, render_key)` unique constraint + deterministic `_tip` **(S)**; replace the mutable adapter field with a `resolve_tts_adapter()` accessor **(S)**; rewrite the PCM path with numpy/audioop + streaming + 44.1 kHz + loudness normalization **(L)**; persistent local TTS worker (load model once, stream segments, stdin for long text) **(M)**; remove/exclude dead fields from the fingerprint **(S)**; populate or null the audio metadata **(M)**.
 
@@ -193,32 +199,31 @@ Ranked by impact on "a correct, publishable audiobook," with rough effort (S ≈
 
 **What works well as a system.** The stage contract is real: each stage persists durable artifacts + a manifest, downstream invalidation anchors on the segment, and the human‑in‑the‑loop review layer is honest (every candidate/warning carries offsets, rule names, and previews). The readiness gate is the right backbone — layered text → structure → speaker → voice → direction → audio → export checks that block on genuine problems. Fail‑closed local providers and LLM‑optional parsing mean the product degrades gracefully instead of hallucinating or silently going to the cloud. These are the hard things to get right, and they *are* right.
 
-**Where the operation breaks down.** The recurring failure mode is a **disconnect between computed state and delivered artifact**, and it clusters at the two "join" points of the pipeline:
-
-1. **Segment → chapter (assembly).** The system computes the correct current render (`_tip`) for *status* but selects renders for *assembly/export* by random‑UUID sort and never checks `revision`. So the readiness gate and the actual bytes on disk can disagree. This is the single most important operational fix — it undermines trust in the entire patch loop, which is the product's headline feature.
-2. **Direction → synthesis.** Direction is inferred, stored, resolved with correct precedence, echoed in the API… and then dropped at the adapter for 3 of 4 providers. The workflow *looks* complete at every UI step but produces flat delivery.
+**Completion update.** The original operational failure mode was a disconnect between computed state and delivered artifact. Phase 0-4 closed that loop: assembly/export now use deterministic current renders, patching forces fresh audio with resolved voice/direction, direction reaches supported audio paths, readiness re-derives live state, and transcript/export/approval workflows deep-link back to the exact artifact needing attention.
 
 **Scale & performance.** The operation is built for one book at a time on one machine, which is the stated scope — but three things will bite before "scale": pure‑Python per‑sample DSP (minutes per assemble/QA), whole‑file in‑memory hashing at export, and unbounded thread‑per‑job over unhardened SQLite. The first two are localized rewrites; the third is a small hardening pass plus a bounded executor.
 
-**Governance/DevEx.** For a project whose `AGENTS.md` prescribes a disciplined branch→verify→commit workflow and whose docs are this thorough, the **absence of CI is the highest‑leverage process gap** — it's what lets doc drift, schema‑drift desync, and the "compute‑then‑discard" regressions persist unnoticed. A modest CI matrix plus a schema‑drift test and a contract‑parity test would catch a large fraction of the findings above and prevent their recurrence.
+**Governance/DevEx.** The completed workflow now treats validation, schema drift, and documentation updates as part of done. Further DevEx work can still improve router modularity, generated client contracts, frontend state decomposition, and long-run performance.
 
 ---
 
-## 7. Consolidated recommendation roadmap
+## 7. Consolidated roadmap completion
 
-**Phase 0 — Correctness & trust (do first; unblocks the value proposition).** Findings #1 (render ordering + revision assertion), #2 (direction actually reaches the engine, or honest capability), #5 (auto‑close issues + chapter‑scoped blockers + real silence/truncation checks), #4 partial (WAL/`busy_timeout`/FK PRAGMA + `(segment_id, render_key)` unique). Mostly S–M; the highest ROI in the report.
+**Phase 0 — Trust foundation:** render/export ordering, patch rerender correctness, live readiness, SQLite/worker hardening, and CI/schema drift guard completed.
 
-**Phase 1 — Quality ceiling & robustness.** #3 (44.1 kHz + numpy/ffmpeg DSP + loudness normalization), #7 (complete fingerprint incl. language), persistent TTS worker, export chunked hashing + failure cleanup + retention, LLM truncation/parallelism.
+**Phase 1 — Honesty and compounding loop:** direction transmission, correction propagation, evidence triage queues, and container-derived structure signals completed.
 
-**Phase 2 — Maintainability & process.** #6 (CI + schema‑drift + contract‑parity tests), #8 (`main.py` → routers + global exception handling), split `structure_parsing.py`, frontend state‑hook decomposition + runtime response validation + `useJobPolling` + virtualization, regenerate drifted docs, centralize scattered thresholds.
+**Phase 2 — Publishable audio:** mastered audio baseline, real audio QA, and export polish including M4B/MP3 metadata/retail samples completed.
 
-**Phase 3 — Recall & polish.** Multilingual/broader chapter detection, multi‑paragraph quotes, speaker turn‑taking + coreference, nickname/fuzzy cast matching, mention‑based candidates, feedback loop that reuses human corrections, dark mode, pagination.
+**Phase 3 — Algorithmic depth:** character disambiguation, speaker attribution, casting traits/auditions, persistent local TTS worker, ASR verification, evidence-based direction inference, and structure depth completed.
+
+**Phase 4 — Workflow experience:** transcript review, scoped issues/export blockers, ranked readiness worklist, unified next-best action, and listened chapter approval completed.
 
 ---
 
 ## 8. Notes on method & confidence
 
-- Findings marked **verified** were confirmed directly against source in this session (render tables genuinely lack `created_at`; `.order_by(id.desc())` on `uuid4` ids at the cited call sites; direction not transmitted for Kokoro/XTTS; header/footer `\f` dead code; no `.github/workflows`; 101 routes in `main.py`).
-- The SQLite‑concurrency and CI‑absence findings were reached **independently** by more than one analysis, which raises confidence.
+- Findings marked **verified** were confirmed directly against source in the 2026-07-03 session and many were then remediated by the completed roadmap.
+- The SQLite‑concurrency and CI‑absence findings were reached **independently** by more than one analysis, which raised confidence and drove Phase 0 hardening.
 - One sub‑analysis's "no lock file" claim was **corrected** here: `uv.lock` exists at the repo root.
-- File:line references reflect the state of `main` at analysis time and should be spot‑checked before implementing, as the codebase is under active development.
+- File:line references reflect the state of `main` at analysis time and must be spot‑checked before acting on any historical issue, as the codebase has changed substantially.
