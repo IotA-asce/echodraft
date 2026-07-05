@@ -236,6 +236,8 @@ class StructureQuality(ApiModel):
     possible_scene_break_count: int = Field(alias="possibleSceneBreakCount")
     offset_validation_failure_count: int = Field(alias="offsetValidationFailureCount")
     quote_unclosed_count: int = Field(alias="quoteUnclosedCount")
+    detected_language: str = Field(default="unknown", alias="detectedLanguage")
+    detected_language_confidence: float = Field(default=0.0, alias="detectedLanguageConfidence")
     warnings_needing_review_count: int = Field(alias="warningsNeedingReviewCount")
     llm_refinement_used: bool = Field(alias="llmRefinementUsed")
     llm_accepted_batch_count: int = Field(alias="llmAcceptedBatchCount")
