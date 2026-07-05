@@ -1,6 +1,6 @@
 # Progress Tracker
 
-Last updated: 2026-07-04
+Last updated: 2026-07-05
 
 This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.md`.
 
@@ -14,10 +14,10 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Status Summary
 
 - Numbered gaps tracked: 20
-- Complete: 11
-- Remaining: 9
-- In progress: 3
-- Approximate roadmap completion: 55%
+- Complete: 12
+- Remaining: 8
+- In progress: 2
+- Approximate roadmap completion: 60%
 - Complete phases: Phase 0, Phase 1, Phase 2
 - Remaining phases: Phase 3, Phase 4
 
@@ -99,11 +99,12 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 
 ## Phase 3 - Algorithmic Depth
 
-- [ ] G9 - Character disambiguation and fuzzy aliasing.
-  - [ ] Add disambiguation gate before same-name character merges.
+- [x] G9 - Character disambiguation and fuzzy aliasing.
+  - [x] Add disambiguation gate before same-name character merges.
+  - [x] Add fuzzy spelling-variant duplicate review.
   - [x] Add initial title/nickname alias enrichment.
   - [x] Extract conservative casting-relevant character traits from observed evidence.
-  - Evidence: `feat/phase-3-cast-depth`.
+  - Evidence: `feat/phase-3-cast-depth`, `feat/g9-disambiguation`; documented in `docs/pipeline/casting/character-bible.md`.
 - [ ] G10 - Speaker attribution depth.
   - [x] Add initial nearby-turn and pronoun-cue evidence for unlabeled dialogue.
   - [ ] Expand into full turn-taking and alternation model.
@@ -154,8 +155,8 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## Completion Estimate
 
 - Roadmap items tracked: 20 numbered gaps.
-- Completed: 11 numbered gaps.
-- In progress: 3 numbered gaps.
-- Remaining: 9 numbered gaps.
-- Approximate roadmap completion: 55%.
-- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 0%, Phase 4 0%.
+- Completed: 12 numbered gaps.
+- In progress: 2 numbered gaps.
+- Remaining: 8 numbered gaps.
+- Approximate roadmap completion: 60%.
+- Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 14%, Phase 4 0%.

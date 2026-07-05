@@ -19,6 +19,9 @@ Each character stores:
 
 - Structure & Cast Draft can create high-confidence unique characters automatically from observed dialogue/cast evidence.
 - Ambiguous candidates are kept as review issues instead of creating duplicate Character Bible records.
+- Same-name candidates are not merged automatically when observed trait namespaces conflict; they become possible-duplicate review issues with match IDs.
+- Generated title or nickname aliases are evidence-backed and conservative: new unique records may store them, but matching an existing character through a generated alias requires review.
+- Fuzzy spelling variants are routed to possible-duplicate review instead of creating unrelated characters or silently merging.
 - Parser Review can apply evidence-backed cast issues: possible duplicates merge into the selected target, while low-confidence unique candidates are confirmed into the Character Bible.
 - User locks survive reruns and local extraction passes.
 - Merge preserves the source record with `mergedIntoCharacterId`; it does not delete data.
