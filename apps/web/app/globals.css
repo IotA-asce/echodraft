@@ -143,3 +143,7 @@ select { min-height:36px; border:1px solid var(--line); border-radius:0; backgro
 .transcript-text { min-width:0; overflow-wrap:anywhere; font-size:.86rem; line-height:1.45; }
 .transcript-issues { color:var(--clay); font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; white-space:nowrap; }
 @media (max-width:760px) { .transcript-line { grid-template-columns:1fr; } .speaker-chip { max-width:100%; } }
+.export-estimate { margin-top:14px; padding:12px; border:1px solid var(--line); background:#f4ecdf; }
+.export-estimate.blocked { border-left:3px solid #a42b22; }
+.export-estimate p { display:grid; grid-template-columns:120px minmax(0,1fr); gap:10px; margin:8px 0 0; color:var(--muted); font-size:.82rem; line-height:1.4; }
+.export-estimate b { color:var(--clay); font-size:.66rem; letter-spacing:.08em; text-transform:uppercase; }

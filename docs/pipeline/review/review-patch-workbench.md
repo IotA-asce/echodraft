@@ -18,6 +18,10 @@ The response is a `SegmentReviewInspector` read model. It is assembled from exis
 
 No audio blobs or waveform blobs are stored in the relational database. The API returns artifact URLs for segment render audio using the same local artifact route as the render history endpoint.
 
+`GET /api/v1/projects/{projectId}/chapters/{chapterId}/review-timeline`
+
+The response is a chapter-level transcript read model for the Review & Patch player. It uses authored segment text, speaker attribution, the active chapter render, waveform peaks, and open issue rows. New chapter render manifests include a `timeline` block with per-segment `startMs` and `endMs`; older manifests are reconstructed from ordered inputs, render durations, applied pauses, and room-tone metadata. This keeps jump-to-audio local and manifest-driven without storing audio blobs in SQLite.
+
 `POST /api/v1/issues/{issueId}/apply-action`
 
 Parser review issues can carry evidence-backed `metadata.reviewAction` values. The apply-action endpoint currently supports:
@@ -38,6 +42,8 @@ The dashboard’s segment action is now `Inspect`. It loads the existing render 
 - Current segment audio and waveform metadata
 - Render history, QA findings, comments, and patch queue
 
+The chapter transcript review color-codes speakers, shows issue markers over the active waveform, and jumps both the player and inspector to the selected segment or issue moment.
+
 Patch attempts remain append-only. A patch creates a new segment render, records the previous render as the parent, reassembles the owning chapter, and adds a `patch_attempts` row. Segment text edits continue to create revisions and stale only the affected segment render fingerprint.
 
 The Structure & Cast Draft `Parser Review` queue combines parser warnings with open cast-discovery issues. Reviewers can apply cast actions, reject duplicate suggestions, or dismiss resolved review items from the queue while preserving the evidence metadata on the issue record.
@@ -52,3 +58,4 @@ Stage 12 tests cover:
 - waveform metadata loaded from local render metadata
 - patch queue lineage after selective patching
 - segment revision staling only the edited segment in a multi-segment chapter
+- chapter transcript timeline offsets and issue markers from the active chapter render

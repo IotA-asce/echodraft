@@ -64,6 +64,7 @@ State also moves the other way automatically:
 - `GET /api/v1/projects/{projectId}/readiness/reports`
 
 The run request may include `chapterId` to scope checks to a single chapter.
+When scoped, structure warnings and open blocking issue checks only count the selected chapter's chapter/scene/segment scope plus global project blockers.
 
 ## Dashboard
 
@@ -72,3 +73,5 @@ and active findings, and exposes Resolve, Accept risk, and Lock actions for link
 Accepted risks are listed in a separate "Accepted risks" section. After any of these actions,
 and after a patch, the panel re-runs readiness so the badge and score are derived server-side
 rather than from an optimistic local guess.
+
+Active findings are presented as a severity-weighted worklist: blocking checks first, then warnings, then lower-impact checks, with per-section busy state for readiness actions.
