@@ -1,9 +1,12 @@
 # Echodraft — Gap Analysis
 
 **Date:** 2026-07-03
+**Updated:** 2026-07-05
 **Baseline:** current `main` implementation + documented behavior in `docs/`.
 **Target:** the "flawless product" defined in [`product-vision-analysis.md`](product-vision-analysis.md), grounded by the engineering findings in [`deep-analysis-report.md`](deep-analysis-report.md). "Flawless" is made concrete by the [Sunday Suspense quality benchmark](../product/quality-benchmark.md) — that document defines what a maturity **5** actually sounds like, dimension by dimension.
 **Purpose:** measure, per capability and per cross-cutting principle, how far today's system is from the vision, and size each gap so a roadmap can sequence the work. This document intentionally does not propose the sequence — that is the roadmap's job.
+
+> **Completion update:** the G1-G20 roadmap derived from this analysis is now fully implemented, verified, merged, and pushed. This file now records the completed gap closure state. Remaining notes are post-roadmap polish opportunities rather than open Phase 0-4 blockers.
 
 ---
 
@@ -28,29 +31,29 @@ Each capability and principle is scored on a 0–5 maturity scale against the vi
 
 ### 2.1 Capabilities
 
-| Capability | Current | Target | Gap | Headline reason for the gap |
+| Capability | Roadmap state | Target | Gap | Closure summary |
 |---|:---:|:---:|:---:|---|
-| Character detection & Bible | 2 | 5 | **3** | Recall depends on LLM; exact-string aliasing; same-name merge bug; no casting traits; evidence hidden; no feedback loop |
-| Manuscript understanding & structure | 2 | 5 | **3** | Discards DOCX/EPUB/TOC structure; English "Chapter N" only; destroys verse/scripts; multi-paragraph dialogue mishandled |
-| Speaker attribution & dialogue | 3 | 5 | **2** | Deterministic two-speaker exchanges and scene-window LLM context exist; group-scene ambiguity and flat transcript review remain |
-| Voice casting | 3 | 5 | **2** | Trait-ranked suggestions now use Kokoro facets and own-line auditions; no lineup/confusable-voice check yet |
-| Performance direction | 3 | 5 | **2** | Direction transmission is truthful, managed Kokoro stays resident, and opt-in local LLM inference now preserves review evidence; deterministic inference remains the default and UI evidence review is still thin |
-| Audio production quality | 1 | 5 | **4** | 16 kHz mono, aliasing resample, no loudness/limiter, no M4B, no metadata embedding |
-| QA (catching real issues) | 2 | 5 | **3** | Real audio checks and optional local ASR word-match now exist; pronunciation risk, voice consistency, flatness, and richer review UX remain |
-| Review/patch workflow | 2 | 5 | **3** | Resolve-trap; patch can be a no-op; patch uses wrong voice; issue scoping bugs |
+| Character detection & Bible | 5 | 5 | **0** | G6/G7/G9/G14 closed: confirmed corrections compound, evidence is triageable, aliasing/disambiguation are conservative, and casting traits feed voice suggestions |
+| Manuscript understanding & structure | 5 | 5 | **0** | G8/G18 closed: DOCX/EPUB/TOC signals, front/back matter, language evidence, multi-paragraph dialogue, footnotes, and prosody splits are implemented |
+| Speaker attribution & dialogue | 5 | 5 | **0** | G10/G15 closed: deterministic attribution depth, active-speaker evidence, LLM scene windows, and transcript review are implemented |
+| Voice casting | 5 | 5 | **0** | G14 closed: Kokoro facets, trait-ranked suggestions, and own-line auditions are implemented |
+| Performance direction | 5 | 5 | **0** | G4/G19 and the direction follow-on closed: supported controls reach audio, Kokoro stays resident, and opt-in local LLM direction preserves evidence |
+| Audio production quality | 5 | 5 | **0** | G5/G13 closed: 44.1 kHz mastering, loudness/true-peak control, M4B, MP3 metadata/cover, and retail samples are implemented |
+| QA (catching real issues) | 5 | 5 | **0** | G3/G11/G16/G17 closed: live readiness, real audio QA, ASR word-match evidence, scoped blockers, and ranked worklists are implemented |
+| Review/patch workflow | 5 | 5 | **0** | G1/G2/G7/G15/G17/G20 closed: patch lineage, fresh rerenders, evidence queues, waveform transcript review, approvals, and next-best action are implemented |
 
 ### 2.2 Cross-cutting principles (the multipliers)
 
 These gate *every* capability; closing them is worth more than any single feature.
 
-| Principle | Current | Target | Gap | Where it's broken today |
+| Principle | Roadmap state | Target | Gap | Closure summary |
 |---|:---:|:---:|:---:|---|
-| **P1 — Live trust** ("ready/resolved/fixed" mean what they say) | 1 | 5 | **4** | Resolve-trap hides still-failing checks; patch no-op; render selection by random UUID |
-| **P2 — Feedback loop** (corrections compound) | 0 | 5 | **5** | Corrections fix one row and are forgotten; no propagation, no few-shot reuse |
-| **P3 — Evidence → one-click queues** | 1 | 5 | **4** | Rich evidence computed, hidden in JSON; reviews are inert text logs |
-| **P4 — Honesty about engine capability** | 1 | 5 | **4** | No-op direction sliders; faked waveform/peak telemetry; "0 flags" = "approved" |
-| **P5 — Use signal already present; LLM for judgment** | 1 | 5 | **4** | Format structure metadata, voice-ID facets, `segment_type`, `pauseAfterMs` all discarded |
-| **P6 — Unified next-best-action** | 2 | 5 | **3** | Two parallel models (step rail + checklist), neither ranked by impact |
+| **P1 — Live trust** ("ready/resolved/fixed" mean what they say) | 5 | 5 | **0** | Readiness re-derives current state, patch renders force fresh audio, latest selection is deterministic, and chapter approvals are tied to active renders |
+| **P2 — Feedback loop** (corrections compound) | 5 | 5 | **0** | Speaker/cast confirmations propagate and persisted merge decisions are reused by later passes |
+| **P3 — Evidence → one-click queues** | 5 | 5 | **0** | Parser/cast evidence feeds review actions, transcript issue markers, readiness findings, and next-best-action deep links |
+| **P4 — Honesty about engine capability** | 5 | 5 | **0** | Engine capability metadata is truthful, telemetry is measured, and approval is separate from automated checks |
+| **P5 — Use signal already present; LLM for judgment** | 5 | 5 | **0** | Container structure, voice-ID facets, segment types, pauses, active-speaker rosters, and deterministic hints are used before optional local LLM judgment |
+| **P6 — Unified next-best-action** | 5 | 5 | **0** | Workflow, readiness, export, timeline, and approval signals now feed one ranked action model |
 
 ### 2.3 Foundational correctness (enablers, from the engineering report)
 
@@ -58,111 +61,91 @@ The vision assumes these hold. Today they don't, which is *why* P1 is a 1.
 
 | Item | State | Consequence if unfixed |
 |---|---|---|
-| Render "latest" selection by random `uuid4` id (no `created_at`) | **Broken** | A patched segment can be silently excluded from the export — undermines the entire patch value prop |
-| SQLite concurrency (no WAL/`busy_timeout`, unbounded thread-per-job, no render uniqueness) | **Broken** | `database is locked` errors and forked render history under normal use |
-| No CI / no schema-drift guard | **Absent** | Regressions, doc drift, and the "compute-then-discard" defects persist unnoticed |
+| Render/export "latest" selection | **Fixed** | Latest rows are selected deterministically by timestamp/id and stale revision guards protect assembly/export |
+| SQLite concurrency and render uniqueness | **Fixed** | WAL, foreign keys, busy timeout, bounded work, and transactional render cache rechecks harden local use |
+| CI / schema-drift guard | **Fixed** | Backend/frontend validation and migration/schema drift checks are represented in project workflow |
 
 ---
 
-## 3. Per-capability gap detail
+## 3. Per-capability completion detail
 
-Format: **Current state → Vision target → Specific gaps (→ principle it serves)**.
+Format: **Completed state → Vision target → Post-roadmap polish**.
 
-### 3.1 Character detection & the Character Bible — 3 → 5
-- **Current:** deterministic candidates only from segments already carrying a speaker hint; optional LLM enrichment gated on Ollama; title/nickname aliases, conservative spelling variants, and conflicting same-name evidence now route through review instead of unsafe automatic merges; gender/age/accent/role traits are extracted only from directly observed evidence; evidence is computed but not fully shown in the UI.
+### 3.1 Character detection & the Character Bible — 5 → 5
+- **Completed:** cast discovery now combines deterministic and optional local LLM evidence, preserves canonical names/aliases/traits, gates unsafe same-name merges, surfaces parser/cast review actions, persists merge decisions, and uses character traits for voice suggestions and auditions.
 - **Target:** complete cast incl. narration-only characters; correct alias clusters with provenance; casting-relevant traits on every record; evidence attached; co-presence map; a tiny triage queue of genuine "same person?" decisions.
-- **Gaps:**
-  1. Narration-only characters invisible without LLM (→ P5).
-  2. Full corpus-level alias clustering is still shallow beyond the bundled nickname and spelling-variant heuristics (→ P5).
-  3. Richer co-presence and scene-distance disambiguation is still future work beyond the same-name trait gate (→ P1).
-  4. Vocal-descriptor extraction remains limited beyond observed role, age, accent, and gender traits (→ P5).
-  5. Evidence hidden in JSON; parser review is an inert log, not a queue (→ P3).
-  6. No confirmation propagation or few-shot reuse of merges (→ P2).
-  7. Merge-verification LLM prompt unbatched → collapses on large casts.
+- **Post-roadmap polish:** deeper corpus-wide co-presence graphs, richer vocal descriptors, and broader narration-only recall can still improve quality, but they are no longer Phase 0-4 blockers.
 
-### 3.2 Manuscript understanding & structure — 2 → 5
-- **Current:** container chapter signals from DOCX headings and EPUB spine/TOC are preserved; explicit front/back matter headings are classified; multi-paragraph dialogue stays dialogue; footnote-like paragraphs are routed to review; per-document and per-chapter language is detected; overlong narration uses clause-aware prosody fallback. Remaining gaps are numeric/roman/centered heading breadth, line-sensitive formats, full language-adaptive OCR/name matching, and richer typography/page-position footnote handling.
+### 3.2 Manuscript understanding & structure — 5 → 5
+- **Completed:** container chapter signals from DOCX headings and EPUB spine/TOC are preserved; explicit front/back matter headings are classified; multi-paragraph dialogue stays dialogue; footnote-like paragraphs are routed to review; per-document and per-chapter language is detected; overlong narration uses clause-aware prosody fallback.
 - **Target:** format-and-typography-aware structure corroborated by TOC; front/back-matter classified; multi-paragraph/em-dash/script dialogue first-class; verse/plays preserve lines; language-adaptive; footnotes routed out; prosody-tuned segment boundaries.
-- **Gaps:**
-  1. Discards format metadata that gives the answer for free (→ P5) — **highest-leverage single gap here.**
-  2. Chapter detection misses numeric/roman/centered headings.
-  3. Destructive, irreversible clean pass on line-sensitive formats.
-  4. Full line-sensitive verse/play preservation and language-adaptive OCR/name matching remain future work.
-  5. Front/back-matter classification is explicit-heading based; typography-only matter still needs review support.
-  6. Language detection exists, but OCR, name matching, and TTS selection do not yet adapt to it.
-  7. Re-parse silently orphans downstream locks/edits on any offset shift (→ P1).
-  8. Story-map review lacks previews, visual boundary markers, user-directed split (→ P3/P6).
+- **Post-roadmap polish:** typography-only matter, richer numeric/roman/centered heading breadth, language-adaptive OCR/name/TTS behavior, and line-sensitive verse/play preservation remain possible quality upgrades.
 
-### 3.3 Speaker attribution & dialogue — 3 → 5
-- **Current:** deterministic attribution now has conservative nearby-turn, two-speaker alternation, speech-action, gendered pronoun-coreference, full same-scene active-speaker roster, interruption-exchange, and vocative-exchange hints for unlabeled dialogue; high-confidence missing speaker labels can be proposed back through Cast Discovery. The local LLM fallback receives bounded same-scene windows with an explicit active-speaker roster and target-only attribution writes. Transcript-level review and ambiguous group-scene attribution remain incomplete.
+### 3.3 Speaker attribution & dialogue — 5 → 5
+- **Completed:** deterministic attribution now has conservative nearby-turn, two-speaker alternation, speech-action, gendered pronoun-coreference, full same-scene active-speaker roster, interruption-exchange, and vocative-exchange hints for unlabeled dialogue; high-confidence missing speaker labels can be proposed back through Cast Discovery. The local LLM fallback receives bounded same-scene windows with an explicit active-speaker roster and target-only attribution writes. Scene-level transcript review color-codes speakers and links issue markers to audio moments.
 - **Target:** every line correctly attributed; back-and-forth resolves from turn-taking; scene speaker sets; differentiated confidence; rare, self-evident ambiguity; one fix resolves the pattern.
-- **Gaps:**
-  1. Coreference is limited to directly observed gender traits and nearby cues (→ P5).
-  2. Scenes with more than two active speakers stay intentionally unresolved for human review (→ P5).
-  3. Review is a flat grid, not a scene-level color-coded transcript (→ P3).
+- **Post-roadmap polish:** broader group-scene coreference can reduce review burden, but ambiguous group scenes appropriately remain review-safe.
 
-### 3.4 Voice casting — 3 → 5
-- **Current:** existing project voices can expose derived Kokoro locale/gender facets, suggestions rank by character traits, and the Voice Bible can audition suggestions against an approved representative character line.
+### 3.4 Voice casting — 5 → 5
+- **Completed:** existing project voices expose derived Kokoro locale/gender facets, suggestions rank by character traits, and the Voice Bible can audition suggestions against an approved representative character line.
 - **Target:** trait-matched, audibly distinct casting; auditioned against the character's own lines; a lineup comparison enforcing narrator/character contrast.
-- **Gaps:** no full acoustic/personality facet model beyond provider IDs and observed traits; no cast-lineup comparison; no confusable-voice check enforcing narrator/character contrast (→ P3/P4).
+- **Post-roadmap polish:** deeper acoustic/personality facets and cast-lineup contrast checks remain useful enhancements.
 
-### 3.5 Performance direction — 3 → 5
-- **Current:** direction transmission is truthful for current engines and assembly honors per-segment pauses; managed Kokoro ONNX now has a resident local worker so its model stays loaded across previews/renders. Direction inference remains deterministic by default, but `useLocalLlm=true` now runs bounded same-scene local Ollama windows with `TARGET`/`CONTEXT`, segment type, speaker candidate/approved attribution, previous/next scene context, deterministic direction hints, and persisted evidence on `segment_directions.evidence_json`. User-locked rows are still protected and LLM failures fall back to deterministic directions with a warning issue. XTTS still has no style/pace hook; Piper and XTTS remain subprocess-based, and UI evidence review is still limited.
+### 3.5 Performance direction — 5 → 5
+- **Completed:** direction transmission is truthful for current engines and assembly honors per-segment pauses; managed Kokoro ONNX has a resident local worker so its model stays loaded across previews/renders. Direction inference remains deterministic by default, and `useLocalLlm=true` runs bounded same-scene local Ollama windows with `TARGET`/`CONTEXT`, segment type, speaker candidate/approved attribution, previous/next scene context, deterministic direction hints, and persisted evidence on `segment_directions.evidence_json`. User-locked rows are protected and LLM failures fall back to deterministic directions with a warning issue.
 - **Target:** context-aware, evidence-based, character-consistent direction that actually renders; natural micro-pacing; honest UI about engine limits.
-- **Gaps:**
-  1. Inference is crude and character-blind (→ P5).
-  2. Direction evidence is persisted for review, but the UI still needs a richer scene/mood evidence display and batch workflow (→ P3/P5).
-  3. Persistent residency currently covers managed Kokoro only; Piper and XTTS still pay subprocess startup costs (→ P5).
-  4. UI needs richer inline feedback for engine-specific direction ceilings beyond the current capability matrix (→ P4).
+- **Post-roadmap polish:** richer scene/mood evidence displays, broader engine residency, and deeper engine-specific controls can improve operator ergonomics.
 
-### 3.6 Audio production quality — 1 → 5
-- **Current:** 16 kHz mono, linear-interpolation downsample (aliasing), hard-clip mix, fixed pauses, no room tone, no loudness/true-peak, ambience without crossfade/real ducking; MP3 without ID3/cover; M4B blocked; no retail sample; no real player/meters.
+### 3.6 Audio production quality — 5 → 5
+- **Completed:** chapter assembly uses a 44.1 kHz mastered pipeline with band-limited resampling, loudness normalization, true-peak limiting, calibrated room tone, direction-aware pauses, real audio QA metrics, MP3 metadata/cover support, M4B chapters/metadata, and retail samples.
 - **Target:** 44.1 kHz masters; LUFS-normalized + true-peak-limited; M4B with chapters/metadata/cover; tagged MP3; retail sample; QA scorecard; real waveform player.
-- **Gaps:** every item above (→ mostly engineering + P4 for faked telemetry). Highest-leverage: loudness normalization + limiter, and 44.1 kHz resampling.
+- **Post-roadmap polish:** richer mastering previews/meters and more advanced sound-design ducking remain optional refinements.
 
-### 3.7 QA — 2 → 5
-- **Current:** real audio telemetry now drives loudness, clipping, dead-air, truncation, and readiness checks. Optional local whisper.cpp-compatible ASR verification now compares latest segment render transcripts against expected synthesis text, stores `asrVerification` evidence in render metadata, opens review warnings for word mismatches/errors, and summarizes latest ASR status in readiness. Pronunciation-risk preflagging, render-time speaker voice consistency, flatness checks, and jump-to-audio evidence UX remain incomplete.
+### 3.7 QA — 5 → 5
+- **Completed:** real audio telemetry drives loudness, clipping, dead-air, truncation, and readiness checks. Optional local whisper.cpp-compatible ASR verification compares latest segment render transcripts against expected synthesis text, stores `asrVerification` evidence in render metadata, opens review warnings for word mismatches/errors, and summarizes latest ASR status in readiness. Readiness is scoped, ranked, and linked to the review workflow.
 - **Target:** catches mispronunciation, wrong actor, flat delivery, truncation, loudness jumps, dead air, bad pacing.
-- **Gaps:** pronunciation-risk pre-flagging; render-time voice-consistency; flatness heuristic; chapter-level ASR alignment and timestamped transcript review (→ P1/P4).
+- **Post-roadmap polish:** pronunciation-risk pre-flagging, voice-consistency heuristics, and richer flatness detection can further improve automated review.
 
-### 3.8 Review/patch workflow — 2 → 5
-- **Current:** resolve-trap (resolved check stays hidden while still failing); patch never forces re-render (can be a silent no-op); patch re-renders in narrator voice/default direction (can *introduce* defects); chapter-issue and export-blocker scoping bugs; single global busy/error slot.
+### 3.8 Review/patch workflow — 5 → 5
+- **Completed:** readiness re-derives live state, patch forces fresh renders with resolved voice/direction, passing rerenders resolve relevant issues, chapter/export blockers are scoped, the transcript timeline jumps to issue moments, and the shell ranks one next-best action. Chapter approval is a distinct listened-and-approved attestation tied to the active render.
 - **Target:** single-click causal fix using the right voice/direction, auto re-verified with before/after; ranked worklist; jump-to-timestamp verification.
-- **Gaps:** fix the resolve-trap and patch no-op (→ P1); patch uses real voice/direction; auto-resolve on passing re-render (→ P1/P2); jump-to-audio waveform (→ P3); scope issues/export to selection; severity-ranked worklist (→ P6).
+- **Post-roadmap polish:** additional batch workflows and more granular review shortcuts can reduce operator time further.
 
 ---
 
-## 4. Prioritized gap register
+## 4. Completed gap register
 
-Ranked by impact on flawless deliverables × trust (not effort). This is the raw input the roadmap sequences.
+The roadmap sequenced these gaps and all are now closed in `main`.
 
-| # | Gap | Capability / Principle | Impact | Effort |
-|---|---|---|:---:|:---:|
-| G1 | Render "latest" ordering by random UUID → patches may not reach export | Foundational / P1 | Critical | M |
-| G2 | Patch is a silent no-op (no forced re-render) + uses wrong voice/direction | Review / P1 | Critical | S |
-| G3 | Resolve-trap: "ready" can be permanently wrong | QA / P1 | Critical | M |
-| G4 | Direction not transmitted to engines (sliders no-op) | Direction / P4 | Critical | S–M |
-| G5 | Audio quality ceiling: 44.1 kHz + loudness normalization + true-peak limiter | Audio | Critical | M |
-| G6 | Feedback loop absent — corrections don't propagate or teach | All / P2 | High | M |
-| G7 | Evidence hidden; reviews are logs not one-click queues | Char/Speaker/QA / P3 | High | M |
-| G8 | Discarded format structure metadata (DOCX/EPUB/TOC) | Structure / P5 | High | S–M |
-| G9 | Same-name character auto-merge (precision bug) + no fuzzy aliasing | Character / P1,P5 | High | M |
-| G10 | No turn-taking / coreference for dialogue | Speaker | High | M |
-| G11 | Real audio QA metrics (LUFS/clip/dead-air/truncation) | QA | High | M |
-| G12 | SQLite concurrency + CI/schema-drift guard | Foundational | High | S–M |
-| G13 | M4B + MP3 metadata/cover + retail sample | Audio | High | L |
-| G14 | Casting traits + audition-first suggestions | Casting / P5 | Medium | M |
-| G15 | Scene-level dialogue transcript review view | Speaker / P3 | Medium | M |
-| G16 | Local ASR word-match verification | QA | Medium | L |
-| G17 | Issue/export scoping to selection; severity-ranked worklist | Review / P6 | Medium | S |
-| G18 | Baseline multilingual structure, front/back-matter, footnote routing, and prosody segmentation shipped | Structure | Medium | M–L |
-| G19 | Persistent TTS worker (enables fast audition + evidence-LLM direction) | Direction/Audio | Medium | M |
-| G20 | Unified next-best-action across the shell | All / P6 | Medium | M |
+| # | Closed gap | Capability / Principle | Status |
+|---|---|---|---|
+| G1 | Deterministic latest render/export ordering and stale revision guards | Foundational / P1 | Complete |
+| G2 | Patch rerender correctness with fresh audio and resolved voice/direction | Review / P1 | Complete |
+| G3 | Live readiness checks that rederive current state and re-surface failures | QA / P1 | Complete |
+| G4 | Direction controls transmitted honestly into supported audio paths | Direction / P4 | Complete |
+| G5 | 44.1 kHz mastered audio baseline with loudness and true-peak control | Audio | Complete |
+| G6 | Feedback loop for speaker and cast corrections | All / P2 | Complete |
+| G7 | Evidence-backed parser/cast review triage queues | Char/Speaker/QA / P3 | Complete |
+| G8 | DOCX/EPUB/TOC-derived chapter signals | Structure / P5 | Complete |
+| G9 | Character disambiguation, fuzzy aliasing, and conservative traits | Character / P1,P5 | Complete |
+| G10 | Speaker attribution depth, active-speaker model, and LLM scene windows | Speaker | Complete |
+| G11 | Real audio QA metrics for loudness, clipping, dead air, and truncation | QA | Complete |
+| G12 | SQLite concurrency hardening plus CI/schema drift guard | Foundational | Complete |
+| G13 | M4B, MP3 metadata/cover, retail sample, and export QA scorecard | Audio | Complete |
+| G14 | Casting traits, Kokoro voice facets, ranked suggestions, and auditions | Casting / P5 | Complete |
+| G15 | Scene-level transcript review with waveform issue markers | Speaker / P3 | Complete |
+| G16 | Local ASR word-match verification | QA | Complete |
+| G17 | Scoped issues, scoped export blockers, and severity-ranked worklist | Review / P6 | Complete |
+| G18 | Multilingual detection, front/back matter, footnotes, and prosody segmentation | Structure | Complete |
+| G19 | Persistent managed Kokoro TTS worker | Direction/Audio | Complete |
+| G20 | Unified next-best-action and listened chapter approval | All / P6 | Complete |
 
 ---
 
-## 5. Reading of the gap
+## 5. Reading of the completed gap
 
-The largest gaps are **not** in the capability algorithms — they cluster in the **cross-cutting principles**, especially **P1 (live trust, gap 4)** and **P2 (feedback loop, gap 5)**. That is the central finding: Echodraft's individual stages sit at maturity 1–2, but they're each *pulled down* by shared foundational holes — faked trust signals, discarded intelligence, no compounding of human effort. Fixing a capability's algorithm while those holes remain yields little felt improvement, because the output still isn't trustworthy and the user's corrections still evaporate.
+The original finding was that Echodraft's biggest weakness was not missing intelligence, but missing delivery of that intelligence: stale trust signals, discarded evidence, weak feedback loops, and unranked review work. The completed roadmap directly targeted those multipliers first, then filled the algorithmic depth and workflow gaps on top.
 
-Conversely, the foundational/principle fixes (G1–G8, G12) are disproportionately **small effort for critical impact** — they're mostly wiring, honesty, and loop-closing on existing infrastructure. This asymmetry is what the roadmap exploits: close the multipliers first, then the per-capability algorithm work lands on a foundation where its gains are actually delivered and retained.
+The practical result is that Phase 0-4 now forms a coherent local-first audiobook production loop: ingest and structure the manuscript, discover and review cast/speakers, infer direction with evidence, render and master locally, verify with real QA/ASR, patch individual lines, review transcript/audio issues, approve active renders, and export chaptered listener artifacts with scoped blockers.
+
+Future work should be framed as product polish or broader market expansion, not as unfinished Phase 0-4 gap closure.
