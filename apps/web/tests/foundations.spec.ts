@@ -309,6 +309,8 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
         possibleSceneBreakCount: 1,
         offsetValidationFailureCount: 0,
         quoteUnclosedCount: 0,
+        detectedLanguage: "en",
+        detectedLanguageConfidence: 0.75,
         warningsNeedingReviewCount: 1,
         llmRefinementUsed: true,
         llmAcceptedBatchCount: 1,

@@ -81,15 +81,15 @@ Format: **Current state → Vision target → Specific gaps (→ principle it se
   7. Merge-verification LLM prompt unbatched → collapses on large casts.
 
 ### 3.2 Manuscript understanding & structure — 2 → 5
-- **Current:** container structure discarded (DOCX heading styles, EPUB spine + TOC); chapter detection requires literal English keywords; blanket line-wrap merge destroys verse/scripts pre-review; multi-paragraph dialogue demoted to narration; em-dashes destroyed; ASCII-only names; footnotes bleed into narration; English-only sentence/OCR.
+- **Current:** container chapter signals from DOCX headings and EPUB spine/TOC are preserved; explicit front/back matter headings are classified; multi-paragraph dialogue stays dialogue; footnote-like paragraphs are routed to review; per-document and per-chapter language is detected; overlong narration uses clause-aware prosody fallback. Remaining gaps are numeric/roman/centered heading breadth, line-sensitive formats, full language-adaptive OCR/name matching, and richer typography/page-position footnote handling.
 - **Target:** format-and-typography-aware structure corroborated by TOC; front/back-matter classified; multi-paragraph/em-dash/script dialogue first-class; verse/plays preserve lines; language-adaptive; footnotes routed out; prosody-tuned segment boundaries.
 - **Gaps:**
   1. Discards format metadata that gives the answer for free (→ P5) — **highest-leverage single gap here.**
   2. Chapter detection misses numeric/roman/centered headings.
   3. Destructive, irreversible clean pass on line-sensitive formats.
-  4. Multi-paragraph dialogue misclassification.
-  5. No front/back-matter classification.
-  6. No language detection; English-only heuristics.
+  4. Full line-sensitive verse/play preservation and language-adaptive OCR/name matching remain future work.
+  5. Front/back-matter classification is explicit-heading based; typography-only matter still needs review support.
+  6. Language detection exists, but OCR, name matching, and TTS selection do not yet adapt to it.
   7. Re-parse silently orphans downstream locks/edits on any offset shift (→ P1).
   8. Story-map review lacks previews, visual boundary markers, user-directed split (→ P3/P6).
 
@@ -155,7 +155,7 @@ Ranked by impact on flawless deliverables × trust (not effort). This is the raw
 | G15 | Scene-level dialogue transcript review view | Speaker / P3 | Medium | M |
 | G16 | Local ASR word-match verification | QA | Medium | L |
 | G17 | Issue/export scoping to selection; severity-ranked worklist | Review / P6 | Medium | S |
-| G18 | Multilingual structure, front/back-matter, footnotes, prosody segmentation | Structure | Medium | M–L |
+| G18 | Baseline multilingual structure, front/back-matter, footnote routing, and prosody segmentation shipped | Structure | Medium | M–L |
 | G19 | Persistent TTS worker (enables fast audition + evidence-LLM direction) | Direction/Audio | Medium | M |
 | G20 | Unified next-best-action across the shell | All / P6 | Medium | M |
 
