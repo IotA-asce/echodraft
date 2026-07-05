@@ -518,6 +518,7 @@ class SegmentDirectionRecord(Base):
     direction_json: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     direction_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
