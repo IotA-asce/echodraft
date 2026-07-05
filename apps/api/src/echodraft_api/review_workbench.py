@@ -1,8 +1,11 @@
 import json
 from pathlib import Path
 from typing import cast
+from datetime import UTC, datetime
+from uuid import uuid4
 
 from echodraft_db.models import (
+    ChapterApprovalRecord,
     ChapterRecord,
     CharacterRecord,
     IssueRecord,
@@ -14,6 +17,7 @@ from echodraft_db.models import (
     StructureParserWarningRecord,
 )
 from echodraft_domain import (
+    ChapterApproval,
     ChapterReviewTimeline,
     ChapterTimelineMarker,
     ChapterTimelineSegment,
@@ -196,6 +200,47 @@ class ReviewWorkbenchService:
             issueMarkers=all_markers,
         )
 
+    def chapter_approval(self, project_id: str, chapter_id: str) -> ChapterApproval:
+        chapter = self.container.structure.chapter(chapter_id)
+        project = self.container.projects.get(project_id)
+        if not project or not chapter or chapter.project_id != project_id:
+            raise ValueError("Chapter or project not found.")
+        active_render_id = self._active_render_id(project_id, chapter_id)
+        with self.container.structure.database.session() as session:
+            approval = session.scalar(
+                select(ChapterApprovalRecord)
+                .where(
+                    ChapterApprovalRecord.project_id == project_id,
+                    ChapterApprovalRecord.chapter_id == chapter_id,
+                )
+                .order_by(ChapterApprovalRecord.created_at.desc(), ChapterApprovalRecord.id.desc())
+            )
+        return self._approval_model(project_id, chapter_id, approval, active_render_id)
+
+    def approve_chapter(
+        self, project_id: str, chapter_id: str, approved_by: str, note: str | None
+    ) -> ChapterApproval:
+        chapter = self.container.structure.chapter(chapter_id)
+        project = self.container.projects.get(project_id)
+        if not project or not chapter or chapter.project_id != project_id:
+            raise ValueError("Chapter or project not found.")
+        active_render_id = self._active_render_id(project_id, chapter_id)
+        if not active_render_id:
+            raise ValueError("Chapter has no active render to approve.")
+        record = ChapterApprovalRecord(
+            id=f"chapapp_{uuid4().hex[:16]}",
+            project_id=project_id,
+            chapter_id=chapter_id,
+            chapter_render_id=active_render_id,
+            approved_by=approved_by.strip() or "local-user",
+            note=note.strip() if note and note.strip() else None,
+            created_at=datetime.now(UTC),
+        )
+        with self.container.structure.database.session() as session:
+            session.add(record)
+            session.commit()
+            return self._approval_model(project_id, chapter_id, record, active_render_id)
+
     def _segment_context(
         self, project_id: str, segment_id: str
     ) -> tuple[
@@ -312,6 +357,40 @@ class ReviewWorkbenchService:
             "silenceRanges": data.get("silenceRanges", []),
             "waveform": data.get("waveform", []),
         }
+
+    def _active_render_id(self, project_id: str, chapter_id: str) -> str | None:
+        try:
+            return ChapterAssembler(self.container).active(project_id, chapter_id).id
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _approval_model(
+        project_id: str,
+        chapter_id: str,
+        approval: ChapterApprovalRecord | None,
+        active_render_id: str | None,
+    ) -> ChapterApproval:
+        if not approval:
+            return ChapterApproval(
+                projectId=project_id,
+                chapterId=chapter_id,
+                chapterRenderId=active_render_id,
+                current=False,
+                status="missing" if active_render_id else "no_render",
+            )
+        current = approval.chapter_render_id == active_render_id
+        return ChapterApproval(
+            id=approval.id,
+            projectId=project_id,
+            chapterId=chapter_id,
+            chapterRenderId=approval.chapter_render_id,
+            approvedBy=approval.approved_by,
+            note=approval.note,
+            current=current,
+            status="current" if current else "stale",
+            createdAt=approval.created_at,
+        )
 
     @staticmethod
     def _json_file(path: str) -> dict[str, object]:

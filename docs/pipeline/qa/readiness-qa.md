@@ -22,6 +22,7 @@ Readiness QA runs locally and checks:
   `echodraft_api.audio_analysis`). Both checks keep the same id whether they pass or fail,
   per the stable-id-plus-`reason`-metadata convention below.
 - stale segment renders
+- listened-and-approved chapter attestation for the active render
 - export blockers such as rights and open blocking issues
 
 ## Reports
@@ -75,3 +76,5 @@ and after a patch, the panel re-runs readiness so the badge and score are derive
 rather than from an optimistic local guess.
 
 Active findings are presented as a severity-weighted worklist: blocking checks first, then warnings, then lower-impact checks, with per-section busy state for readiness actions.
+
+The chapter approval readiness check is a warning, not an export blocker. It keeps "no automated issues" distinct from "a human listened and approved this exact active render." If a chapter is re-rendered after approval, the approval check reappears with stale approval metadata.

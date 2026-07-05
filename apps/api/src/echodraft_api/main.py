@@ -24,6 +24,8 @@ from echodraft_domain import (
     AssignVoice,
     Chapter,
     ChapterAssemblyRequest,
+    ChapterApproval,
+    ChapterApprovalRequest,
     ChapterReviewTimeline,
     ChapterRender,
     ChapterUpdate,
@@ -1467,6 +1469,41 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             )
         except ValueError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/projects/{project_id}/chapters/{chapter_id}/approval",
+        response_model=ChapterApproval,
+    )
+    def get_chapter_approval(
+        project_id: str, chapter_id: str, request: Request
+    ) -> ChapterApproval:
+        try:
+            return ReviewWorkbenchService(request.app.state.container).chapter_approval(
+                project_id, chapter_id
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post(
+        "/api/v1/projects/{project_id}/chapters/{chapter_id}/approval",
+        response_model=ChapterApproval,
+        status_code=201,
+    )
+    def approve_chapter(
+        project_id: str,
+        chapter_id: str,
+        payload: ChapterApprovalRequest,
+        request: Request,
+    ) -> ChapterApproval:
+        try:
+            return ReviewWorkbenchService(request.app.state.container).approve_chapter(
+                project_id,
+                chapter_id,
+                payload.approved_by,
+                payload.note,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.get(
         "/api/v1/projects/{project_id}/sound-assets",
