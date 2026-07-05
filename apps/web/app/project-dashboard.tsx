@@ -3,13 +3,13 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import {
   addComment, applyIssueAction, assembleChapter, assetUrl, compareSegmentRenders, createCharacter, createExport, createProject, createPronunciation, createSoundCue, createVoice, deleteVoice,
-  extractStructure, getChapterReviewTimeline, getJob, getKokoroSetup, getLocalAiInstallJob, getProductionSettings, getProductionStatus, getSegmentReviewInspector,
+  estimateExport, extractStructure, getChapterReviewTimeline, getJob, getKokoroSetup, getLocalAiInstallJob, getProductionSettings, getProductionStatus, getSegmentReviewInspector,
   getSource, getStructureQuality, getTtsProviders, getTtsSettings, installKokoroSetup, installLocalAiModel,
   importSource, listCharacters, listChapterSoundCues, listChapters, listCleaningIssues, listComments, listExports, listIssues, listPronunciations, listRenderQueue,
   inferSegmentDirections, listLocalAiCatalog, listProjects, listScenes, listSegmentDirections, listSegments, listSoundAssets, listSourcePages, listSpeakerAttributions, listStructureWarnings, listVoiceSuggestions, listVoices, mergeCharacter, mergeSegment, patchSegment, previewVoice, produceChapter,
   rejectCharacterMerge, reparseSource, runReadiness, runSpeakerAttribution, saveProductionSettings, saveSegmentDirection, saveSegmentOverride, saveTtsSettings, testTtsSettings,
   setStructureLock, splitCharacter, splitSegment, updateCharacter, updateCleaningIssue, updateIssue, updateSegment, updateSpeakerAttribution, uploadSoundAsset, verifyLocalAiModel, type Chapter, type Character, type Comment, type Direction,
-  type ChapterReviewTimeline, type ExportFormat, type ExportPackage, type Issue, type Job, type KokoroSetupStatus, type LocalAiCatalogItem, type LocalAiInstallJob, type ReadinessReport,
+  type ChapterReviewTimeline, type ExportEstimate, type ExportFormat, type ExportPackage, type Issue, type Job, type KokoroSetupStatus, type LocalAiCatalogItem, type LocalAiInstallJob, type ReadinessReport,
   type ProductionSettings, type ProductionStatus, type Pronunciation, type Project, type RenderQueueItem, type Scene, type Segment,
   type SegmentDirection, type SegmentRenderComparison, type SegmentReviewInspector, type SoundAsset, type SoundCue, type SourceDocument, type SourcePage, type SpeakerAttribution, type StructureParserWarning, type StructureQuality, type TextCleanlinessIssue, type TtsProvider, type TtsProviderInfo, type TtsSettings, type VoiceProfile,
 } from "./api";
@@ -46,8 +46,8 @@ export function ProjectDashboard() {
   const [status, setStatus] = useState<ProductionStatus | null>(null); const [job, setJob] = useState<Job | null>(null); const [setupJob, setSetupJob] = useState<Job | null>(null); const [importJob, setImportJob] = useState<Job | null>(null);
   const [localAiCatalog, setLocalAiCatalog] = useState<LocalAiCatalogItem[]>([]); const [localAiJob, setLocalAiJob] = useState<Job | null>(null); const [localAiInstallJob, setLocalAiInstallJob] = useState<LocalAiInstallJob | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]); const [comments, setComments] = useState<Comment[]>([]); const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
-  const [exports, setExports] = useState<ExportPackage[]>([]); const [characters, setCharacters] = useState<Character[]>([]); const [speakerAttributions, setSpeakerAttributions] = useState<SpeakerAttribution[]>([]); const [segmentDirections, setSegmentDirections] = useState<SegmentDirection[]>([]); const [renderQueue, setRenderQueue] = useState<RenderQueueItem[]>([]); const [renderCompare, setRenderCompare] = useState<SegmentRenderComparison | null>(null); const [segmentInspector, setSegmentInspector] = useState<SegmentReviewInspector | null>(null); const [reviewTimeline, setReviewTimeline] = useState<ChapterReviewTimeline | null>(null); const [pronunciations, setPronunciations] = useState<Pronunciation[]>([]); const [soundAssets, setSoundAssets] = useState<SoundAsset[]>([]); const [soundCues, setSoundCues] = useState<SoundCue[]>([]); const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
-  const [notice, setNotice] = useState<string | null>(null); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const [exports, setExports] = useState<ExportPackage[]>([]); const [exportEstimate, setExportEstimate] = useState<ExportEstimate | null>(null); const [characters, setCharacters] = useState<Character[]>([]); const [speakerAttributions, setSpeakerAttributions] = useState<SpeakerAttribution[]>([]); const [segmentDirections, setSegmentDirections] = useState<SegmentDirection[]>([]); const [renderQueue, setRenderQueue] = useState<RenderQueueItem[]>([]); const [renderCompare, setRenderCompare] = useState<SegmentRenderComparison | null>(null); const [segmentInspector, setSegmentInspector] = useState<SegmentReviewInspector | null>(null); const [reviewTimeline, setReviewTimeline] = useState<ChapterReviewTimeline | null>(null); const [pronunciations, setPronunciations] = useState<Pronunciation[]>([]); const [soundAssets, setSoundAssets] = useState<SoundAsset[]>([]); const [soundCues, setSoundCues] = useState<SoundCue[]>([]); const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
+  const [notice, setNotice] = useState<string | null>(null); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [sectionBusy, setSectionBusy] = useState<Record<string, boolean>>({});
   const [voiceName, setVoiceName] = useState(""); const [providerVoiceId, setProviderVoiceId] = useState(""); const [selectedExportIds, setSelectedExportIds] = useState<string[]>([]);
   const [exportAudioVariant, setExportAudioVariant] = useState<"active" | "clean" | "mixed">("active"); const [exportTitle, setExportTitle] = useState(""); const [exportAuthor, setExportAuthor] = useState(""); const [exportAlbum, setExportAlbum] = useState(""); const [exportPublisher, setExportPublisher] = useState(""); const [exportLanguage, setExportLanguage] = useState("en"); const [exportCoverPath, setExportCoverPath] = useState("");
   const [characterName, setCharacterName] = useState(""); const [characterAliases, setCharacterAliases] = useState(""); const [characterTraits, setCharacterTraits] = useState("");
@@ -80,8 +80,17 @@ export function ProjectDashboard() {
       }),
     [project, tts, source, structureWarnings, chapters, voices, production, selectedChapter, status, job, issues, exports],
   );
+  const setSectionWorking = (section: string, value: boolean) => setSectionBusy((current) => ({ ...current, [section]: value }));
 
   useEffect(() => { listProjects().then(setProjects).catch((cause) => setError(messageOf(cause))); getTtsSettings().then((next) => { setTts(next); setSelectedTtsProvider(next.provider); }).catch((cause) => setError(messageOf(cause))); getTtsProviders().then(setTtsProviders).catch((cause) => setError(messageOf(cause))); getKokoroSetup().then(setKokoroSetup).catch((cause) => setError(messageOf(cause))); void refreshLocalAi(); }, []);
+  useEffect(() => {
+    if (!selectedProjectId || activeSection !== "export") return;
+    let cancelled = false;
+    void estimateExport(selectedProjectId, "wav", selectedExportIds, { audioVariant: exportAudioVariant, title: exportTitle.trim() || undefined, author: exportAuthor.trim() || undefined, album: exportAlbum.trim() || undefined, publisher: exportPublisher.trim() || undefined, language: exportLanguage.trim() || undefined, coverImagePath: exportCoverPath.trim() || undefined })
+      .then((estimate) => { if (!cancelled) setExportEstimate(estimate); })
+      .catch(() => { if (!cancelled) setExportEstimate(null); });
+    return () => { cancelled = true; };
+  }, [selectedProjectId, activeSection, selectedExportIds, exportAudioVariant, exportTitle, exportAuthor, exportAlbum, exportPublisher, exportLanguage, exportCoverPath]);
   useEffect(() => {
     if (!importJob || !selectedProjectId || !["queued", "running"].includes(importJob.status)) return;
     const timer = window.setTimeout(() => {
@@ -178,6 +187,7 @@ export function ProjectDashboard() {
   async function refreshRenderQueue(projectId: string, chapterId: string) { try { setRenderQueue(await listRenderQueue(projectId, chapterId)); } catch (cause) { setRenderQueue([]); setError(messageOf(cause)); } }
   async function refreshSoundDesign(projectId: string, chapterId?: string) { try { const [assets, cues] = await Promise.all([listSoundAssets(projectId), chapterId ? listChapterSoundCues(projectId, chapterId) : Promise.resolve([])]); setSoundAssets(assets); setSoundCues(cues); } catch (cause) { setError(messageOf(cause)); } }
   async function refreshReviewTimeline(projectId: string, chapterId: string) { try { setReviewTimeline(await getChapterReviewTimeline(projectId, chapterId)); } catch { setReviewTimeline(null); } }
+  async function refreshExportEstimate(projectId: string) { try { setExportEstimate(await estimateExport(projectId, "wav", selectedExportIds, { audioVariant: exportAudioVariant, title: exportTitle.trim() || undefined, author: exportAuthor.trim() || undefined, album: exportAlbum.trim() || undefined, publisher: exportPublisher.trim() || undefined, language: exportLanguage.trim() || undefined, coverImagePath: exportCoverPath.trim() || undefined })); } catch { setExportEstimate(null); } }
   async function refreshImportedSource(projectId: string) { const nextSource = await getSource(projectId); setSource(nextSource); setSourcePages(await listSourcePages(nextSource.id).catch(() => [])); setCleaningIssues(await listCleaningIssues(nextSource.id).catch(() => [])); }
   async function refreshReviewQueues(projectId: string) {
     const [nextWarnings, nextQuality, nextIssues, nextCharacters, nextAttributions] = await Promise.all([
@@ -277,13 +287,13 @@ export function ProjectDashboard() {
   async function chooseSoundFile(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file || !selectedProjectId) return; setBusy(true); try { const asset = await uploadSoundAsset(selectedProjectId, file, soundAssetType); setSoundAssets((current) => [asset, ...current]); setSelectedSoundAssetId(asset.id); setNotice("Sound asset imported locally. Assign it to a scene before assembling a mix."); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); event.target.value = ""; } }
   async function addSoundCue() { if (!selectedProjectId || !selectedChapter || !currentSceneId || !activeSoundAsset) return; try { const cue = await createSoundCue(selectedProjectId, { sceneId: currentSceneId, assetId: activeSoundAsset.id, cueType: soundCueType, gainDb: soundGain, fadeInMs: 700, fadeOutMs: 900, ducking: true, renderMode: soundRenderMode, noSfx: false }); setSoundCues((current) => [...current, cue]); setNotice("Sound cue assigned. Assemble a light or dramatized mix when narration is current."); } catch (cause) { setError(messageOf(cause)); } }
   async function assembleSound(mode: "clean" | "light" | "dramatized") { if (!selectedProjectId || !selectedChapter) return; setBusy(true); try { const render = await assembleChapter(selectedProjectId, selectedChapter.id, mode); await refreshProduction(selectedProjectId, selectedChapter.id); setStatus((current) => current ? { ...current, activeRender: render } : current); await refreshSoundDesign(selectedProjectId, selectedChapter.id); await refreshReviewTimeline(selectedProjectId, selectedChapter.id); setNotice(mode === "clean" ? "Clean narration render assembled." : `${mode} chapter mix assembled.`); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
-  async function runReadinessReport() { if (!selectedProjectId) return; setBusy(true); try { const report = await runReadiness(selectedProjectId, selectedChapter?.id); setReadiness(report); setIssues(await listIssues(selectedProjectId)); setNotice("Readiness report updated."); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
-  async function setReadinessIssue(issueId: string, status: "resolved" | "ignored" | "locked") { try { await updateIssue(issueId, { status }); if (selectedProjectId) { setReadiness(await runReadiness(selectedProjectId, selectedChapter?.id)); setIssues(await listIssues(selectedProjectId)); } } catch (cause) { setError(messageOf(cause)); } }
+  async function runReadinessReport() { if (!selectedProjectId) return; setSectionWorking("readiness", true); try { const report = await runReadiness(selectedProjectId, selectedChapter?.id); setReadiness(report); setIssues(await listIssues(selectedProjectId)); setNotice("Readiness report updated."); } catch (cause) { setError(messageOf(cause)); } finally { setSectionWorking("readiness", false); } }
+  async function setReadinessIssue(issueId: string, status: "resolved" | "ignored" | "locked") { setSectionWorking("readiness", true); try { await updateIssue(issueId, { status }); if (selectedProjectId) { setReadiness(await runReadiness(selectedProjectId, selectedChapter?.id)); setIssues(await listIssues(selectedProjectId)); } } catch (cause) { setError(messageOf(cause)); } finally { setSectionWorking("readiness", false); } }
   async function openIssue(issue: Issue) { setActiveIssue(issue); try { setComments(await listComments(issue.id)); } catch (cause) { setError(messageOf(cause)); } }
   async function comment(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); if (!activeIssue || !String(form.get("comment") || "").trim()) return; try { const added = await addComment(activeIssue.id, String(form.get("comment"))); setComments((current) => [...current, added]); event.currentTarget.reset(); } catch (cause) { setError(messageOf(cause)); } }
   async function resolveIssue(issue: Issue) { try { const updated = await updateIssue(issue.id, { status: "resolved" }); setIssues((current) => current.map((item) => item.id === updated.id ? updated : item)); if (activeIssue?.id === updated.id) setActiveIssue(updated); } catch (cause) { setError(messageOf(cause)); } }
   async function patch(issue: Issue) { if (!selectedProjectId || !issue.segmentId) return; try { await patchSegment(selectedProjectId, issue.segmentId, { issueId: issue.id }); setNotice("Segment patched and its chapter reassembled."); if (selectedChapter) { await refreshProduction(selectedProjectId, selectedChapter.id); await refreshReviewTimeline(selectedProjectId, selectedChapter.id); } await inspectSegment(issue.segmentId); setReadiness(await runReadiness(selectedProjectId, selectedChapter?.id)); setIssues(await listIssues(selectedProjectId)); } catch (cause) { setError(messageOf(cause)); } }
-  async function exportSelected(format: ExportFormat, options?: { includeRetailSample?: boolean }) { if (!selectedProjectId || !selectedExportIds.length) return; try { const item = await createExport(selectedProjectId, format, selectedExportIds, { audioVariant: exportAudioVariant, title: exportTitle.trim() || undefined, author: exportAuthor.trim() || undefined, album: exportAlbum.trim() || undefined, publisher: exportPublisher.trim() || undefined, language: exportLanguage.trim() || undefined, coverImagePath: exportCoverPath.trim() || undefined, includeRetailSample: options?.includeRetailSample }); setExports((current) => [item, ...current]); setActiveSection("export"); setNotice("Export package created. Download the ZIP from export history."); } catch (cause) { setError(messageOf(cause)); } }
+  async function exportSelected(format: ExportFormat, options?: { includeRetailSample?: boolean }) { if (!selectedProjectId || !selectedExportIds.length) return; setSectionWorking("export", true); try { const item = await createExport(selectedProjectId, format, selectedExportIds, { audioVariant: exportAudioVariant, title: exportTitle.trim() || undefined, author: exportAuthor.trim() || undefined, album: exportAlbum.trim() || undefined, publisher: exportPublisher.trim() || undefined, language: exportLanguage.trim() || undefined, coverImagePath: exportCoverPath.trim() || undefined, includeRetailSample: options?.includeRetailSample }); setExports((current) => [item, ...current]); setActiveSection("export"); setNotice("Export package created. Download the ZIP from export history."); await refreshExportEstimate(selectedProjectId); } catch (cause) { setError(messageOf(cause)); } finally { setSectionWorking("export", false); } }
 
   return <div className="desk-shell"><div className="grain" aria-hidden="true" />
     <StudioHero tts={tts} setupJob={setupJob} job={job} selectedChapter={selectedChapter} status={status} />
@@ -423,7 +433,7 @@ export function ProjectDashboard() {
         <ReviewPatchPanel
           selectedChapter={selectedChapter}
           readiness={readiness}
-          busy={busy}
+          busy={Boolean(sectionBusy.readiness)}
           inspector={segmentInspector}
           timeline={reviewTimeline}
           comparison={renderCompare}
@@ -453,6 +463,8 @@ export function ProjectDashboard() {
           language={exportLanguage}
           coverPath={exportCoverPath}
           exports={exports}
+          estimate={exportEstimate}
+          busy={Boolean(sectionBusy.export)}
           onGoStructure={() => setActiveSection("structure")}
           onSelectionChange={setSelectedExportIds}
           onAudioVariantChange={setExportAudioVariant}

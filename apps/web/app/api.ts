@@ -49,6 +49,7 @@ export type ExportFormat = "wav" | "mp3" | "m4b";
 export type ExportQaOutput = { filename: string; method?: string; withinTolerance?: boolean; lufsIntegrated?: number; truePeakDb?: number; rmsDbfs?: number; durationMs: number; bytes: number; sha256: string; error?: string };
 export type ExportQa = { targetLufs?: number; lufsTolerance?: number; truePeakCeilingDb?: number; allWithinTolerance?: boolean; outputs?: ExportQaOutput[]; latestReadinessReport?: Record<string, unknown>; openBlockingIssues?: Record<string, unknown>[] };
 export type ExportPackage = { id: string; projectId: string; format: string; status: string; outputPath: string; manifestPath: string; archivePath?: string | null; downloadUrl?: string | null; audioVariant: string; chapterCount: number; estimatedSizeBytes: number; checksum?: string | null; metadata: Record<string, unknown>; manifestSummary: Record<string, unknown>; qa: ExportQa; blockers: ExportBlocker[] };
+export type ExportEstimate = { projectId: string; format: string; audioVariant: string; chapterCount: number; estimatedSizeBytes: number; blockers: ExportBlocker[]; metadata: Record<string, unknown>; m4bPlanned: boolean };
 export type Character = {
   id: string;
   projectId: string;
@@ -167,5 +168,6 @@ export const applyIssueAction = (issueId: string, payload: { targetCharacterId?:
 export const listComments = (issueId: string) => request<Comment[]>(`/api/v1/issues/${issueId}/comments`);
 export const addComment = (issueId: string, body: string) => request<Comment>(`/api/v1/issues/${issueId}/comments`, json("POST", { body }));
 export const patchSegment = (projectId: string, segmentId: string, payload: { textContent?: string; issueId?: string; voiceProfileId?: string; direction?: Direction }) => request<unknown>(`/api/v1/projects/${projectId}/segments/${segmentId}/patch`, json("POST", payload));
+export const estimateExport = (projectId: string, format: ExportFormat, chapterIds: string[], payload: { audioVariant?: "active" | "clean" | "mixed"; title?: string; author?: string; album?: string; publisher?: string; language?: string; coverImagePath?: string; includeRetailSample?: boolean } = {}) => request<ExportEstimate>(`/api/v1/projects/${projectId}/exports/estimate`, json("POST", { format, chapterIds, ...payload }));
 export const createExport = (projectId: string, format: ExportFormat, chapterIds: string[], payload: { audioVariant?: "active" | "clean" | "mixed"; title?: string; author?: string; album?: string; publisher?: string; language?: string; coverImagePath?: string; includeRetailSample?: boolean } = {}) => request<ExportPackage>(`/api/v1/projects/${projectId}/exports`, json("POST", { format, chapterIds, ...payload }));
 export const listExports = (projectId: string) => request<ExportPackage[]>(`/api/v1/projects/${projectId}/exports`);

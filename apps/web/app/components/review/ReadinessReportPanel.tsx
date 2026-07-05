@@ -11,11 +11,12 @@ export function ReadinessReportPanel({
   onRun: () => Promise<void>;
   onSetIssue: (issueId: string, status: "resolved" | "ignored" | "locked") => Promise<void>;
 }) {
+  const severityWeight = (severity: string) => severity === "blocking" ? 0 : severity === "warning" ? 1 : 2;
   const active =
-    report?.checks.filter(
+    [...(report?.checks.filter(
       (check) =>
         check.status !== "passed" && (check.resolutionStatus == null || check.resolutionStatus === "open"),
-    ) ?? [];
+    ) ?? [])].sort((a, b) => severityWeight(a.severity) - severityWeight(b.severity) || a.scope.localeCompare(b.scope) || a.title.localeCompare(b.title));
   const accepted =
     report?.checks.filter(
       (check) =>
@@ -43,6 +44,10 @@ export function ReadinessReportPanel({
       )}
       {active.length ? (
         <div className="readiness-list">
+          <div className="source-heading">
+            <strong>Ranked readiness worklist</strong>
+            <span>{active.length} action{active.length === 1 ? "" : "s"}</span>
+          </div>
           {active.slice(0, 10).map((check) => (
             <article className={`readiness-check ${check.severity}`} key={check.id}>
               <div>

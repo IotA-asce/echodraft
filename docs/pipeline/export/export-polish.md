@@ -48,6 +48,8 @@ Requests may set `includeRetailSample: true` for `mp3` or `m4b` exports. Export 
 
 Blockers include rights issues, open blocking review issues, missing chapter renders, missing mixed renders, missing audio files, missing FFmpeg for MP3/M4B/sample exports, missing cover image paths, unsupported formats, and empty chapter selection.
 
+Open blocking review issues are scoped to the selected chapter set: global project blockers still block, selected chapter or segment blockers block, and unrelated chapter blockers do not prevent exporting a smaller selected package. The dashboard calls the estimate endpoint before export and shows blockers inline with the selected chapters.
+
 ## Manifest
 
 Successful exports write `export_manifest.json` with:

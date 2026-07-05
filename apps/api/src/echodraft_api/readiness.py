@@ -28,7 +28,7 @@ from echodraft_db.models import (
     VoiceProfileRecord,
 )
 from echodraft_domain import ReadinessCheck, ReadinessReport
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from .asr_verification import LocalAsrVerifier
@@ -162,7 +162,9 @@ class ReadinessService:
     ) -> list[CheckDraft]:
         checks: list[CheckDraft] = []
         chapters = self._chapters(session, project_id, chapter_id)
-        segments = self._segments(session, [chapter.id for chapter in chapters])
+        chapter_ids = [chapter.id for chapter in chapters]
+        scene_ids = self._scene_ids(session, chapter_ids)
+        segments = self._segments(session, chapter_ids)
         segment_ids = [segment.id for segment in segments]
         source_ids = list(
             session.scalars(
@@ -255,13 +257,16 @@ class ReadinessService:
                     self._passed("structure_segments", "structure", f"{len(segments)} segments are renderable.")
                 )
 
-        parser_warnings = self._count(
-            session,
-            select(func.count()).select_from(StructureParserWarningRecord).where(
-                StructureParserWarningRecord.project_id == project_id,
-                StructureParserWarningRecord.resolved.is_(False),
-            ),
+        warning_scope_ids = [*chapter_ids, *scene_ids, *segment_ids]
+        parser_warning_query = select(func.count()).select_from(StructureParserWarningRecord).where(
+            StructureParserWarningRecord.project_id == project_id,
+            StructureParserWarningRecord.resolved.is_(False),
         )
+        if chapter_id:
+            parser_warning_query = parser_warning_query.where(
+                StructureParserWarningRecord.scope_id.in_(warning_scope_ids)
+            )
+        parser_warnings = self._count(session, parser_warning_query)
         if parser_warnings:
             checks.append(
                 self._issue(
@@ -281,7 +286,15 @@ class ReadinessService:
         checks.extend(self._voice_checks(session, project_id, segment_ids, chapter_id))
         checks.extend(self._direction_checks(session, project_id, segment_ids, chapter_id))
         checks.extend(self._audio_checks(session, project_id, chapters, segments))
-        checks.extend(self._export_checks(session, project_id, bool(chapters)))
+        checks.extend(
+            self._export_checks(
+                session,
+                project_id,
+                bool(chapters),
+                chapter_ids=chapter_ids if chapter_id else None,
+                segment_ids=segment_ids if chapter_id else None,
+            )
+        )
         return checks
 
     def _speaker_checks(
@@ -605,7 +618,13 @@ class ReadinessService:
         return checks
 
     def _export_checks(
-        self, session: Session, project_id: str, has_chapters: bool
+        self,
+        session: Session,
+        project_id: str,
+        has_chapters: bool,
+        *,
+        chapter_ids: list[str] | None = None,
+        segment_ids: list[str] | None = None,
     ) -> list[CheckDraft]:
         checks: list[CheckDraft] = []
         project = self.container.projects.get(project_id)
@@ -646,14 +665,20 @@ class ReadinessService:
                     "FFmpeg mastering toolchain is available.",
                 )
             )
-        open_blockers = self._count(
-            session,
-            select(func.count()).select_from(IssueRecord).where(
-                IssueRecord.project_id == project_id,
-                IssueRecord.severity == "blocking",
-                IssueRecord.status == "open",
-            ),
+        blocker_query = select(func.count()).select_from(IssueRecord).where(
+            IssueRecord.project_id == project_id,
+            IssueRecord.severity == "blocking",
+            IssueRecord.status == "open",
         )
+        if chapter_ids is not None:
+            blocker_query = blocker_query.where(
+                or_(
+                    IssueRecord.chapter_id.in_(chapter_ids),
+                    IssueRecord.segment_id.in_(segment_ids or []),
+                    and_(IssueRecord.chapter_id.is_(None), IssueRecord.segment_id.is_(None)),
+                )
+            )
+        open_blockers = self._count(session, blocker_query)
         if open_blockers:
             checks.append(
                 self._issue(
@@ -732,6 +757,18 @@ class ReadinessService:
                 select(SegmentRecord)
                 .where(SegmentRecord.scene_id.in_(scene_ids))
                 .order_by(SegmentRecord.scene_id, SegmentRecord.order_index)
+            )
+        )
+
+    @staticmethod
+    def _scene_ids(session: Session, chapter_ids: list[str]) -> list[str]:
+        if not chapter_ids:
+            return []
+        return list(
+            session.scalars(
+                select(SceneRecord.id)
+                .where(SceneRecord.chapter_id.in_(chapter_ids))
+                .order_by(SceneRecord.order_index)
             )
         )
 
