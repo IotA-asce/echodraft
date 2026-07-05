@@ -1102,6 +1102,27 @@ class SpeakerAttributionRepository:
                     break
             return exemplars
 
+    def character_segment_texts(self, character_id: str, limit: int = 3) -> list[str]:
+        with self.database.session() as session:
+            rows = session.scalars(
+                select(SegmentRecord.text_content)
+                .join(SpeakerAttributionRecord, SpeakerAttributionRecord.segment_id == SegmentRecord.id)
+                .join(SceneRecord, SegmentRecord.scene_id == SceneRecord.id)
+                .join(ChapterRecord, SceneRecord.chapter_id == ChapterRecord.id)
+                .where(
+                    SpeakerAttributionRecord.character_id == character_id,
+                    SpeakerAttributionRecord.status == "approved",
+                )
+                .order_by(
+                    ChapterRecord.order_index,
+                    SceneRecord.order_index,
+                    SegmentRecord.order_index,
+                    SpeakerAttributionRecord.confidence.desc(),
+                )
+                .limit(limit)
+            )
+            return [text for text in rows if text]
+
     @staticmethod
     def _voice_assignments(session: Any, character_ids: list[str | None]) -> dict[str, str]:
         ids = [item for item in character_ids if item]

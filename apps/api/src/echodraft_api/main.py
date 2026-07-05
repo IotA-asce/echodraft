@@ -13,6 +13,7 @@ from echodraft_db.models import (
     CharacterRecord,
     SceneRecord,
     SegmentRecord,
+    VoiceProfileRecord,
 )
 from echodraft_domain import (
     AmbienceAsset,
@@ -255,22 +256,43 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             }
         )
 
+    def voice_profile_model(record: VoiceProfileRecord) -> VoiceProfile:
+        provider_voice_id = record.provider_voice_id
+        return VoiceProfile.model_validate(
+            {
+                "id": record.id,
+                "projectId": record.project_id,
+                "name": record.name,
+                "backend": record.backend,
+                "providerVoiceId": provider_voice_id,
+                "stylePrompt": record.style_prompt,
+                "facets": _voice_facets(record.backend, provider_voice_id),
+            }
+        )
+
     def voice_suggestions(character: CharacterRecord) -> list[VoiceSuggestion]:
         traits = [str(item) for item in _json_list(character.traits_json)]
-        sample_text = (
-            f"{character.display_name}: This audition line should match the character's "
-            "observed age, accent, role, and vocal traits."
+        representative_lines = container.speaker_attributions.character_segment_texts(
+            character.id, limit=1
         )
+        sample_text = representative_lines[0] if representative_lines else _fallback_audition_line(character)
         suggestions: list[VoiceSuggestion] = []
         for voice in container.casting.voices(character.project_id):
+            facets = _voice_facets(voice.backend, voice.provider_voice_id)
             haystack = " ".join(
-                [voice.name, voice.backend, voice.provider_voice_id, voice.style_prompt or ""]
+                [voice.name, voice.backend, voice.provider_voice_id, voice.style_prompt or "", *facets]
             ).casefold()
             matched = [trait for trait in traits if _voice_matches_trait(trait, haystack)]
             evidence = [
                 f"Matched {trait} in voice metadata."
                 for trait in matched
-            ] or ["No explicit trait match; included as an available project voice."]
+            ]
+            if facets:
+                evidence.append(f"Derived voice facets: {', '.join(facets)}.")
+            if representative_lines:
+                evidence.append("Representative character line selected for audition.")
+            if not evidence:
+                evidence.append("No explicit trait match; included as an available project voice.")
             score = round(len(matched) / max(1, len(traits)), 3)
             suggestions.append(
                 VoiceSuggestion(
@@ -280,6 +302,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                     backend=voice.backend,
                     score=score,
                     matchedTraits=matched,
+                    facets=facets,
                     evidence=evidence,
                     sampleText=sample_text,
                 )
@@ -298,6 +321,53 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             "old": ["old", "older", "elder"],
         }
         return any(term in haystack for term in [value, *synonyms.get(value, [])])
+
+    def _fallback_audition_line(character: CharacterRecord) -> str:
+        return (
+            f"{character.display_name}: This audition line should match the character's "
+            "observed age, accent, role, and vocal traits."
+        )
+
+    def _voice_facets(backend: str, provider_voice_id: str) -> list[str]:
+        tokens = [token for token in re.split(r"[^a-z0-9]+", provider_voice_id.casefold()) if token]
+        facets: list[str] = []
+        if backend == "kokoro" and tokens:
+            prefix = tokens[0]
+            kokoro_prefixes = {
+                "af": ["gender:feminine", "accent:american", "locale:american"],
+                "am": ["gender:masculine", "accent:american", "locale:american"],
+                "bf": ["gender:feminine", "accent:british", "locale:british"],
+                "bm": ["gender:masculine", "accent:british", "locale:british"],
+            }
+            facets.extend(kokoro_prefixes.get(prefix, []))
+        token_facets = {
+            "female": "gender:feminine",
+            "feminine": "gender:feminine",
+            "woman": "gender:feminine",
+            "male": "gender:masculine",
+            "masculine": "gender:masculine",
+            "man": "gender:masculine",
+            "irish": "accent:irish",
+            "american": "accent:american",
+            "british": "accent:british",
+            "english": "accent:english",
+            "scottish": "accent:scottish",
+            "french": "accent:french",
+            "spanish": "accent:spanish",
+            "indian": "accent:indian",
+            "young": "age:young",
+            "old": "age:old",
+            "elder": "age:old",
+            "older": "age:old",
+        }
+        facets.extend(token_facets[token] for token in tokens if token in token_facets)
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for facet in facets:
+            if facet not in seen:
+                cleaned.append(facet)
+                seen.add(facet)
+        return cleaned
 
     @app.middleware("http")
     async def request_logging(
@@ -1181,16 +1251,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     @app.get("/api/v1/projects/{project_id}/voices", response_model=list[VoiceProfile])
     def list_voices(project_id: str, request: Request) -> list[VoiceProfile]:
         return [
-            VoiceProfile.model_validate(
-                {
-                    "id": x.id,
-                    "projectId": x.project_id,
-                    "name": x.name,
-                    "backend": x.backend,
-                    "providerVoiceId": x.provider_voice_id,
-                    "stylePrompt": x.style_prompt,
-                }
-            )
+            voice_profile_model(x)
             for x in request.app.state.container.casting.voices(project_id)
         ]
 
@@ -1201,16 +1262,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         x = request.app.state.container.casting.create_voice(
             project_id, payload.name, payload.backend, payload.provider_voice_id, payload.style_prompt
         )
-        return VoiceProfile.model_validate(
-            {
-                "id": x.id,
-                "projectId": x.project_id,
-                "name": x.name,
-                "backend": x.backend,
-                "providerVoiceId": x.provider_voice_id,
-                "stylePrompt": x.style_prompt,
-            }
-        )
+        return voice_profile_model(x)
 
     @app.patch("/api/v1/voices/{voice_id}", response_model=VoiceProfile)
     def update_voice(voice_id: str, payload: VoiceProfileUpdate, request: Request) -> VoiceProfile:
@@ -1219,16 +1271,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         )
         if not x:
             raise HTTPException(status_code=404, detail="Voice profile not found")
-        return VoiceProfile.model_validate(
-            {
-                "id": x.id,
-                "projectId": x.project_id,
-                "name": x.name,
-                "backend": x.backend,
-                "providerVoiceId": x.provider_voice_id,
-                "stylePrompt": x.style_prompt,
-            }
-        )
+        return voice_profile_model(x)
 
     @app.delete("/api/v1/voices/{voice_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_voice(voice_id: str, request: Request) -> Response:
