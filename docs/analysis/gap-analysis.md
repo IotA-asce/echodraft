@@ -33,7 +33,7 @@ Each capability and principle is scored on a 0–5 maturity scale against the vi
 | Character detection & Bible | 2 | 5 | **3** | Recall depends on LLM; exact-string aliasing; same-name merge bug; no casting traits; evidence hidden; no feedback loop |
 | Manuscript understanding & structure | 2 | 5 | **3** | Discards DOCX/EPUB/TOC structure; English "Chapter N" only; destroys verse/scripts; multi-paragraph dialogue mishandled |
 | Speaker attribution & dialogue | 2 | 5 | **3** | One-atom context; flags-not-resolves exchanges; no coreference; disconnected confidence gates; flat review grid |
-| Voice casting | 2 | 5 | **3** | 100% manual string-matching; no gender/age/accent facets; Kokoro voice-ID signal discarded |
+| Voice casting | 3 | 5 | **2** | Trait-ranked suggestions now use Kokoro facets and own-line auditions; no lineup/confusable-voice check yet |
 | Performance direction | 1 | 5 | **4** | Inferred crudely **and not transmitted** to Kokoro/XTTS; assembly ignores per-segment pauses |
 | Audio production quality | 1 | 5 | **4** | 16 kHz mono, aliasing resample, no loudness/limiter, no M4B, no metadata embedding |
 | QA (catching real issues) | 1 | 5 | **4** | Checklist not listener; telemetry faked; rulebook checks unimplemented; no ASR verification |
@@ -102,10 +102,10 @@ Format: **Current state → Vision target → Specific gaps (→ principle it se
   3. LLM pass lacks contiguous scene context despite using few-shot exemplars (→ P5).
   4. Review is a flat grid, not a scene-level color-coded transcript (→ P3).
 
-### 3.4 Voice casting — 2 → 5
-- **Current:** manual free-text voice profiles; no acoustic facets; Kokoro locale+gender voice-ID convention discarded; casting is unranked string-matching against character name.
+### 3.4 Voice casting — 3 → 5
+- **Current:** existing project voices can expose derived Kokoro locale/gender facets, suggestions rank by character traits, and the Voice Bible can audition suggestions against an approved representative character line.
 - **Target:** trait-matched, audibly distinct casting; auditioned against the character's own lines; a lineup comparison enforcing narrator/character contrast.
-- **Gaps:** no gender/age/accent facets on `VoiceProfile` (→ P5); no trait→voice ranking; no audition-first UX; no confusable-voice check (→ P3/P4).
+- **Gaps:** no full acoustic/personality facet model beyond provider IDs and observed traits; no cast-lineup comparison; no confusable-voice check enforcing narrator/character contrast (→ P3/P4).
 
 ### 3.5 Performance direction — 1 → 5
 - **Current:** whole-segment substring emotion inference (blind to speaker/scene/continuity/`segment_type`); direction **advertised but not transmitted** (Kokoro hardcodes `speed=1.0`, XTTS ignores style prompt, `pauseBeforeMs` read by nobody, assembly uses fixed pause constants); only Piper honors anything; no persistent model worker.
