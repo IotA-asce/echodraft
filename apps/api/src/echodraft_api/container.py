@@ -24,6 +24,7 @@ from .artifacts import ArtifactStore
 from .config import AppSettings
 from .jobs import InProcessJobRunner
 from .tts_settings import TtsSettingsStore
+from .tts_worker import TtsWorkerManager
 
 if TYPE_CHECKING:
     from .tts_providers import TtsProvider
@@ -50,6 +51,7 @@ class AppContainer:
     llm_runs: LlmRunRepository
     tts_settings: TtsSettingsStore
     tts_adapter: "TtsProvider"
+    tts_worker_manager: TtsWorkerManager
     jobs: InProcessJobRunner
 
 
@@ -60,7 +62,8 @@ def build_container(settings: AppSettings) -> AppContainer:
     jobs_repository = JobRepository(database)
     jobs_repository.reconcile_interrupted()
     tts_settings = TtsSettingsStore(settings)
-    adapter = tts_settings.adapter()
+    tts_worker_manager = TtsWorkerManager()
+    adapter = tts_settings.adapter(worker_manager=tts_worker_manager)
     return AppContainer(
         settings=settings,
         artifacts=artifacts,
@@ -81,5 +84,6 @@ def build_container(settings: AppSettings) -> AppContainer:
         llm_runs=LlmRunRepository(database),
         tts_settings=tts_settings,
         tts_adapter=adapter,
+        tts_worker_manager=tts_worker_manager,
         jobs=InProcessJobRunner(jobs_repository, settings.max_concurrent_jobs),
     )

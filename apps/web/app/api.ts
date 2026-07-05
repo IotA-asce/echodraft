@@ -16,6 +16,7 @@ export type SegmentDirection = { segmentId: string; projectId: string; direction
 export type TtsProvider = "mock" | "kokoro" | "piper" | "xtts_v2";
 export type TtsSettings = { provider: TtsProvider; setupMode?: "managed_onnx" | "custom_adapter" | "local_cli" | "coqui_local" | null; executable?: string | null; runtimeRoot?: string | null; pythonPath?: string | null; modelPath?: string | null; voicesDataPath?: string | null; voiceRegistryPath?: string | null; piperModelPath?: string | null; piperConfigPath?: string | null; referenceVoicePath?: string | null; referenceVoiceConsent: boolean; language: string; ready: boolean; message?: string | null; availableVoices: string[] };
 export type TtsProviderInfo = { provider: TtsProvider; displayName: string; setupMode?: string | null; ready: boolean; message?: string | null; availableVoices: string[]; capabilities: Record<string, unknown>; requiresReferenceConsent: boolean; referenceVoiceConsent?: boolean | null; referenceVoicePath?: string | null };
+export type TtsWorkerStatus = { provider: TtsProvider | string; setupMode?: string | null; workerMode: "resident" | "subprocess" | string; state: string; pid?: number | null; requestCount: number; lastError?: string | null };
 export type KokoroSetupStep = { phase: string; label: string; status: string; message?: string | null };
 export type KokoroSetupStatus = { platform: string; state: "not_started" | "incomplete" | "failed" | "ready" | "active"; setupMode: "managed_onnx"; runtimeRoot: string; pythonPath: string; executable: string; modelPath: string; voicesDataPath: string; voiceRegistryPath: string; ready: boolean; message?: string | null; nextAction: string; availableVoices: string[]; steps: KokoroSetupStep[] };
 export type LocalAiCatalogItem = { modelKey: string; displayName: string; capability: string; provider: string; installType: string; required: boolean; sizeMb?: number | null; licenseSummary?: string | null; licenseNote?: string | null; description?: string | null; status: string; health: string; installPath?: string | null; lastVerifiedAt?: string | null };
@@ -115,6 +116,7 @@ export const updateSpeakerAttribution = (attributionId: string, payload: { chara
 export const getTtsSettings = () => request<TtsSettings>("/api/v1/settings/tts");
 export const saveTtsSettings = (payload: Omit<TtsSettings, "ready" | "message" | "availableVoices">) => request<TtsSettings>("/api/v1/settings/tts", json("PUT", payload));
 export const getTtsProviders = () => request<TtsProviderInfo[]>("/api/v1/settings/tts/providers");
+export const getTtsWorkerStatus = () => request<TtsWorkerStatus>("/api/v1/settings/tts/worker");
 export const testTtsSettings = () => request<TtsSettings>("/api/v1/settings/tts/test", json("POST", {}));
 export const getKokoroSetup = () => request<KokoroSetupStatus>("/api/v1/settings/tts/kokoro/setup");
 export const installKokoroSetup = (payload: { confirmNetworkDownload: boolean; confirmThirdPartyLicense: boolean; repair?: boolean }) => request<Job>("/api/v1/settings/tts/kokoro/setup/install", json("POST", payload));

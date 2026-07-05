@@ -201,8 +201,10 @@ def test_managed_wrapper_avoids_python_suffix_and_rewrites_only_when_changed(tmp
 
 def test_managed_wrapper_source_transmits_speed() -> None:
     assert "--speed" in WRAPPER_SOURCE
-    assert "speed=args.speed" in WRAPPER_SOURCE
+    assert "args.speed" in WRAPPER_SOURCE
     assert "speed=1.0)" not in WRAPPER_SOURCE
+    assert "--serve-json" in WRAPPER_SOURCE
+    assert "serve_json(kokoro, allowed)" in WRAPPER_SOURCE
 
 
 def test_managed_wrapper_source_writes_pcm16() -> None:
@@ -247,7 +249,7 @@ def test_managed_kokoro_preview_transmits_speed_and_self_heals_wrapper(
 
     monkeypatch.setattr("echodraft_api.tts_providers._run_tts_command", fake_run)
 
-    adapter.preview(
+    provenance = adapter.preview(
         "Hello there.",
         "af_heart",
         tmp_path / "out.wav",
@@ -257,5 +259,6 @@ def test_managed_kokoro_preview_transmits_speed_and_self_heals_wrapper(
     command = captured["command"]
     assert "--speed" in command
     assert command[command.index("--speed") + 1] == "1.250"
+    assert provenance["workerMode"] == "subprocess"
     # The stale on-disk wrapper is refreshed to the current source before running.
     assert wrapper.read_text(encoding="utf-8") == WRAPPER_SOURCE
