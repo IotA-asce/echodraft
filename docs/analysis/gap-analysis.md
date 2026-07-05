@@ -68,14 +68,14 @@ The vision assumes these hold. Today they don't, which is *why* P1 is a 1.
 
 Format: **Current state → Vision target → Specific gaps (→ principle it serves)**.
 
-### 3.1 Character detection & the Character Bible — 2 → 5
-- **Current:** deterministic candidates only from segments already carrying a speaker hint; optional LLM enrichment gated on Ollama; exact-string consolidation with a substring/honorific-only fuzzy fallback; same-first-name characters silently fused before disambiguation; no gender/age/accent; evidence computed but not shown; corrections don't propagate.
+### 3.1 Character detection & the Character Bible — 3 → 5
+- **Current:** deterministic candidates only from segments already carrying a speaker hint; optional LLM enrichment gated on Ollama; title/nickname aliases, conservative spelling variants, and conflicting same-name evidence now route through review instead of unsafe automatic merges; gender/age/accent/role traits are extracted only from directly observed evidence; evidence is computed but not fully shown in the UI.
 - **Target:** complete cast incl. narration-only characters; correct alias clusters with provenance; casting-relevant traits on every record; evidence attached; co-presence map; a tiny triage queue of genuine "same person?" decisions.
 - **Gaps:**
   1. Narration-only characters invisible without LLM (→ P5).
-  2. No nickname lexicon / fuzzy alias clustering (Liz↔Elizabeth) (→ P5).
-  3. Same-name auto-merge with no disambiguation gate — **precision bug** (→ P1).
-  4. No gender/age/vocal-descriptor fields feeding casting (→ P5).
+  2. Full corpus-level alias clustering is still shallow beyond the bundled nickname and spelling-variant heuristics (→ P5).
+  3. Richer co-presence and scene-distance disambiguation is still future work beyond the same-name trait gate (→ P1).
+  4. Vocal-descriptor extraction remains limited beyond observed role, age, accent, and gender traits (→ P5).
   5. Evidence hidden in JSON; parser review is an inert log, not a queue (→ P3).
   6. No confirmation propagation or few-shot reuse of merges (→ P2).
   7. Merge-verification LLM prompt unbatched → collapses on large casts.
