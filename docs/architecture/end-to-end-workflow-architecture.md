@@ -1,6 +1,6 @@
 # End-to-End Workflow Architecture
 
-Document date: 2026-07-06
+Document date: 2026-07-07
 
 This document is the single architecture entry point for the Echodraft local audiobook workflow. It consolidates the import, clean-text, structure, cast, direction, voice, render, review, patch, and export stages, then analyzes the most recent completed Structure & Cast Draft run for project `proj_853c19aa7bbb4706`.
 
@@ -142,15 +142,19 @@ Primary durable outputs:
 
 ### 4. Cast Discovery
 
-Cast Discovery runs after structure extraction. It uses parser speaker evidence, optional local LLM candidate extraction, duplicate checks, merge decisions, alias matching, and confidence gates.
+Cast Discovery runs after structure extraction. It uses parser speaker evidence, bounded scene and structure extraction windows, a durable character mention ledger, shortlist-first dedupe, automated cast graph decisions, alias matching, and confidence gates.
 
-High-confidence unique candidates become Character Bible rows. Ambiguous, duplicate-looking, or low-confidence candidates become review issues. This is review-safe, but it can become noisy if source cleanup and speaker evidence are weak.
+The mention ledger is the durable evidence layer for observed names, aliases, titles, pronouns, and supporting source references. Extraction passes append new observations and recompute cast decisions without discarding prior confirmed evidence. Deduplication is shortlist-first: the system evaluates the strongest candidate matches before it opens possible-duplicate review, which keeps noisy long-tail candidates from exploding into pairwise review volume.
+
+High-confidence unique candidates become Character Bible rows. High-confidence duplicate outcomes can merge automatically when the shortlist is unambiguous and prior project rulings agree. Ambiguous, duplicate-looking, or low-confidence candidates still become review issues. Internal character enrichment is additive: new evidence can extend aliases, traits, or role notes without overwriting user locks or canonical text.
 
 Primary durable outputs:
 
 - characters;
-- cast merge decisions;
-- cast discovery review issues.
+- durable character mention ledger rows;
+- cast graph decisions and remembered duplicate rulings;
+- cast discovery review issues;
+- `casting_manifest.json`.
 
 ### 5. Speaker Attribution
 
@@ -166,6 +170,8 @@ Speaker attribution writes one row per segment. It combines:
 - conservative alternation hints;
 - optional bounded local LLM attribution.
 
+Speaker attribution consumes the Character Bible and cast graph state produced by Cast Discovery. Cast extraction stays bounded to structure and scene windows; attribution stays bounded to scene windows. When attribution finds strong evidence for an already-known character, it can feed additive internal enrichment back into the cast graph without replacing user-owned data.
+
 Review safety rules:
 
 - locked rows are never overwritten;
@@ -178,7 +184,8 @@ Primary durable outputs:
 
 - `speaker_attributions`;
 - evidence JSON with rule names, active speaker rosters, LLM run IDs, confidence, and window IDs;
-- speaker/cast review issues.
+- speaker/cast review issues;
+- `casting_manifest.json` updates for downstream production inputs.
 
 ### 6. Direction
 
@@ -302,12 +309,12 @@ This section analyzes the most recent completed Structure & Cast Draft run for:
 
 ### Job Timeline
 
-| Job ID | Status | Started | Finished | Final progress |
-| --- | --- | --- | --- | --- |
-| `job_3c8fbf0189cd4c8e` | succeeded | 2026-07-05 18:36:10 | 2026-07-06 01:33:29 | `speaker_attribution` `6995/6995` |
-| `job_713bc65b90064695` | failed | 2026-07-05 18:06:21 | 2026-07-05 18:30:14 | interrupted during `llm_cast_discovery` |
-| `job_82693b33bfef4e7f` | failed | 2026-07-05 18:00:06 | 2026-07-05 18:03:29 | interrupted during `llm_cast_discovery` |
-| `job_bb951ee9645947a8` | failed | 2026-07-05 17:24:39 | 2026-07-05 17:53:37 | interrupted during `llm_cast_discovery` |
+| Job ID                 | Status    | Started             | Finished            | Final progress                          |
+| ---------------------- | --------- | ------------------- | ------------------- | --------------------------------------- |
+| `job_3c8fbf0189cd4c8e` | succeeded | 2026-07-05 18:36:10 | 2026-07-06 01:33:29 | `speaker_attribution` `6995/6995`       |
+| `job_713bc65b90064695` | failed    | 2026-07-05 18:06:21 | 2026-07-05 18:30:14 | interrupted during `llm_cast_discovery` |
+| `job_82693b33bfef4e7f` | failed    | 2026-07-05 18:00:06 | 2026-07-05 18:03:29 | interrupted during `llm_cast_discovery` |
+| `job_bb951ee9645947a8` | failed    | 2026-07-05 17:24:39 | 2026-07-05 17:53:37 | interrupted during `llm_cast_discovery` |
 
 The successful job ran for roughly 6 hours 57 minutes. The earlier failed jobs were marked interrupted after API/process restarts, which is expected for the current in-process job architecture.
 
@@ -315,78 +322,78 @@ The successful job ran for roughly 6 hours 57 minutes. The earlier failed jobs w
 
 The source import succeeded but contained quality signals that likely affected downstream structure and casting:
 
-| Source warning | Count |
-| --- | ---: |
-| Unusually long paragraph detected | 99 |
-| Text was extracted with local OCR | 18 |
-| No readable text was found after local OCR | 1 |
-| Canonical cleaning applied deterministic changes | 1 |
+| Source warning                                   | Count |
+| ------------------------------------------------ | ----: |
+| Unusually long paragraph detected                |    99 |
+| Text was extracted with local OCR                |    18 |
+| No readable text was found after local OCR       |     1 |
+| Canonical cleaning applied deterministic changes |     1 |
 
 The cleaning pass reported `15745` deterministic changes. That does not mean the source failed, but it does indicate the PDF required substantial normalization. A scanned/mixed PDF with long paragraphs and OCR pages is a risk factor for chapter detection, quote closure, and cast extraction.
 
 ### Structure Quality Output
 
-| Metric | Value |
-| --- | ---: |
-| Chapters | 5 |
-| Chapters from container signals | 0 |
-| Scenes | 8 |
-| Segments | 6995 |
-| Dialogue segments | 3425 |
-| Dialogue attribution coverage | 7.0% |
-| Unresolved dialogue | 3184 |
-| Average segment length | 117 chars |
-| Long segments | 4 |
-| Mixed segment warnings | 0 |
-| Cast candidates | 601 |
-| Possible duplicate cast candidates | 435 |
-| Low-confidence cast candidates | 125 |
-| Possible scene breaks | 4 |
-| Offset validation failures | 0 |
-| Unclosed quotes | 74 |
-| Detected language | `en` |
-| Language confidence | 0.41 |
-| Warnings needing review | 3363 |
-| LLM refinement used | true |
-| LLM accepted batches | 4 |
-| LLM rejected batches | 4 |
+| Metric                             |     Value |
+| ---------------------------------- | --------: |
+| Chapters                           |         5 |
+| Chapters from container signals    |         0 |
+| Scenes                             |         8 |
+| Segments                           |      6995 |
+| Dialogue segments                  |      3425 |
+| Dialogue attribution coverage      |      7.0% |
+| Unresolved dialogue                |      3184 |
+| Average segment length             | 117 chars |
+| Long segments                      |         4 |
+| Mixed segment warnings             |         0 |
+| Cast candidates                    |       601 |
+| Possible duplicate cast candidates |       435 |
+| Low-confidence cast candidates     |       125 |
+| Possible scene breaks              |         4 |
+| Offset validation failures         |         0 |
+| Unclosed quotes                    |        74 |
+| Detected language                  |      `en` |
+| Language confidence                |      0.41 |
+| Warnings needing review            |      3363 |
+| LLM refinement used                |      true |
+| LLM accepted batches               |         4 |
+| LLM rejected batches               |         4 |
 
 ### Warning Breakdown
 
-| Warning | Count | Interpretation |
-| --- | ---: | --- |
-| Dialogue segment has no speaker attribution | 2453 | Primary cause of the high review count |
-| Dialogue speaker was inferred with low confidence | 731 | Attribution found a hint but stayed review-safe |
-| Alternating unattributed dialogue needs speaker review | 97 | Two-speaker/turn-taking ambiguity remained unresolved |
-| Quoted text has an opening quote without a closing quote | 74 | PDF/OCR/segmentation quote boundary risk |
-| Possible inferred scene break needs review | 4 | Small number of structural boundary questions |
-| Local LLM atom grouping failed validation | 4 | Safety fallback worked; deterministic segments were kept |
-| No explicit scene breaks were found | 2 | Info-level scene-boundary fallback |
+| Warning                                                  | Count | Interpretation                                           |
+| -------------------------------------------------------- | ----: | -------------------------------------------------------- |
+| Dialogue segment has no speaker attribution              |  2453 | Primary cause of the high review count                   |
+| Dialogue speaker was inferred with low confidence        |   731 | Attribution found a hint but stayed review-safe          |
+| Alternating unattributed dialogue needs speaker review   |    97 | Two-speaker/turn-taking ambiguity remained unresolved    |
+| Quoted text has an opening quote without a closing quote |    74 | PDF/OCR/segmentation quote boundary risk                 |
+| Possible inferred scene break needs review               |     4 | Small number of structural boundary questions            |
+| Local LLM atom grouping failed validation                |     4 | Safety fallback worked; deterministic segments were kept |
+| No explicit scene breaks were found                      |     2 | Info-level scene-boundary fallback                       |
 
 By scope:
 
-| Scope | Count |
-| --- | ---: |
-| segment | 3355 |
-| scene | 10 |
+| Scope   | Count |
+| ------- | ----: |
+| segment |  3355 |
+| scene   |    10 |
 
 By severity:
 
 | Severity | Count |
-| --- | ---: |
-| warning | 3363 |
-| info | 2 |
+| -------- | ----: |
+| warning  |  3363 |
+| info     |     2 |
 
 The high warning count is therefore not primarily chapter/scene failure. It is mostly unresolved or low-confidence speaker attribution repeated at segment scope.
 
 ### Cast Discovery Issues
 
-| Issue title | Count |
-| --- | ---: |
-| Possible duplicate cast candidate | 435 |
-| Low-confidence cast candidate | 125 |
-| LLM cast discovery skipped a segment window | 98 |
-| LLM speaker attribution skipped a segment window | 2 |
+| Issue title                                      | Count |
+| ------------------------------------------------ | ----: |
+| Possible duplicate cast candidate                |   435 |
+| Low-confidence cast candidate                    |   125 |
+| LLM cast discovery skipped a segment window      |    98 |
+| LLM speaker attribution skipped a segment window |     2 |
 
 All `660` issue rows were `cast_discovery` warnings and remained open.
 
@@ -394,21 +401,21 @@ All `660` issue rows were `cast_discovery` warnings and remained open.
 
 Character Bible:
 
-| Metric | Value |
-| --- | ---: |
-| Total characters | 601 |
-| Supporting role type | 570 |
-| Narrator role type | 31 |
+| Metric               | Value |
+| -------------------- | ----: |
+| Total characters     |   601 |
+| Supporting role type |   570 |
+| Narrator role type   |    31 |
 
 Speaker attributions:
 
-| Metric | Value |
-| --- | ---: |
-| Total attribution rows | 6995 |
-| Approved rows | 4321 |
-| Needs review rows | 2674 |
-| Deterministic rows | 6024 |
-| Ollama-assisted rows | 971 |
+| Metric                 | Value |
+| ---------------------- | ----: |
+| Total attribution rows |  6995 |
+| Approved rows          |  4321 |
+| Needs review rows      |  2674 |
+| Deterministic rows     |  6024 |
+| Ollama-assisted rows   |   971 |
 
 The approved attribution count is not equivalent to dialogue coverage. Many approved rows can be narration/default narrator rows, while the dialogue-specific coverage remained only `7.0%`.
 
