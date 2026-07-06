@@ -20,7 +20,7 @@ The source files above remain raw reference inputs. The documents in this direct
 
 ## Directory map
 - **`product/`** — vision, scope, and strategy: [project-overview](product/project-overview.md), [mvp-product-spec](product/mvp-product-spec.md), [platform-evolution](product/platform-evolution.md), [quality-benchmark](product/quality-benchmark.md) (the Sunday Suspense yardstick for "flawless"), [roadmap](product/roadmap.md)
-- **`architecture/`** — system design & cross-cutting infra: [architecture](architecture/architecture.md), [current-pipeline-behavior](architecture/current-pipeline-behavior.md), [pipeline-manifest-spec](architecture/pipeline-manifest-spec.md), [repository-blueprint](architecture/repository-blueprint.md), and `local-ai/` ([model-center](architecture/local-ai/model-center.md), [local-llm-service](architecture/local-ai/local-llm-service.md))
+- **`architecture/`** — system design & cross-cutting infra: [end-to-end-workflow-architecture](architecture/end-to-end-workflow-architecture.md), [architecture](architecture/architecture.md), [current-pipeline-behavior](architecture/current-pipeline-behavior.md), [pipeline-manifest-spec](architecture/pipeline-manifest-spec.md), [repository-blueprint](architecture/repository-blueprint.md), and `local-ai/` ([model-center](architecture/local-ai/model-center.md), [local-llm-service](architecture/local-ai/local-llm-service.md))
 - **`domain/`** — data model & persistence: [domain-model](domain/domain-model.md), [db-schema](domain/db-schema.md)
 - **`pipeline/`** — stage-by-stage build contracts, grouped by stage:
   - `ingestion/` — [pdf-ocr-ingestion](pipeline/ingestion/pdf-ocr-ingestion.md), [clean-text-review](pipeline/ingestion/clean-text-review.md)
@@ -44,7 +44,7 @@ The source files above remain raw reference inputs. The documents in this direct
 1. [project-overview.md](product/project-overview.md)
 2. [mvp-product-spec.md](product/mvp-product-spec.md)
 3. [architecture.md](architecture/architecture.md)
-4. [current-pipeline-behavior.md](architecture/current-pipeline-behavior.md)
+4. [end-to-end-workflow-architecture.md](architecture/end-to-end-workflow-architecture.md)
 5. [model-center.md](architecture/local-ai/model-center.md)
 6. [pdf-ocr-ingestion.md](pipeline/ingestion/pdf-ocr-ingestion.md)
 7. [domain-model.md](domain/domain-model.md)
