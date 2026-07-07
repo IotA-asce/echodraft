@@ -25,6 +25,7 @@ from echodraft_db import (
 from .artifacts import ArtifactStore
 from .config import AppSettings
 from .jobs import InProcessJobRunner
+from .orchestrator import HardwareProbe, OrchestratorPools
 from .tts_settings import TtsSettingsStore
 from .tts_worker import TtsWorkerManager
 
@@ -56,6 +57,7 @@ class AppContainer:
     tts_settings: TtsSettingsStore
     tts_adapter: "TtsProvider"
     tts_worker_manager: TtsWorkerManager
+    orchestrator_pools: OrchestratorPools
     jobs: InProcessJobRunner
 
 
@@ -68,6 +70,10 @@ def build_container(settings: AppSettings) -> AppContainer:
     tts_settings = TtsSettingsStore(settings)
     tts_worker_manager = TtsWorkerManager()
     adapter = tts_settings.adapter(worker_manager=tts_worker_manager)
+    orchestrator_pools = OrchestratorPools.from_probe(
+        HardwareProbe(),
+        llm_workers_override=settings.llm_worker_override,
+    )
     return AppContainer(
         settings=settings,
         artifacts=artifacts,
@@ -91,5 +97,6 @@ def build_container(settings: AppSettings) -> AppContainer:
         tts_settings=tts_settings,
         tts_adapter=adapter,
         tts_worker_manager=tts_worker_manager,
+        orchestrator_pools=orchestrator_pools,
         jobs=InProcessJobRunner(jobs_repository, settings.max_concurrent_jobs),
     )

@@ -172,18 +172,25 @@ class LocalLlmService:
         prompt_path = root / "prompt.md"
         response_path = root / "response.json"
         prompt_path.write_text(prompt, encoding="utf-8")
-        run = self.container.llm_runs.create(
-            run_id,
-            project_id=project_id,
-            source_document_id=source.id,
-            provider="ollama",
-            model=request.model,
-            task=request.task,
-            prompt_path=str(prompt_path),
-            schema=schema,
+        run = self.container.orchestrator_pools.writer.run(
+            lambda: self.container.llm_runs.create(
+                run_id,
+                project_id=project_id,
+                source_document_id=source.id,
+                provider="ollama",
+                model=request.model,
+                task=request.task,
+                prompt_path=str(prompt_path),
+                schema=schema,
+            )
         )
         cache_key = _inference_cache_key(request.model, request.task, prompt, schema)
-        cached = self.container.orchestrator_repository.cache_entry(cache_key, record_hit=True)
+        cached = self.container.orchestrator_pools.writer.run(
+            lambda: self.container.orchestrator_repository.cache_entry(
+                cache_key,
+                record_hit=True,
+            )
+        )
         if cached and cached.value_json:
             try:
                 cached_result = cast(dict[str, object], json.loads(cached.value_json))
@@ -202,16 +209,20 @@ class LocalLlmService:
                 ),
                 encoding="utf-8",
             )
-            run = self.container.llm_runs.complete(
-                run_id,
-                status="succeeded",
-                response_path=str(response_path),
-                result=cached_result,
-                retries=0,
+            run = self.container.orchestrator_pools.writer.run(
+                lambda: self.container.llm_runs.complete(
+                    run_id,
+                    status="succeeded",
+                    response_path=str(response_path),
+                    result=cached_result,
+                    retries=0,
+                )
             )
             if job_id:
-                self.container.jobs_repository.set_progress(
-                    job_id, {"phase": "llm_extract", "runId": run_id, "status": "succeeded"}
+                self.container.orchestrator_pools.writer.run(
+                    lambda: self.container.jobs_repository.set_progress(
+                        job_id, {"phase": "llm_extract", "runId": run_id, "status": "succeeded"}
+                    )
                 )
             return LlmExtractionResult(run=run, result=cached_result)
         retries = 0
@@ -224,43 +235,57 @@ class LocalLlmService:
                         f"{prompt}\n\nPrevious response failed validation: {'; '.join(errors)}. "
                         "Return only JSON that satisfies the schema."
                     )
-                result = self.provider.infer(request.model, candidate_prompt, schema)
+                result = self.container.orchestrator_pools.llm.run(
+                    lambda: self.provider.infer(request.model, candidate_prompt, schema)
+                )
                 errors = validate_json_schema(result.response, schema)
                 retries = attempt
                 if not errors:
                     response_path.write_text(json.dumps(result.raw, indent=2), encoding="utf-8")
-                    self.container.orchestrator_repository.put_cache(
-                        cache_key=cache_key,
-                        kind="llm.generate",
-                        model_id=request.model,
-                        schema_id=request.task,
-                        value_json=result.response,
-                        size_bytes=len(json.dumps(result.raw)),
+                    self.container.orchestrator_pools.writer.run(
+                        lambda: self.container.orchestrator_repository.put_cache(
+                            cache_key=cache_key,
+                            kind="llm.generate",
+                            model_id=request.model,
+                            schema_id=request.task,
+                            value_json=result.response,
+                            size_bytes=len(json.dumps(result.raw)),
+                        )
                     )
-                    run = self.container.llm_runs.complete(
-                        run_id,
-                        status="succeeded",
-                        response_path=str(response_path),
-                        result=result.response,
-                        retries=retries,
+                    run = self.container.orchestrator_pools.writer.run(
+                        lambda: self.container.llm_runs.complete(
+                            run_id,
+                            status="succeeded",
+                            response_path=str(response_path),
+                            result=result.response,
+                            retries=retries,
+                        )
                     )
                     if job_id:
-                        self.container.jobs_repository.set_progress(
-                            job_id, {"phase": "llm_extract", "runId": run_id, "status": "succeeded"}
+                        self.container.orchestrator_pools.writer.run(
+                            lambda: self.container.jobs_repository.set_progress(
+                                job_id,
+                                {"phase": "llm_extract", "runId": run_id, "status": "succeeded"},
+                            )
                         )
                     return LlmExtractionResult(run=run, result=result.response)
             raise SchemaValidationError("; ".join(errors) or "Response failed schema validation.")
         except Exception as error:
-            run = self.container.llm_runs.complete(
-                run_id,
-                status="failed",
-                response_path=str(response_path) if response_path.exists() else None,
-                error_message=str(error),
-                retries=retries,
+            error_message = str(error)
+            run = self.container.orchestrator_pools.writer.run(
+                lambda: self.container.llm_runs.complete(
+                    run_id,
+                    status="failed",
+                    response_path=str(response_path) if response_path.exists() else None,
+                    error_message=error_message,
+                    retries=retries,
+                )
             )
             if job_id:
-                self.container.jobs_repository.set_progress(
-                    job_id, {"phase": "llm_extract", "runId": run_id, "status": "failed"}
+                self.container.orchestrator_pools.writer.run(
+                    lambda: self.container.jobs_repository.set_progress(
+                        job_id, {"phase": "llm_extract", "runId": run_id, "status": "failed"}
+                    )
                 )
             raise ValueError(f"Local LLM extraction failed closed: {run.error_message}") from error
 

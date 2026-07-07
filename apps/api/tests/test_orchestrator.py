@@ -1,4 +1,16 @@
-from echodraft_api.orchestrator import CheckpointStore, Stage, Unit, WorkQueue
+import threading
+import time
+
+from echodraft_api.orchestrator import (
+    AdaptiveWorkerPool,
+    CheckpointStore,
+    HardwareSnapshot,
+    SingleWriterQueue,
+    Stage,
+    Unit,
+    WorkQueue,
+    recommended_llm_workers,
+)
 
 
 def test_orchestrator_checkpoint_store_and_work_queue(client) -> None:
@@ -108,3 +120,85 @@ def test_job_events_sse_endpoint_replays_persisted_events(client) -> None:
 
     assert f"id: {first.event_id}" not in filtered.text
     assert f"id: {second.event_id}" in filtered.text
+
+
+def test_hardware_probe_recommends_adaptive_llm_workers() -> None:
+    assert recommended_llm_workers(HardwareSnapshot(cpu_count=8, total_ram_gib=8)) == 1
+    assert recommended_llm_workers(HardwareSnapshot(cpu_count=8, total_ram_gib=16)) == 2
+    assert recommended_llm_workers(HardwareSnapshot(cpu_count=8, total_ram_gib=64)) == 4
+    assert recommended_llm_workers(HardwareSnapshot(cpu_count=8, total_ram_gib=64), 3) == 3
+
+
+def test_adaptive_worker_pool_limits_llm_concurrency() -> None:
+    pool = AdaptiveWorkerPool("llm-test", max_workers=2)
+    barrier = threading.Barrier(2)
+    observed_threads: set[str] = set()
+
+    def operation() -> str:
+        observed_threads.add(threading.current_thread().name)
+        barrier.wait(timeout=2)
+        time.sleep(0.01)
+        return "done"
+
+    results: list[str] = []
+    threads = [threading.Thread(target=lambda: results.append(pool.run(operation))) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=2)
+    pool.shutdown()
+
+    assert results == ["done", "done"]
+    assert all(name.startswith("echodraft-llm-test") for name in observed_threads)
+
+
+def test_writer_queue_serializes_parallel_cache_writes(client) -> None:
+    container = client.app.state.container
+    errors: list[str] = []
+
+    def write_cache(index: int) -> None:
+        try:
+            container.orchestrator_pools.writer.run(
+                lambda: container.orchestrator_repository.put_cache(
+                    cache_key=f"parallel_cache_{index}",
+                    kind="llm",
+                    model_id="qwen3:4b",
+                    value_json={"index": index},
+                    size_bytes=1,
+                )
+            )
+        except Exception as error:  # pragma: no cover - assertion reports the message.
+            errors.append(str(error))
+
+    threads = [threading.Thread(target=write_cache, args=(index,)) for index in range(12)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=2)
+
+    assert errors == []
+    assert container.orchestrator_repository.cache_entry("parallel_cache_11") is not None
+
+
+def test_writer_queue_runs_only_one_operation_at_a_time() -> None:
+    writer = SingleWriterQueue()
+    active = 0
+    max_active = 0
+    guard = threading.Lock()
+
+    def operation() -> None:
+        nonlocal active, max_active
+        with guard:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.01)
+        with guard:
+            active -= 1
+
+    threads = [threading.Thread(target=lambda: writer.run(operation)) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=2)
+
+    assert max_active == 1
