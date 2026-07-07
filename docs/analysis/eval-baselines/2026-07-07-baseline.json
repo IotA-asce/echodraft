@@ -1,0 +1,56 @@
+{
+  "books": [
+    {
+      "bookSlug": "modern-format-synthetic",
+      "counts": {
+        "chapters": 2,
+        "characters": 2,
+        "scenes": 2,
+        "segments": 7,
+        "speakerAttributions": 7
+      },
+      "metrics": {
+        "attribution": {
+          "accuracy": 1.0,
+          "ambiguity_recall": 0.0,
+          "auto_accept_precision": 1.0,
+          "auto_accept_rows": 5,
+          "evaluated_rows": 5,
+          "expected_calibration_error": 0.06999999999999995,
+          "human_agreement_rate": 1.0,
+          "recall_of_attributable_dialogue": 1.0
+        },
+        "cast": {
+          "alias_cluster_purity": 1.0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "merge_error_rate": 0.0,
+          "roster_f1": 1.0,
+          "roster_precision": 1.0,
+          "roster_recall": 1.0,
+          "split_error_rate": 0.0,
+          "true_positives": 2
+        },
+        "flags": {
+          "book_slug": "modern-format-synthetic",
+          "by_severity": {
+            "info": 2,
+            "warning": 1
+          },
+          "flag_count": 3,
+          "flags_per_100_pages": null,
+          "pages": null
+        }
+      },
+      "wallClockSeconds": 0.189
+    }
+  ],
+  "generatedAt": "2026-07-07T17:16:47.652816+00:00",
+  "pipeline": "current-structure-service",
+  "schemaVersion": "1.0.0",
+  "summary": {
+    "bookCount": 1,
+    "totalFlags": 3,
+    "totalWallClockSeconds": 0.189
+  }
+}
