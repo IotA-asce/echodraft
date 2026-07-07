@@ -57,6 +57,7 @@ Read the v2 suite in this order:
   - `qa/` — [quality-evaluation-v2](pipeline/qa/quality-evaluation-v2.md) (v2), [qa-rulebook](pipeline/qa/qa-rulebook.md), [readiness-qa](pipeline/qa/readiness-qa.md)
   - `review/` — [review-experience-v2](pipeline/review/review-experience-v2.md) (v2), [review-patch-workbench](pipeline/review/review-patch-workbench.md)
   - `export/` — [export-polish](pipeline/export/export-polish.md)
+- **`guides/`** — user-facing guides: [getting-started](guides/getting-started.md) (install, platform setup, TTS providers, troubleshooting), [production-workflow](guides/production-workflow.md) (step-by-step manuscript-to-export walkthrough)
 - **`ui/`** — target UI specs (v2): [design-system](ui/design-system.md) (monochrome tokens, typography, motion, components), [frontend-architecture](ui/frontend-architecture.md) (routes, state/data layer, performance)
 - **`platform/`** — cross-platform delivery (v2): [cross-platform-strategy](platform/cross-platform-strategy.md) (desktop/mobile packaging, self-contained dependencies, model management)
 - **`api/`** — [api-v2-contracts](api/api-v2-contracts.md) (v2 contract delta), [api-spec.yaml](api/api-spec.yaml)
