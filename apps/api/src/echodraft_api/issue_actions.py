@@ -119,9 +119,15 @@ class IssueActionService:
         confidence = _float(metadata.get("confidence"), 0.72)
         aliases = _string_list(metadata.get("aliases"))
         traits = _string_list(metadata.get("traits"))
+        relationships = _relationship_rows(metadata.get("relationships"))
+        speaking_style = _string_list(metadata.get("speakingStyle"))
         evidence_graph = metadata.get("evidenceGraph")
         if not traits and isinstance(evidence_graph, dict):
             traits = _string_list(evidence_graph.get("traits"))
+        if not relationships and isinstance(evidence_graph, dict):
+            relationships = _relationship_rows(evidence_graph.get("relationships"))
+        if not speaking_style and isinstance(evidence_graph, dict):
+            speaking_style = _string_list(evidence_graph.get("speakingStyle"))
         canonical_name = _text(metadata.get("canonicalName")) or candidate_name
         notes = json.dumps(
             {
@@ -143,6 +149,8 @@ class IssueActionService:
             notes=notes,
             canonical_name=canonical_name,
             traits=traits,
+            relationships=relationships,
+            speaking_style=speaking_style,
             first_seen_source_id=None,
             first_seen_chapter_id=issue.chapter_id,
             first_seen_segment_id=issue.segment_id,
@@ -210,6 +218,27 @@ def _float(value: object, fallback: float) -> float:
         except ValueError:
             return fallback
     return fallback
+
+
+def _relationship_rows(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        target = _text(item.get("target"))
+        relation = _text(item.get("relation"))
+        if not target or not relation:
+            continue
+        rows.append(
+            {
+                "target": target,
+                "relation": relation,
+                "confidence": _float(item.get("confidence"), 0.0),
+            }
+        )
+    return rows
 
 
 def _name_key(value: str | None) -> str:

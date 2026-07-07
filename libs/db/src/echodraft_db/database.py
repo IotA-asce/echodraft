@@ -143,6 +143,8 @@ class Database:
             character_columns = {
                 "canonical_name": "VARCHAR(200)",
                 "traits_json": "TEXT NOT NULL DEFAULT '[]'",
+                "relationships_json": "TEXT NOT NULL DEFAULT '[]'",
+                "speaking_style_json": "TEXT NOT NULL DEFAULT '[]'",
                 "first_seen_source_id": "VARCHAR(64)",
                 "first_seen_chapter_id": "VARCHAR(64)",
                 "first_seen_segment_id": "VARCHAR(64)",

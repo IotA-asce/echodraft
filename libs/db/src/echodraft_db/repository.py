@@ -25,8 +25,10 @@ from sqlalchemy.orm import Session
 
 from .database import Database
 from .models import (
+    CastGraphDecisionRecord,
     CastMergeDecisionRecord,
     ChapterRecord,
+    CharacterMentionRecord,
     CharacterRecord,
     CharacterVoiceAssignmentRecord,
     CommentRecord,
@@ -219,6 +221,50 @@ def _list_from_json(value: str | None) -> list[Any]:
     return parsed if isinstance(parsed, list) else []
 
 
+def _json_value(value: str | None) -> object:
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return None
+
+
+def _json_object(value: object) -> dict[str, object]:
+    if isinstance(value, dict):
+        return {str(key): item for key, item in value.items()}
+    return {}
+
+
+def _json_object_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [_json_object(item) for item in value if isinstance(item, dict)]
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _none_if_blank(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _clamped_float(value: object, fallback: float) -> float:
+    if isinstance(value, (int, float, str)) and not isinstance(value, bool):
+        try:
+            numeric = float(value)
+        except ValueError:
+            numeric = fallback
+        return max(0.0, min(1.0, numeric))
+    return fallback
+
+
 def _clean_strings(values: list[str]) -> list[str]:
     cleaned: list[str] = []
     seen: set[str] = set()
@@ -248,6 +294,28 @@ def _merge_decision_pair(name_a: str | None, name_b: str | None) -> tuple[str, s
     if len(keys) != 2 or not keys[0] or not keys[1]:
         return None
     return keys[0], keys[1]
+
+
+def _merge_relationship_rows(
+    existing: list[dict[str, object]], updates: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    merged: dict[tuple[str, str], dict[str, object]] = {}
+    for row in [*existing, *updates]:
+        target = _normalized_name_key(str(row.get("target") or ""))
+        relation = _normalized_name_key(str(row.get("relation") or ""))
+        if not target or not relation:
+            continue
+        key = (target, relation)
+        current = merged.get(key)
+        confidence = _clamped_float(row.get("confidence"), 0.0)
+        candidate = {
+            "target": str(row.get("target") or "").strip(),
+            "relation": str(row.get("relation") or "").strip(),
+            "confidence": confidence,
+        }
+        if not current or confidence >= _clamped_float(current.get("confidence"), 0.0):
+            merged[key] = candidate
+    return list(merged.values())
 
 
 def _record_cast_merge_decision(
@@ -552,6 +620,14 @@ class StructureRepository:
             session.execute(
                 delete(StructureParserWarningRecord).where(
                     StructureParserWarningRecord.project_id == project_id
+                )
+            )
+            session.execute(
+                delete(CharacterMentionRecord).where(CharacterMentionRecord.project_id == project_id)
+            )
+            session.execute(
+                delete(CastGraphDecisionRecord).where(
+                    CastGraphDecisionRecord.project_id == project_id
                 )
             )
             new_chapter_ids = [str(chapter["record"]["id"]) for chapter in hierarchy]
@@ -1221,6 +1297,113 @@ class CastMergeDecisionRepository:
             )
 
 
+class CastGraphRepository:
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def replace_mentions(self, project_id: str, mentions: list[dict[str, Any]]) -> None:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            session.execute(
+                delete(CharacterMentionRecord).where(
+                    CharacterMentionRecord.project_id == project_id
+                )
+            )
+            for mention in mentions:
+                session.add(self._mention_record(project_id, mention, now))
+            session.commit()
+
+    def record_mention(self, project_id: str, mention: dict[str, Any]) -> None:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            session.add(self._mention_record(project_id, mention, now))
+            session.commit()
+
+    def replace_decisions(self, project_id: str, decisions: list[dict[str, Any]]) -> None:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            session.execute(
+                delete(CastGraphDecisionRecord).where(
+                    CastGraphDecisionRecord.project_id == project_id
+                )
+            )
+            for decision in decisions:
+                session.add(self._decision_record(project_id, decision, now))
+            session.commit()
+
+    def record_decision(self, project_id: str, decision: dict[str, Any]) -> None:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            session.add(self._decision_record(project_id, decision, now))
+            session.commit()
+
+    def mentions(self, project_id: str) -> list[CharacterMentionRecord]:
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(CharacterMentionRecord)
+                    .where(CharacterMentionRecord.project_id == project_id)
+                    .order_by(CharacterMentionRecord.created_at, CharacterMentionRecord.id)
+                )
+            )
+
+    def decisions(self, project_id: str) -> list[CastGraphDecisionRecord]:
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(CastGraphDecisionRecord)
+                    .where(CastGraphDecisionRecord.project_id == project_id)
+                    .order_by(CastGraphDecisionRecord.created_at, CastGraphDecisionRecord.id)
+                )
+            )
+
+    @staticmethod
+    def _mention_record(
+        project_id: str, mention: dict[str, Any], created_at: datetime
+    ) -> CharacterMentionRecord:
+        return CharacterMentionRecord(
+            id=str(mention.get("id") or f"mention_{uuid4().hex[:16]}"),
+            project_id=project_id,
+            source_document_id=_none_if_blank(mention.get("sourceDocumentId")),
+            scene_id=_none_if_blank(mention.get("sceneId")),
+            window_id=str(mention.get("windowId") or ""),
+            surface_name=str(mention.get("surfaceName") or ""),
+            canonical_guess=_none_if_blank(mention.get("canonicalGuess")),
+            normalized_key=str(mention.get("normalizedKey") or ""),
+            entity_type=str(mention.get("entityType") or "unknown"),
+            role_in_scene=str(mention.get("roleInScene") or "unknown"),
+            evidence_text=str(mention.get("evidenceText") or ""),
+            segment_ids_json=json.dumps(_string_list(mention.get("segmentIds"))),
+            atom_ids_json=json.dumps(_string_list(mention.get("atomIds"))),
+            confidence=_clamped_float(mention.get("confidence"), 0.0),
+            traits_json=json.dumps(_string_list(mention.get("traitsObserved"))),
+            relationships_json=json.dumps(_json_object_list(mention.get("relationshipsObserved"))),
+            llm_run_id=_none_if_blank(mention.get("llmRunId")),
+            metadata_json=json.dumps(_json_object(mention.get("metadata")), sort_keys=True),
+            created_at=created_at,
+        )
+
+    @staticmethod
+    def _decision_record(
+        project_id: str, decision: dict[str, Any], created_at: datetime
+    ) -> CastGraphDecisionRecord:
+        return CastGraphDecisionRecord(
+            id=str(decision.get("id") or f"castdec_{uuid4().hex[:16]}"),
+            project_id=project_id,
+            source_key=str(decision.get("sourceKey") or ""),
+            source_name=str(decision.get("sourceName") or ""),
+            decision=str(decision.get("decision") or "unsure"),
+            target_character_id=_none_if_blank(decision.get("targetCharacterId")),
+            target_name=_none_if_blank(decision.get("targetName")),
+            confidence=_clamped_float(decision.get("confidence"), 0.0),
+            reason=str(decision.get("reason") or ""),
+            evidence_segment_ids_json=json.dumps(_string_list(decision.get("evidenceSegmentIds"))),
+            llm_run_id=_none_if_blank(decision.get("llmRunId")),
+            metadata_json=json.dumps(_json_object(decision.get("metadata")), sort_keys=True),
+            created_at=created_at,
+        )
+
+
 class CastingRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -1269,6 +1452,8 @@ class CastingRepository:
         notes: str | None,
         canonical_name: str | None = None,
         traits: list[str] | None = None,
+        relationships: list[dict[str, object]] | None = None,
+        speaking_style: list[str] | None = None,
         first_seen_source_id: str | None = None,
         first_seen_chapter_id: str | None = None,
         first_seen_segment_id: str | None = None,
@@ -1282,6 +1467,8 @@ class CastingRepository:
                 canonical_name=(canonical_name or clean_name).strip(),
                 aliases_json=json.dumps(_clean_strings(aliases)),
                 traits_json=json.dumps(_clean_strings(traits or [])),
+                relationships_json=json.dumps(_json_object_list(relationships)),
+                speaking_style_json=json.dumps(_clean_strings(speaking_style or [])),
                 first_seen_source_id=first_seen_source_id,
                 first_seen_chapter_id=first_seen_chapter_id,
                 first_seen_segment_id=first_seen_segment_id,
@@ -1304,6 +1491,8 @@ class CastingRepository:
         canonical_name: str | None = None,
         aliases: list[str] | None = None,
         traits: list[str] | None = None,
+        relationships: list[dict[str, object]] | None = None,
+        speaking_style: list[str] | None = None,
         role_type: str | None = None,
         confidence: float | None = None,
         notes: str | None = None,
@@ -1324,6 +1513,10 @@ class CastingRepository:
                 record.aliases_json = json.dumps(_clean_strings(aliases))
             if traits is not None:
                 record.traits_json = json.dumps(_clean_strings(traits))
+            if relationships is not None:
+                record.relationships_json = json.dumps(_json_object_list(relationships))
+            if speaking_style is not None:
+                record.speaking_style_json = json.dumps(_clean_strings(speaking_style))
             if role_type is not None:
                 record.role_type = role_type
             if confidence is not None:
@@ -1369,6 +1562,20 @@ class CastingRepository:
                     [
                         *[str(item) for item in _list_from_json(target.traits_json)],
                         *[str(item) for item in _list_from_json(source.traits_json)],
+                    ]
+                )
+            )
+            target.relationships_json = json.dumps(
+                _merge_relationship_rows(
+                    _json_object_list(_json_value(target.relationships_json)),
+                    _json_object_list(_json_value(source.relationships_json)),
+                )
+            )
+            target.speaking_style_json = json.dumps(
+                _clean_strings(
+                    [
+                        *[str(item) for item in _list_from_json(target.speaking_style_json)],
+                        *[str(item) for item in _list_from_json(source.speaking_style_json)],
                     ]
                 )
             )
@@ -1425,6 +1632,8 @@ class CastingRepository:
                 canonical_name=clean_name,
                 aliases_json=json.dumps(_clean_strings(aliases)),
                 traits_json=json.dumps(_clean_strings(traits)),
+                relationships_json="[]",
+                speaking_style_json="[]",
                 first_seen_source_id=source.first_seen_source_id,
                 first_seen_chapter_id=source.first_seen_chapter_id,
                 first_seen_segment_id=source.first_seen_segment_id,

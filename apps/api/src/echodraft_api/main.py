@@ -1122,17 +1122,17 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     @app.post("/api/v1/projects/{project_id}/characters", response_model=Character, status_code=201)
     def create_character(project_id: str, payload: CharacterCreate, request: Request) -> Character:
         x = request.app.state.container.casting.create_character(
-            project_id,
-            payload.display_name,
-            payload.aliases,
-            payload.role_type,
-            payload.confidence,
-            payload.notes,
-            payload.canonical_name,
-            payload.traits,
-            payload.first_seen_source_id,
-            payload.first_seen_chapter_id,
-            payload.first_seen_segment_id,
+            project_id=project_id,
+            name=payload.display_name,
+            aliases=payload.aliases,
+            role=payload.role_type,
+            confidence=payload.confidence,
+            notes=payload.notes,
+            canonical_name=payload.canonical_name,
+            traits=payload.traits,
+            first_seen_source_id=payload.first_seen_source_id,
+            first_seen_chapter_id=payload.first_seen_chapter_id,
+            first_seen_segment_id=payload.first_seen_segment_id,
         )
         return character_model(x)
 

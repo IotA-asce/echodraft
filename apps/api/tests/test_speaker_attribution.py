@@ -3,8 +3,13 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import echodraft_api.cast_discovery as cast_discovery_module
 import echodraft_api.speaker_attribution as speaker_attribution_module
-from echodraft_db.models import CharacterRecord, SpeakerAttributionRecord
+from echodraft_db.models import (
+    CastGraphDecisionRecord,
+    CharacterRecord,
+    SpeakerAttributionRecord,
+)
 from sqlalchemy import delete
 
 
@@ -325,7 +330,9 @@ def test_unlabeled_dialogue_uses_gendered_pronoun_coreference(client) -> None:
     assert coreferenced["evidence"]["pronounCue"] == "she"
 
 
-def test_speaker_attribution_proposes_missing_cast_from_confident_label(client, app) -> None:
+def test_speaker_attribution_proposes_missing_cast_from_confident_label(
+    client, app, monkeypatch
+) -> None:
     project = client.post(
         "/api/v1/projects", json={"title": "Cast Proposal", "rightsStatus": "declared"}
     ).json()["id"]
@@ -344,8 +351,55 @@ def test_speaker_attribution_proposes_missing_cast_from_confident_label(client, 
         session.execute(
             delete(SpeakerAttributionRecord).where(SpeakerAttributionRecord.project_id == project)
         )
+        session.execute(
+            delete(CastGraphDecisionRecord).where(CastGraphDecisionRecord.project_id == project)
+        )
         session.execute(delete(CharacterRecord).where(CharacterRecord.project_id == project))
         session.commit()
+
+    path_calls: dict[str, object] = {}
+    original_candidate_from_mentions = (
+        cast_discovery_module.CastDiscoveryService._candidate_from_mentions
+    )
+    original_decision_for_candidate = (
+        cast_discovery_module.CastDiscoveryService._decision_for_candidate
+    )
+    original_apply_candidate = cast_discovery_module.CastDiscoveryService._apply_candidate
+
+    def track_candidate_from_mentions(self, mentions, chapter_id):
+        candidate = original_candidate_from_mentions(self, mentions, chapter_id)
+        path_calls["candidateSource"] = candidate.source if candidate else None
+        path_calls["candidateDisplayName"] = candidate.display_name if candidate else None
+        return candidate
+
+    def track_decision_for_candidate(self, project_id, candidate, index, *, use_local_llm):
+        decision = original_decision_for_candidate(
+            self, project_id, candidate, index, use_local_llm=use_local_llm
+        )
+        path_calls["decisionAction"] = decision.action
+        path_calls["decisionReason"] = decision.reason
+        return decision
+
+    def track_apply_candidate(self, project_id, source_id, candidate, decision, index):
+        path_calls["appliedCandidateSource"] = candidate.source
+        path_calls["appliedDecisionAction"] = decision.action
+        return original_apply_candidate(self, project_id, source_id, candidate, decision, index)
+
+    monkeypatch.setattr(
+        cast_discovery_module.CastDiscoveryService,
+        "_candidate_from_mentions",
+        track_candidate_from_mentions,
+    )
+    monkeypatch.setattr(
+        cast_discovery_module.CastDiscoveryService,
+        "_decision_for_candidate",
+        track_decision_for_candidate,
+    )
+    monkeypatch.setattr(
+        cast_discovery_module.CastDiscoveryService,
+        "_apply_candidate",
+        track_apply_candidate,
+    )
 
     rerun = client.post(f"/api/v1/projects/{project}/speaker-attributions/run", json={}).json()
     assert wait_for_job(client, rerun["id"])["status"] == "succeeded"
@@ -354,7 +408,110 @@ def test_speaker_attribution_proposes_missing_cast_from_confident_label(client, 
     talia = next(character for character in characters if character["displayName"] == "Talia")
     rows = client.get(f"/api/v1/projects/{project}/speaker-attributions").json()
     row = next(item for item in rows if item["speakerName"] == "Talia")
+    assert path_calls == {
+        "candidateSource": "speaker_attribution",
+        "candidateDisplayName": "Talia",
+        "decisionAction": "new",
+        "decisionReason": "Filtered candidate is unique and above auto-create confidence.",
+        "appliedCandidateSource": "speaker_attribution",
+        "appliedDecisionAction": "new",
+    }
     assert row["characterId"] == talia["id"]
+    assert row["status"] == "approved"
+    assert row["evidence"]["castProposal"] == "proposed_cast_from_speaker_attribution"
+
+
+def test_speaker_attribution_additively_enriches_existing_character_via_cast_graph_match(
+    client, app, monkeypatch
+) -> None:
+    project = client.post(
+        "/api/v1/projects", json={"title": "Cast Proposal Merge", "rightsStatus": "declared"}
+    ).json()["id"]
+    client.put("/api/v1/settings/tts", json={"provider": "mock"})
+    imported = client.post(
+        f"/api/v1/projects/{project}/source/import",
+        files={"file": ("cast.txt", b"Chapter 1\n\nCaptain John: Hold.", "text/plain")},
+        data={"rightsAcknowledged": "true"},
+    ).json()
+    assert wait_for_job(client, imported["id"])["status"] == "succeeded"
+    structured = client.post(f"/api/v1/projects/{project}/structure/extract", json={}).json()
+    assert wait_for_job(client, structured["id"])["status"] == "succeeded"
+
+    database = app.state.container.structure.database
+    with database.session() as session:
+        session.execute(
+            delete(SpeakerAttributionRecord).where(SpeakerAttributionRecord.project_id == project)
+        )
+        session.execute(
+            delete(CastGraphDecisionRecord).where(CastGraphDecisionRecord.project_id == project)
+        )
+        session.execute(delete(CharacterRecord).where(CharacterRecord.project_id == project))
+        session.commit()
+
+    existing = client.post(
+        f"/api/v1/projects/{project}/characters", json={"displayName": "John"}
+    ).json()
+
+    path_calls: dict[str, object] = {}
+    original_decision_for_candidate = (
+        cast_discovery_module.CastDiscoveryService._decision_for_candidate
+    )
+    original_apply_candidate = cast_discovery_module.CastDiscoveryService._apply_candidate
+    original_create_character = app.state.container.casting.create_character
+    create_character_calls = 0
+
+    def track_decision_for_candidate(self, project_id, candidate, index, *, use_local_llm):
+        decision = original_decision_for_candidate(
+            self, project_id, candidate, index, use_local_llm=use_local_llm
+        )
+        path_calls["candidateSource"] = candidate.source
+        path_calls["decisionAction"] = decision.action
+        path_calls["targetName"] = decision.target_name
+        return decision
+
+    def track_apply_candidate(self, project_id, source_id, candidate, decision, index):
+        path_calls["appliedCandidateSource"] = candidate.source
+        path_calls["appliedDecisionAction"] = decision.action
+        return original_apply_candidate(self, project_id, source_id, candidate, decision, index)
+
+    def track_create_character(*args, **kwargs):
+        nonlocal create_character_calls
+        create_character_calls += 1
+        return original_create_character(*args, **kwargs)
+
+    monkeypatch.setattr(
+        cast_discovery_module.CastDiscoveryService,
+        "_decision_for_candidate",
+        track_decision_for_candidate,
+    )
+    monkeypatch.setattr(
+        cast_discovery_module.CastDiscoveryService,
+        "_apply_candidate",
+        track_apply_candidate,
+    )
+    monkeypatch.setattr(app.state.container.casting, "create_character", track_create_character)
+
+    rerun = client.post(f"/api/v1/projects/{project}/speaker-attributions/run", json={}).json()
+    assert wait_for_job(client, rerun["id"])["status"] == "succeeded"
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    active = [character for character in characters if not character["mergedIntoCharacterId"]]
+    assert [character["displayName"] for character in active] == ["John"]
+    assert active[0]["id"] == existing["id"]
+    assert "Captain John" in active[0]["aliases"]
+    assert "role:captain" in active[0]["traits"]
+    assert create_character_calls == 0
+    assert path_calls == {
+        "candidateSource": "speaker_attribution",
+        "decisionAction": "merge",
+        "targetName": "John",
+        "appliedCandidateSource": "speaker_attribution",
+        "appliedDecisionAction": "merge",
+    }
+
+    rows = client.get(f"/api/v1/projects/{project}/speaker-attributions").json()
+    row = next(item for item in rows if item["speakerName"] == "Captain John")
+    assert row["characterId"] == existing["id"]
     assert row["status"] == "approved"
     assert row["evidence"]["castProposal"] == "proposed_cast_from_speaker_attribution"
 
