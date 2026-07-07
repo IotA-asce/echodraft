@@ -25,10 +25,17 @@ class AppSettings:
     tts_settings_path: Path = Path(".echodraft/tts-settings.json")
     max_concurrent_jobs: int = 2
     llm_worker_override: int | None = None
+    subprocess_worker_override: int | None = None
+    tts_worker_override: int | None = None
+    audiogen_worker_override: int | None = None
+    model_vram_budget_gib: float | None = None
 
     @classmethod
     def from_environment(cls) -> "AppSettings":
         llm_worker_override = os.getenv("ECHODRAFT_LLM_WORKERS")
+        subprocess_worker_override = os.getenv("ECHODRAFT_SUBPROCESS_WORKERS")
+        tts_worker_override = os.getenv("ECHODRAFT_TTS_WORKERS")
+        audiogen_worker_override = os.getenv("ECHODRAFT_AUDIOGEN_WORKERS")
         return cls(
             database_url=os.getenv("ECHODRAFT_DATABASE_URL", "sqlite:///./.echodraft/echodraft.db"),
             artifact_root=Path(
@@ -93,4 +100,27 @@ class AppSettings:
                 if llm_worker_override and llm_worker_override.isdigit()
                 else None
             ),
+            subprocess_worker_override=_optional_positive_int(subprocess_worker_override),
+            tts_worker_override=_optional_positive_int(tts_worker_override),
+            audiogen_worker_override=_optional_positive_int(audiogen_worker_override),
+            model_vram_budget_gib=_optional_positive_float(
+                os.getenv("ECHODRAFT_MODEL_VRAM_BUDGET_GIB")
+            ),
         )
+
+
+def _optional_positive_int(value: str | None) -> int | None:
+    if not value or not value.isdigit():
+        return None
+    parsed = int(value)
+    return parsed if parsed > 0 else None
+
+
+def _optional_positive_float(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        parsed = float(value)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
