@@ -1,0 +1,11 @@
+{
+  "slug": "the-time-machine",
+  "title": "The Time Machine",
+  "author": "H. G. Wells",
+  "source": "project-gutenberg",
+  "gutenbergId": 35,
+  "sourceUrl": "https://www.gutenberg.org/files/35/35-0.txt",
+  "checksumSha256": "507f5cca3fa0b2bac1d7e6daac24852564639d62a8b9247a7f714511a0b8e032",
+  "license": "public-domain",
+  "labelVersion": "1.0.0"
+}
