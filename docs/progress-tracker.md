@@ -1,6 +1,6 @@
 # Progress Tracker
 
-Last updated: 2026-07-05
+Last updated: 2026-07-07
 
 This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.md`.
 
@@ -187,3 +187,42 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 - Remaining: 0 numbered gaps.
 - Approximate roadmap completion: 100%.
 - Phase completion: Phase 0 100%, Phase 1 100%, Phase 2 100%, Phase 3 100%, Phase 4 100%.
+
+## v2 Program Tracker
+
+This section tracks the v2 roadmap in
+[`docs/plans/2026-07-07-v2-implementation-roadmap.md`](plans/2026-07-07-v2-implementation-roadmap.md).
+It is separate from the completed G1-G20 alpha gap tracker above.
+
+### Phase A - Fast Automatic Pipeline
+
+- [ ] W1 - Eval baseline harness.
+  - [x] W1.1 - Golden corpus fetch/seed script.
+  - [ ] W1.2 - Attribution and cast metrics module.
+  - [ ] W1.3 - Baseline report harness and recorded baseline.
+- [ ] W2 - Orchestrator core.
+  - [ ] W2.1 - Orchestrator package alongside the old runner.
+  - [ ] W2.2 - Event bus and SSE endpoint.
+  - [ ] W2.3 - Inference cache and provider abstraction.
+  - [ ] W2.4 - Adaptive LLM worker pool and hardware probe.
+  - [ ] W2.5 - audio-gen and tts pool seams.
+- [ ] W3 - Extraction v2.
+  - [ ] W3.1 - Parallelize existing LLM loops.
+  - [ ] W3.2 - Ingestion v2.
+  - [ ] W3.3 - Structure v2.
+  - [ ] W3.4 - Cast v2.
+  - [ ] W3.5 - Attribution v2.
+  - [ ] W3.6 - Confidence and flag model.
+  - [ ] W3.7 - Direction v2 and progressive delivery.
+- [ ] W4 - Automatic casting.
+  - [ ] W4.1 - Voice catalog and one-time audition backfill.
+  - [ ] W4.2 - Narrator selection.
+  - [ ] W4.3 - Scoring and constraint-solving assignment.
+  - [ ] W4.4 - Auto-chain, override model, and backward compatibility.
+
+### v2 Remaining Phases
+
+- [ ] Phase B - Expressive TTS and generative sound.
+- [ ] Phase C - Minimal monochrome UI.
+- [ ] Phase D - Desktop packaging.
+- [ ] Phase E - Mobile.

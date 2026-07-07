@@ -1,0 +1,11 @@
+{
+  "slug": "pride-and-prejudice",
+  "title": "Pride and Prejudice",
+  "author": "Jane Austen",
+  "source": "project-gutenberg",
+  "gutenbergId": 1342,
+  "sourceUrl": "https://www.gutenberg.org/files/1342/1342-0.txt",
+  "checksumSha256": "a5666f87abf2cbfdaa27ea8c73bd284da9649b9a2ab27b4e6c8f6aeab1bd1c88",
+  "license": "public-domain",
+  "labelVersion": "1.0.0"
+}

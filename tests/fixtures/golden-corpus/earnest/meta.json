@@ -1,0 +1,11 @@
+{
+  "slug": "earnest",
+  "title": "The Importance of Being Earnest",
+  "author": "Oscar Wilde",
+  "source": "project-gutenberg",
+  "gutenbergId": 844,
+  "sourceUrl": "https://www.gutenberg.org/files/844/844-0.txt",
+  "checksumSha256": "38f37d09b148a402b5c3d43c814a08ca5e6496f7d46fea30fd33f9f0f36bbb88",
+  "license": "public-domain",
+  "labelVersion": "1.0.0"
+}
