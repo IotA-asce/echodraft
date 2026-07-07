@@ -1,0 +1,21 @@
+{
+  "bookSlug": "modern-format-synthetic",
+  "labelKind": "roster",
+  "labelVersion": "1.0.0",
+  "items": [
+    {
+      "canonicalName": "Mara",
+      "aliases": [],
+      "role": "major",
+      "gender": "unknown",
+      "notes": "Synthetic dialogue fixture speaker."
+    },
+    {
+      "canonicalName": "Jon",
+      "aliases": [],
+      "role": "major",
+      "gender": "unknown",
+      "notes": "Synthetic dialogue fixture speaker."
+    }
+  ]
+}
