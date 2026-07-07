@@ -199,7 +199,7 @@ metrics per [`product-vision-v2.md` §5.3, §9](../product/product-vision-v2.md)
   tests in `apps/api/tests/test_eval_metrics.py` on tiny inline fixtures.
   Verify: `uv run pytest apps/api/tests/test_eval_metrics.py`, `uv run ruff check .`,
   `uv run mypy apps/api/src libs/db/src libs/domain-models/src`. Size: **M**.
-- [ ] **W1.3 — Baseline report harness + recorded baseline.** Branch `feat/eval-baseline-report`.
+- [x] **W1.3 — Baseline report harness + recorded baseline.** Branch `feat/eval-baseline-report`.
   Add a harness (`apps/api/scripts/run_eval.py`) that runs the *current* `StructureService.extract`
   path over the corpus and writes a versioned JSON report (accuracy, flag counts, wall-clock) to
   `docs/analysis/eval-baselines/2026-07-07-baseline.json`, plus a short markdown summary. This
