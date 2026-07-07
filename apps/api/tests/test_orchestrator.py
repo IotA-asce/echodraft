@@ -68,3 +68,43 @@ def test_orchestrator_repository_cache_and_events(client) -> None:
     events = repository.events_for_job(job.id, after_event_id=first.event_id)
     assert [event.event_id for event in events] == [second.event_id]
     assert events[0].type == "stage.done"
+
+
+def test_job_events_sse_endpoint_replays_persisted_events(client) -> None:
+    project = client.post(
+        "/api/v1/projects",
+        json={"title": "Orchestrator", "rightsStatus": "declared"},
+    ).json()
+    container = client.app.state.container
+    job = container.jobs_repository.create("eval.test", project_id=project["id"])
+    first = container.orchestrator_repository.append_event(
+        job_id=job.id,
+        project_id=project["id"],
+        event_type="job.running",
+        stage="structure",
+        payload={"message": "started"},
+    )
+    second = container.orchestrator_repository.append_event(
+        job_id=job.id,
+        project_id=project["id"],
+        event_type="stage.done",
+        stage="structure",
+        scope={"chapter": 1},
+    )
+
+    response = client.get(f"/api/v1/events?jobId={job.id}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert f"id: {first.event_id}" in response.text
+    assert "event: job.running" in response.text
+    assert '"message": "started"' in response.text
+    assert f"id: {second.event_id}" in response.text
+
+    filtered = client.get(
+        f"/api/v1/events?jobId={job.id}",
+        headers={"Last-Event-ID": str(first.event_id)},
+    )
+
+    assert f"id: {first.event_id}" not in filtered.text
+    assert f"id: {second.event_id}" in filtered.text

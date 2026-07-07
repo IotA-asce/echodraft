@@ -233,7 +233,7 @@ claimed). Current `main` green.
   wire the orchestrator only for new code paths — **no behavior change yet.**
   Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy apps/api/src libs/domain-models/src libs/db/src`,
   migration upgrade check. Size: **L**.
-- [ ] **W2.2 — Event bus + SSE endpoint (polling stays as fallback).** Branch `feat/orchestrator-sse`.
+- [x] **W2.2 — Event bus + SSE endpoint (polling stays as fallback).** Branch `feat/orchestrator-sse`.
   Implement `GET /api/v1/events` and persist `job_events`; the client adopts it later (W7 step 5),
   polling still works until removed. Verify: `uv run pytest` (new SSE test), `uv run ruff check .`,
   `uv run mypy ...`. Size: **M**.
