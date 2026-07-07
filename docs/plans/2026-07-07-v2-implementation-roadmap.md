@@ -193,7 +193,7 @@ metrics per [`product-vision-v2.md` §5.3, §9](../product/product-vision-v2.md)
   `test-assets/` stays git-ignored — never stage it. Verify: `uv run ruff check .`,
   `uv run mypy apps/api/src libs/db/src libs/domain-models/src`, script runs and populates the
   corpus. Size: **M**.
-- [ ] **W1.2 — Attribution & cast metrics module.** Branch `feat/eval-attribution-metrics`. Add
+- [x] **W1.2 — Attribution & cast metrics module.** Branch `feat/eval-attribution-metrics`. Add
   `apps/api/src/echodraft_api/eval/metrics.py`: line-level attribution accuracy, cast
   precision/recall (discovered vs labeled, dedup correctness), and flag-count per book. Unit
   tests in `apps/api/tests/test_eval_metrics.py` on tiny inline fixtures.
