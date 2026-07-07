@@ -225,7 +225,7 @@ claimed). Current `main` green.
 
 **Tasks.**
 
-- [ ] **W2.1 — Orchestrator package alongside the old runner.** Branch `feat/orchestrator-core`.
+- [x] **W2.1 — Orchestrator package alongside the old runner.** Branch `feat/orchestrator-core`.
   Add `apps/api/src/echodraft_api/orchestrator/` with `Stage`, `Unit`, a work-queue, and a
   checkpoint store; new Alembic revision for `job_checkpoints`, `inference_cache`, `job_events`
   tables (`libs/db/alembic/versions/NNNN_orchestrator_tables.py` + matching model records +
