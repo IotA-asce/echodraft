@@ -10,6 +10,7 @@ from echodraft_db import (
     JobRepository,
     LlmRunRepository,
     LocalAiRepository,
+    OrchestratorRepository,
     ProjectRepository,
     ProductionSettingsRepository,
     RenderQueueRepository,
@@ -37,6 +38,7 @@ class AppContainer:
     artifacts: ArtifactStore
     projects: ProjectRepository
     jobs_repository: JobRepository
+    orchestrator_repository: OrchestratorRepository
     sources: SourceDocumentRepository
     source_artifacts: SourceArtifactRepository
     structure: StructureRepository
@@ -71,6 +73,7 @@ def build_container(settings: AppSettings) -> AppContainer:
         artifacts=artifacts,
         projects=ProjectRepository(database, str(settings.artifact_root)),
         jobs_repository=jobs_repository,
+        orchestrator_repository=OrchestratorRepository(database),
         sources=SourceDocumentRepository(database),
         source_artifacts=SourceArtifactRepository(database),
         structure=StructureRepository(database),
