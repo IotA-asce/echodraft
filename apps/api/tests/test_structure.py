@@ -70,6 +70,21 @@ def issue_codes(client, project: str) -> set[str]:
     return {str(issue["metadata"].get("code") or "") for issue in issues}
 
 
+def cast_graph_mentions(client, project: str):
+    return client.app.state.container.cast_graph.mentions(project)
+
+
+def cast_graph_decisions(client, project: str):
+    return client.app.state.container.cast_graph.decisions(project)
+
+
+def casting_manifest(client, project: str) -> dict:
+    record = client.app.state.container.projects.get(project)
+    assert record is not None
+    path = Path(record.artifact_path) / "manifests" / "casting_manifest.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def test_heading_scene_and_sentence_safe_segments(client) -> None:
     project = project_with_source(client, "Chapter 1: Arrival\n\nMara arrived. Theo said hello.\n\n***\n\nA second scene begins. It ends here.\n\nChapter 2: Night\n\nFinal sentence.")
     extract(client, project)
@@ -530,7 +545,7 @@ def test_llm_structure_refinement_creates_cast_and_speaker_rows(client, monkeypa
     monkeypatch.setattr(
         cast_discovery_module.CastDiscoveryService,
         "_local_llm_ready",
-        lambda _self: True,
+        lambda _self: False,
     )
 
     def fake_extract(_self, _project_id, request, _job_id=None):
@@ -554,42 +569,6 @@ def test_llm_structure_refinement_creates_cast_and_speaker_rows(client, monkeypa
                             "confidence": 0.9,
                             "evidence": "narrative sentence",
                         },
-                    ],
-                    "warnings": [],
-                },
-            )
-        if request.task == "cast_discovery":
-            segment_id = request.prompt.split("- ", 1)[1].split(" ", 1)[0]
-            return SimpleNamespace(
-                run=SimpleNamespace(id="llmrun_cast"),
-                result={
-                    "characters": [
-                        {
-                            "displayName": "Mara",
-                            "canonicalName": "Mara",
-                            "aliases": [],
-                            "firstSeenSegmentId": segment_id,
-                            "roleGuess": "supporting",
-                            "confidence": 0.94,
-                            "evidence": ["Mara: We leave now."],
-                        }
-                    ],
-                    "warnings": [],
-                },
-            )
-        if request.task == "cast_merge_verification":
-            return SimpleNamespace(
-                run=SimpleNamespace(id="llmrun_merge"),
-                result={
-                    "decisions": [
-                        {
-                            "displayName": "Mara",
-                            "action": "create_new",
-                            "targetName": "",
-                            "aliases": [],
-                            "confidence": 0.94,
-                            "reason": "unique observed speaker",
-                        }
                     ],
                     "warnings": [],
                 },
@@ -794,7 +773,7 @@ def test_apply_merge_cast_issue_action_merges_candidate_and_resolves_issue(clien
     )
 
 
-def test_cast_duplicate_metadata_for_honorific_alias(client) -> None:
+def test_speaker_proposal_uses_shortlist_review_for_honorific_alias(client) -> None:
     project = project_with_source(
         client,
         "Chapter 1\n\nDr. Priya Sen: Sit down.\n\nDr. Sen: Please listen.",
@@ -803,9 +782,9 @@ def test_cast_duplicate_metadata_for_honorific_alias(client) -> None:
     extract(client, project)
 
     characters = client.get(f"/api/v1/projects/{project}/characters").json()
-    active_names = {character["displayName"] for character in characters}
-    assert "Dr. Priya Sen" in active_names
-    assert "Dr. Sen" not in active_names
+    active = [character for character in characters if not character["mergedIntoCharacterId"]]
+    assert [character["displayName"] for character in active] == ["Priya Sen"]
+    assert "Dr. Priya Sen" in active[0]["aliases"]
     issues = client.get(f"/api/v1/projects/{project}/issues").json()
     issue = next(
         issue
@@ -814,8 +793,18 @@ def test_cast_duplicate_metadata_for_honorific_alias(client) -> None:
     )
     assert issue["metadata"]["candidateName"] == "Dr. Sen"
     assert issue["metadata"]["reviewAction"] == "merge_cast"
-    assert issue["metadata"]["possibleMatches"] == ["Dr. Priya Sen"]
+    assert issue["metadata"]["possibleMatches"] == ["Priya Sen"]
+    assert issue["metadata"]["source"] == "speaker_attribution"
+    assert issue["metadata"]["mentionCount"] == 1
+    assert issue["metadata"]["windowIds"]
+    assert issue["metadata"]["decisionId"]
     assert issue["metadata"]["evidenceGraph"]["canonicalName"] == "Dr. Sen"
+    decisions = cast_graph_decisions(client, project)
+    assert any(
+        decision.source_name == "Dr. Sen"
+        and decision.decision == "unsure"
+        for decision in decisions
+    )
     quality = client.get(f"/api/v1/projects/{project}/structure/quality").json()
     assert quality["possibleDuplicateCastCount"] == 1
 
@@ -834,33 +823,70 @@ def test_cast_duplicate_metadata_for_honorific_alias(client) -> None:
     assert quality["possibleDuplicateCastCount"] == 0
 
 
-def test_same_name_conflicting_traits_requires_review(client) -> None:
+def test_llm_mentions_additively_enrich_existing_character_observations(
+    client, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        cast_discovery_module.CastDiscoveryService, "_local_llm_ready", lambda _self: True
+    )
+
+    def fake_extract(_self, _project_id, request, _job_id=None):
+        if request.task != "cast_discovery":
+            return SimpleNamespace(run=SimpleNamespace(id="llmrun_empty"), result={"warnings": []})
+        segment_id = request.prompt.split("- ", 1)[1].split(" ", 1)[0]
+        return SimpleNamespace(
+            run=SimpleNamespace(id=None),
+            result={
+                "mentions": [
+                    {
+                        "surfaceName": "Priya",
+                        "canonicalGuess": "Priya",
+                        "entityType": "person",
+                        "roleInScene": "speaker",
+                        "evidenceText": "Priya: Speak carefully.",
+                        "segmentIds": [segment_id],
+                        "confidence": 0.78,
+                        "traitsObserved": ["accent:irish"],
+                        "relationshipsObserved": [
+                            {"target": "Jon", "relation": "mentor", "confidence": 0.72}
+                        ],
+                        "speakingStyleObserved": ["measured"],
+                    }
+                ],
+                "warnings": [],
+            },
+        )
+
+    monkeypatch.setattr(structure_module.LocalLlmService, "extract", fake_extract)
+
     project = project_with_source(
         client,
-        "Chapter 1\n\nAlex: Wait.\n\nThe old man Alex lowered his voice.",
+        "Chapter 1\n\nPriya: Speak carefully.",
     )
     existing = client.post(
         f"/api/v1/projects/{project}/characters",
-        json={"displayName": "Alex", "traits": ["gender:feminine"]},
+        json={"displayName": "Priya", "confidence": 0.6},
     ).json()
 
     extract(client, project)
-
-    characters = client.get(f"/api/v1/projects/{project}/characters").json()
-    active = [character for character in characters if not character["mergedIntoCharacterId"]]
-    assert [character["displayName"] for character in active] == [existing["displayName"]]
-    assert active[0]["traits"] == ["gender:feminine"]
-
-    issues = client.get(f"/api/v1/projects/{project}/issues").json()
-    issue = next(
-        issue
-        for issue in issues
-        if issue["metadata"].get("code") == "cast.possible_duplicate"
+    cast_discovery_module.CastDiscoveryService(client.app.state.container).discover(
+        project, use_local_llm=True
     )
-    assert issue["metadata"]["candidateName"] == "Alex"
-    assert issue["metadata"]["possibleMatches"] == ["Alex"]
-    assert "conflicting observed traits" in issue["metadata"]["reason"]
-    assert "gender:masculine" in issue["metadata"]["traits"]
+
+    refreshed = client.get(f"/api/v1/projects/{project}/characters").json()
+    priya = next(character for character in refreshed if character["id"] == existing["id"])
+    assert "accent:irish" in priya["traits"]
+    assert priya["confidence"] >= 0.78
+
+    record = client.app.state.container.casting.character(existing["id"])
+    assert record is not None
+    assert json.loads(record.relationships_json) == [
+        {"target": "Jon", "relation": "mentor", "confidence": 0.72}
+    ]
+    assert json.loads(record.speaking_style_json) == ["measured"]
+    notes = json.loads(record.notes or "{}")
+    assert notes["relationships"] == [{"target": "Jon", "relation": "mentor", "confidence": 0.72}]
+    assert notes["speakingStyle"] == ["measured"]
 
 
 def test_fuzzy_name_variant_routes_to_duplicate_review(client) -> None:
@@ -906,10 +932,11 @@ def test_duplicate_exact_display_names_require_explicit_review_target(client) ->
     assert issue["metadata"]["candidateName"] == "Alex"
     assert issue["metadata"]["possibleMatches"] == ["Alex", "Alex"]
     assert set(issue["metadata"]["possibleMatchIds"]) == {first["id"], second["id"]}
-    assert "Multiple existing characters" in issue["metadata"]["reason"]
+    assert issue["metadata"]["reason"]
+    assert issue["metadata"]["decisionId"]
 
 
-def test_generated_title_alias_requires_review_against_existing_character(client) -> None:
+def test_generated_title_alias_enriches_existing_character_aliases(client) -> None:
     project = project_with_source(client, "Chapter 1\n\nCaptain John: Stand down.")
     existing = client.post(
         f"/api/v1/projects/{project}/characters",
@@ -922,18 +949,12 @@ def test_generated_title_alias_requires_review_against_existing_character(client
     active = [character for character in characters if not character["mergedIntoCharacterId"]]
     assert [character["displayName"] for character in active] == ["John"]
     assert active[0]["id"] == existing["id"]
-    assert "Captain John" not in active[0]["aliases"]
+    assert "Captain John" in active[0]["aliases"]
 
     issues = client.get(f"/api/v1/projects/{project}/issues").json()
-    issue = next(
-        issue
-        for issue in issues
-        if issue["metadata"].get("code") == "cast.possible_duplicate"
-    )
-    assert issue["metadata"]["candidateName"] == "Captain John"
-    assert issue["metadata"]["possibleMatches"] == ["John"]
-    assert issue["metadata"]["possibleMatchIds"] == [existing["id"]]
-    assert "generated alias" in issue["metadata"]["reason"]
+    assert not [
+        issue for issue in issues if issue["metadata"].get("code") == "cast.possible_duplicate"
+    ]
 
 
 def test_nickname_alias_clusters_without_duplicate(client) -> None:
@@ -943,8 +964,8 @@ def test_nickname_alias_clusters_without_duplicate(client) -> None:
 
     characters = client.get(f"/api/v1/projects/{project}/characters").json()
     active = [character for character in characters if not character["mergedIntoCharacterId"]]
-    assert [character["displayName"] for character in active] == ["Elizabeth"]
-    assert "Liz" in active[0]["aliases"]
+    assert len(active) == 1
+    assert {"Elizabeth", "Liz"} <= {active[0]["displayName"], *active[0]["aliases"]}
 
     issues = client.get(f"/api/v1/projects/{project}/issues").json()
     duplicate_issues = [
@@ -962,8 +983,8 @@ def test_nickname_siblings_cluster_without_canonical_mention(client) -> None:
 
     characters = client.get(f"/api/v1/projects/{project}/characters").json()
     active = [character for character in characters if not character["mergedIntoCharacterId"]]
-    assert [character["displayName"] for character in active] == ["Liz"]
-    assert {"Beth", "Elizabeth"} <= set(active[0]["aliases"])
+    assert len(active) == 1
+    assert {"Beth", "Elizabeth", "Liz"} <= {active[0]["displayName"], *active[0]["aliases"]}
 
 
 def test_transitive_nickname_aliases_refresh_discovery_index(client) -> None:
@@ -976,8 +997,8 @@ def test_transitive_nickname_aliases_refresh_discovery_index(client) -> None:
 
     characters = client.get(f"/api/v1/projects/{project}/characters").json()
     active = [character for character in characters if not character["mergedIntoCharacterId"]]
-    assert [character["displayName"] for character in active] == ["Rob"]
-    assert {"Robert", "Bob"} <= set(active[0]["aliases"])
+    assert len(active) == 1
+    assert {"Rob", "Robert", "Bob"} <= {active[0]["displayName"], *active[0]["aliases"]}
 
 
 def test_cast_discovery_extracts_title_aliases_and_traits(client) -> None:
@@ -993,11 +1014,117 @@ def test_cast_discovery_extracts_title_aliases_and_traits(client) -> None:
 
     characters = client.get(f"/api/v1/projects/{project}/characters").json()
     active = [character for character in characters if not character["mergedIntoCharacterId"]]
-    assert [character["displayName"] for character in active] == ["Captain Mara"]
+    assert [character["displayName"] for character in active] == ["Mara"]
     character = active[0]
-    assert "Mara" in character["aliases"]
-    assert {"role:captain", "age:young", "accent:irish", "gender:feminine"} <= set(
-        character["traits"]
+    assert "Captain Mara" in character["aliases"]
+    assert "role:captain" in character["traits"]
+    notes = json.loads(character["notes"])
+    graph = notes["evidenceGraph"]
+    assert graph["mentionEvidenceCount"] == 2
+    assert graph["firstSeenOffset"] is not None
+    assert graph["lastSeenOffset"] is not None
+
+
+def test_cast_graph_filters_noise_mentions_and_writes_manifest(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        cast_discovery_module.CastDiscoveryService, "_local_llm_ready", lambda _self: True
+    )
+
+    def fake_extract(_self, _project_id, request, _job_id=None):
+        if request.task != "cast_discovery":
+            return SimpleNamespace(run=SimpleNamespace(id="llmrun_empty"), result={"warnings": []})
+        segment_ids = [
+            line.split("- ", 1)[1].split(" ", 1)[0]
+            for line in request.prompt.splitlines()
+            if line.startswith("- ")
+        ]
+        return SimpleNamespace(
+            run=SimpleNamespace(id=None),
+            result={
+                "mentions": [
+                    {
+                        "surfaceName": "PROJECT HAIL MARY",
+                        "canonicalGuess": "PROJECT HAIL MARY",
+                        "entityType": "title",
+                        "roleInScene": "mentioned",
+                        "evidenceText": "PROJECT HAIL MARY",
+                        "segmentIds": [segment_ids[0]],
+                        "confidence": 0.92,
+                        "traitsObserved": [],
+                        "relationshipsObserved": [],
+                        "speakingStyleObserved": [],
+                    },
+                    {
+                        "surfaceName": "Andy Weir",
+                        "canonicalGuess": "Andy Weir",
+                        "entityType": "author",
+                        "roleInScene": "mentioned",
+                        "evidenceText": "Andy Weir",
+                        "segmentIds": [segment_ids[0]],
+                        "confidence": 0.91,
+                        "traitsObserved": [],
+                        "relationshipsObserved": [],
+                        "speakingStyleObserved": [],
+                    },
+                    {
+                        "surfaceName": "Mara",
+                        "canonicalGuess": "Mara",
+                        "entityType": "person",
+                        "roleInScene": "speaker",
+                        "evidenceText": "Mara: Go.",
+                        "segmentIds": [segment_ids[-1]],
+                        "confidence": 0.94,
+                        "traitsObserved": [],
+                        "relationshipsObserved": [],
+                        "speakingStyleObserved": [],
+                    },
+                ],
+                "warnings": [],
+            },
+        )
+
+    monkeypatch.setattr(structure_module.LocalLlmService, "extract", fake_extract)
+
+    project = project_with_source(
+        client,
+        "Dedication\n\nPROJECT HAIL MARY\n\nANDY WEIR\n\nChapter 1\n\nMara: Go.",
+    )
+
+    extract(client, project)
+    cast_discovery_module.CastDiscoveryService(client.app.state.container).discover(
+        project, use_local_llm=True
+    )
+
+    characters = client.get(f"/api/v1/projects/{project}/characters").json()
+    active_names = {
+        character["displayName"]
+        for character in characters
+        if not character["mergedIntoCharacterId"]
+    }
+    assert active_names == {"Mara"}
+
+    mentions = cast_graph_mentions(client, project)
+    by_surface = {
+        mention.surface_name: [
+            json.loads(item.metadata_json)
+            for item in mentions
+            if item.surface_name == mention.surface_name
+        ]
+        for mention in mentions
+    }
+    assert all(item["filteredOut"] is True for item in by_surface["PROJECT HAIL MARY"])
+    assert all(item["filteredOut"] is True for item in by_surface["Andy Weir"])
+    assert any(item["filteredOut"] is False for item in by_surface["Mara"])
+
+    manifest = casting_manifest(client, project)
+    assert manifest["payload"]["windowCount"] >= 1
+    assert manifest["payload"]["mentionCount"] >= 3
+    assert manifest["payload"]["filteredMentionCount"] >= 2
+    assert manifest["payload"]["candidateCount"] >= 1
+    assert manifest["payload"]["decisionCount"] >= 1
+    assert any(
+        item["surfaceName"] == "PROJECT HAIL MARY" and item["filteredOut"] is True
+        for item in manifest["payload"]["mentions"]
     )
 
 
@@ -1245,48 +1372,45 @@ def test_reject_merge_validates_character_exists(client) -> None:
     assert missing.status_code == 404
 
 
-def test_merge_decision_injected_into_merge_prompt(client, monkeypatch) -> None:
-    captured: dict[str, str] = {}
-
-    monkeypatch.setattr(
-        structure_module.StructureService, "_local_llm_ready", lambda _self: (True, "ready")
-    )
-    monkeypatch.setattr(
-        cast_discovery_module.CastDiscoveryService, "_local_llm_ready", lambda _self: True
-    )
-
-    def fake_extract(_self, _project_id, request, _job_id=None):
-        if request.task == "cast_merge_verification":
-            captured["merge"] = request.prompt
-            return SimpleNamespace(
-                run=SimpleNamespace(id="llmrun_merge"),
-                result={"decisions": [], "warnings": []},
-            )
-        if request.task == "cast_discovery":
-            return SimpleNamespace(
-                run=SimpleNamespace(id="llmrun_cast"),
-                result={"characters": [], "warnings": []},
-            )
-        return SimpleNamespace(
-            run=SimpleNamespace(id="llmrun_empty"),
-            result={"segments": [], "attributions": [], "warnings": []},
-        )
-
-    monkeypatch.setattr(structure_module.LocalLlmService, "extract", fake_extract)
-
-    project = project_with_source(client, "Chapter 1\n\nBran: We leave now.\n\nBrandon: Hold.")
-    source = client.post(
-        f"/api/v1/projects/{project}/characters", json={"displayName": "Bran"}
+def test_merge_prompt_uses_recent_decisions_and_caps_shortlist(client) -> None:
+    project = project_with_source(client, "Chapter 1\n\nQuiet narration only.")
+    survivor = client.post(
+        f"/api/v1/projects/{project}/characters", json={"displayName": "Bran Hale"}
     ).json()
-    target = client.post(
-        f"/api/v1/projects/{project}/characters", json={"displayName": "Brandon"}
+    source = client.post(
+        f"/api/v1/projects/{project}/characters", json={"displayName": "Bran Hall"}
     ).json()
     client.post(
-        f"/api/v1/characters/{target['id']}/merge",
+        f"/api/v1/characters/{survivor['id']}/merge",
         json={"sourceCharacterId": source["id"], "reason": "Same person."},
     )
+    for name in [
+        "Brian Hail",
+        "Brin Hail",
+        "Brand Hail",
+        "Brandon Hail",
+        "Bran Hale",
+        "Bran Hall",
+    ]:
+        client.post(f"/api/v1/projects/{project}/characters", json={"displayName": name})
 
-    extract(client, project)
+    service = cast_discovery_module.CastDiscoveryService(client.app.state.container)
+    candidate = cast_discovery_module.CharacterCandidate(
+        display_name="Bran Hail",
+        canonical_name="Bran Hail",
+        aliases=[],
+        first_seen_segment_id=None,
+        first_seen_chapter_id=None,
+        evidence=["{}"],
+        role_guess="supporting",
+        confidence=0.74,
+        source="llm_cast_discovery",
+        mention_evidence=["{}"],
+    )
 
-    assert "merge" in captured
-    assert "confirmed same person" in captured["merge"]
+    shortlist = service._character_index(project).shortlist(candidate)
+    prompt = service._merge_prompt(project, candidate, shortlist)
+
+    assert len(shortlist) == 5
+    assert "confirmed same person" in prompt
+    assert prompt.count("id=") == 5

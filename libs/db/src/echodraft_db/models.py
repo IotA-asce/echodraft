@@ -487,6 +487,8 @@ class CharacterRecord(Base):
     canonical_name: Mapped[str | None] = mapped_column(String(200))
     aliases_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     traits_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    relationships_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    speaking_style_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     first_seen_source_id: Mapped[str | None] = mapped_column(String(64))
     first_seen_chapter_id: Mapped[str | None] = mapped_column(String(64))
     first_seen_segment_id: Mapped[str | None] = mapped_column(String(64))
@@ -582,6 +584,54 @@ class CastMergeDecisionRecord(Base):
     name_b: Mapped[str] = mapped_column(String(200), nullable=False)
     decision: Mapped[str] = mapped_column(String(16), nullable=False)
     reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CharacterMentionRecord(Base):
+    __tablename__ = "character_mentions"
+    __table_args__ = (
+        Index("ix_character_mentions_window_id", "window_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    source_document_id: Mapped[str | None] = mapped_column(ForeignKey("source_documents.id"), index=True)
+    scene_id: Mapped[str | None] = mapped_column(ForeignKey("scenes.id"), index=True)
+    window_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    surface_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    canonical_guess: Mapped[str | None] = mapped_column(String(200))
+    normalized_key: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    role_in_scene: Mapped[str] = mapped_column(String(32), nullable=False)
+    evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
+    segment_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    atom_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    traits_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    relationships_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    llm_run_id: Mapped[str | None] = mapped_column(ForeignKey("llm_runs.id"), index=True)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CastGraphDecisionRecord(Base):
+    __tablename__ = "cast_graph_decisions"
+    __table_args__ = (
+        Index("ix_cast_graph_decisions_source_key", "project_id", "source_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    source_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_character_id: Mapped[str | None] = mapped_column(ForeignKey("characters.id"), index=True)
+    target_name: Mapped[str | None] = mapped_column(String(200))
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_segment_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    llm_run_id: Mapped[str | None] = mapped_column(ForeignKey("llm_runs.id"), index=True)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
