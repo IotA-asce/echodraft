@@ -185,24 +185,27 @@ metrics per [`product-vision-v2.md` §5.3, §9](../product/product-vision-v2.md)
 
 **Tasks.**
 
-- [ ] **W1.1 — Golden corpus fetch/seed script.** Branch `feat/eval-golden-corpus`. Add
+- [x] **W1.1 — Golden corpus fetch/seed script.** Branch `feat/eval-golden-corpus`. Add
   `apps/api/scripts/fetch_eval_corpus.py` that downloads public-domain fixtures (19th/20th-c.
-  prose with hand-labeled speaker attributions) into git-ignored `test-assets/eval/` and verifies
-  checksums; document the labeling schema (per-line true speaker: named / narrator / unknown).
+  prose with hand-labeled speaker attributions) into git-ignored `test-assets/golden-corpus/` and
+  verifies checksums; document the labeling schema (per-line true speaker: named / narrator /
+  unknown).
   `test-assets/` stays git-ignored — never stage it. Verify: `uv run ruff check .`,
-  `uv run mypy apps/api/src`, script runs and populates the corpus. Size: **M**.
+  `uv run mypy apps/api/src libs/db/src libs/domain-models/src`, script runs and populates the
+  corpus. Size: **M**.
 - [ ] **W1.2 — Attribution & cast metrics module.** Branch `feat/eval-attribution-metrics`. Add
   `apps/api/src/echodraft_api/eval/metrics.py`: line-level attribution accuracy, cast
   precision/recall (discovered vs labeled, dedup correctness), and flag-count per book. Unit
   tests in `apps/api/tests/test_eval_metrics.py` on tiny inline fixtures.
   Verify: `uv run pytest apps/api/tests/test_eval_metrics.py`, `uv run ruff check .`,
-  `uv run mypy apps/api/src`. Size: **M**.
+  `uv run mypy apps/api/src libs/db/src libs/domain-models/src`. Size: **M**.
 - [ ] **W1.3 — Baseline report harness + recorded baseline.** Branch `feat/eval-baseline-report`.
   Add a harness (`apps/api/scripts/run_eval.py`) that runs the *current* `StructureService.extract`
   path over the corpus and writes a versioned JSON report (accuracy, flag counts, wall-clock) to
   `docs/analysis/eval-baselines/2026-07-07-baseline.json`, plus a short markdown summary. This
   frozen baseline is the comparison gate for every W3 stage. Verify: harness runs end-to-end on
-  at least one corpus book; `uv run ruff check .`; `uv run mypy apps/api/src`. Size: **M**.
+  at least one corpus book; `uv run ruff check .`;
+  `uv run mypy apps/api/src libs/db/src libs/domain-models/src`. Size: **M**.
 
 **Exit criteria.** A single command produces a report with attribution accuracy, cast
 precision/recall, flag count, and wall-clock over the golden corpus, and the current pipeline's
