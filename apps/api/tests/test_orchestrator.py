@@ -5,9 +5,11 @@ from echodraft_api.orchestrator import (
     AdaptiveWorkerPool,
     CheckpointStore,
     HardwareSnapshot,
+    OrchestratorPools,
     SingleWriterQueue,
     Stage,
     Unit,
+    VramBudgetModelLoader,
     WorkQueue,
     recommended_llm_workers,
 )
@@ -202,3 +204,43 @@ def test_writer_queue_runs_only_one_operation_at_a_time() -> None:
         thread.join(timeout=2)
 
     assert max_active == 1
+
+
+def test_orchestrator_pools_register_independent_execution_pools() -> None:
+    pools = OrchestratorPools(
+        hardware=HardwareSnapshot(cpu_count=8, total_ram_gib=32, gpu_vram_gib=12),
+        llm_workers=2,
+        subprocess_workers=3,
+        tts_workers=1,
+        audiogen_workers=1,
+        model_vram_budget_gib=10,
+    )
+    try:
+        statuses = {status.name: status.max_workers for status in pools.statuses()}
+    finally:
+        pools.shutdown()
+
+    assert statuses == {
+        "llm": 2,
+        "subprocess": 3,
+        "tts": 1,
+        "audiogen": 1,
+    }
+
+
+def test_vram_budget_model_loader_evicts_lru_models() -> None:
+    loader = VramBudgetModelLoader(budget_vram_gib=6)
+    first = loader.touch("tts-small", 2)
+    second = loader.touch("sound-small", 2)
+    third = loader.touch("sound-large", 4)
+
+    assert first.loaded_keys == ["tts-small"]
+    assert second.loaded_keys == ["sound-small", "tts-small"]
+    assert third.evicted_keys == ["tts-small"]
+    assert third.loaded_keys == ["sound-large", "sound-small"]
+    assert third.over_budget is False
+
+    status = loader.status()
+    assert status.budget_vram_gib == 6
+    assert status.total_vram_gib == 6
+    assert [lease.model_key for lease in status.loaded] == ["sound-large", "sound-small"]
