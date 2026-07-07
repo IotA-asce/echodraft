@@ -24,9 +24,11 @@ class AppSettings:
     ollama_base_url: str = "http://127.0.0.1:11434"
     tts_settings_path: Path = Path(".echodraft/tts-settings.json")
     max_concurrent_jobs: int = 2
+    llm_worker_override: int | None = None
 
     @classmethod
     def from_environment(cls) -> "AppSettings":
+        llm_worker_override = os.getenv("ECHODRAFT_LLM_WORKERS")
         return cls(
             database_url=os.getenv("ECHODRAFT_DATABASE_URL", "sqlite:///./.echodraft/echodraft.db"),
             artifact_root=Path(
@@ -86,4 +88,9 @@ class AppSettings:
                 os.getenv("ECHODRAFT_TTS_SETTINGS_PATH", ".echodraft/tts-settings.json")
             ).expanduser().resolve(),
             max_concurrent_jobs=int(os.getenv("ECHODRAFT_MAX_CONCURRENT_JOBS", "2")),
+            llm_worker_override=(
+                int(llm_worker_override)
+                if llm_worker_override and llm_worker_override.isdigit()
+                else None
+            ),
         )
