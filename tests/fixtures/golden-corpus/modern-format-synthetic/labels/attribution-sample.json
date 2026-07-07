@@ -1,0 +1,47 @@
+{
+  "bookSlug": "modern-format-synthetic",
+  "labelKind": "attribution_sample",
+  "labelVersion": "1.0.0",
+  "items": [
+    {
+      "id": "mfs-001",
+      "quotedText": "We leave now.",
+      "goldSpeaker": "Mara",
+      "ambiguous": false,
+      "annotators": ["fixture"],
+      "agreement": "unanimous"
+    },
+    {
+      "id": "mfs-002",
+      "quotedText": "I am ready.",
+      "goldSpeaker": "Jon",
+      "ambiguous": false,
+      "annotators": ["fixture"],
+      "agreement": "unanimous"
+    },
+    {
+      "id": "mfs-003",
+      "quotedText": "Keep moving.",
+      "goldSpeaker": "Mara",
+      "ambiguous": false,
+      "annotators": ["fixture"],
+      "agreement": "unanimous"
+    },
+    {
+      "id": "mfs-004",
+      "quotedText": "Do you hear that?",
+      "goldSpeaker": "Jon",
+      "ambiguous": false,
+      "annotators": ["fixture"],
+      "agreement": "unanimous"
+    },
+    {
+      "id": "mfs-005",
+      "quotedText": "Not anymore.",
+      "goldSpeaker": "Mara",
+      "ambiguous": false,
+      "annotators": ["fixture"],
+      "agreement": "unanimous"
+    }
+  ]
+}
