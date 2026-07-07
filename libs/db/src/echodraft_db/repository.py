@@ -33,6 +33,9 @@ from .models import (
     CharacterVoiceAssignmentRecord,
     CommentRecord,
     IssueRecord,
+    InferenceCacheRecord,
+    JobCheckpointRecord,
+    JobEventRecord,
     JobRecord,
     PatchAttemptRecord,
     ProjectProductionSettingsRecord,
@@ -504,6 +507,154 @@ class JobRepository:
             record.error_message = error_message
             session.commit()
             return _job(record)
+
+
+class OrchestratorRepository:
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def upsert_checkpoint(
+        self,
+        *,
+        unit_key: str,
+        job_id: str,
+        project_id: str | None,
+        stage: str,
+        stage_version: str,
+        scope: dict[str, object],
+        status: str,
+        output_ref: str | None = None,
+        last_error: str | None = None,
+    ) -> JobCheckpointRecord:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            record = session.get(JobCheckpointRecord, unit_key)
+            if record is None:
+                record = JobCheckpointRecord(
+                    unit_key=unit_key,
+                    job_id=job_id,
+                    project_id=project_id,
+                    stage=stage,
+                    stage_version=stage_version,
+                    scope_json=json.dumps(scope, sort_keys=True),
+                    status=status,
+                    attempt=0,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(record)
+            else:
+                record.status = status
+                record.updated_at = now
+                record.scope_json = json.dumps(scope, sort_keys=True)
+            if status == "running":
+                record.attempt += 1
+            record.output_ref = output_ref
+            record.last_error = last_error
+            session.commit()
+            return record
+
+    def checkpoint(self, unit_key: str) -> JobCheckpointRecord | None:
+        with self.database.session() as session:
+            return session.get(JobCheckpointRecord, unit_key)
+
+    def checkpoints_for_job(
+        self, job_id: str, *, stage: str | None = None, status: str | None = None
+    ) -> list[JobCheckpointRecord]:
+        statement = select(JobCheckpointRecord).where(JobCheckpointRecord.job_id == job_id)
+        if stage:
+            statement = statement.where(JobCheckpointRecord.stage == stage)
+        if status:
+            statement = statement.where(JobCheckpointRecord.status == status)
+        statement = statement.order_by(JobCheckpointRecord.updated_at.asc())
+        with self.database.session() as session:
+            return list(session.scalars(statement))
+
+    def put_cache(
+        self,
+        *,
+        cache_key: str,
+        kind: str,
+        model_id: str,
+        model_version: str | None = None,
+        schema_id: str | None = None,
+        value_json: dict[str, object] | list[object] | None = None,
+        value_path: str | None = None,
+        size_bytes: int = 0,
+    ) -> InferenceCacheRecord:
+        if (value_json is None) == (value_path is None):
+            raise ValueError("Exactly one of value_json or value_path is required.")
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            record = session.get(InferenceCacheRecord, cache_key)
+            payload = json.dumps(value_json, sort_keys=True) if value_json is not None else None
+            if record is None:
+                record = InferenceCacheRecord(
+                    cache_key=cache_key,
+                    kind=kind,
+                    model_id=model_id,
+                    model_version=model_version,
+                    schema_id=schema_id,
+                    value_json=payload,
+                    value_path=value_path,
+                    bytes=size_bytes,
+                    hit_count=0,
+                    created_at=now,
+                )
+                session.add(record)
+            else:
+                record.kind = kind
+                record.model_id = model_id
+                record.model_version = model_version
+                record.schema_id = schema_id
+                record.value_json = payload
+                record.value_path = value_path
+                record.bytes = size_bytes
+            session.commit()
+            return record
+
+    def cache_entry(self, cache_key: str, *, record_hit: bool = False) -> InferenceCacheRecord | None:
+        with self.database.session() as session:
+            record = session.get(InferenceCacheRecord, cache_key)
+            if record and record_hit:
+                record.hit_count += 1
+                record.last_hit_at = datetime.now(UTC)
+                session.commit()
+            return record
+
+    def append_event(
+        self,
+        *,
+        job_id: str,
+        project_id: str | None,
+        event_type: str,
+        stage: str | None = None,
+        scope: dict[str, object] | None = None,
+        payload: dict[str, object] | None = None,
+    ) -> JobEventRecord:
+        record = JobEventRecord(
+            job_id=job_id,
+            project_id=project_id,
+            type=event_type,
+            stage=stage,
+            scope_json=json.dumps(scope or {}, sort_keys=True),
+            payload_json=json.dumps(payload or {}, sort_keys=True),
+            ts=datetime.now(UTC),
+        )
+        with self.database.session() as session:
+            session.add(record)
+            session.commit()
+            return record
+
+    def events_for_job(self, job_id: str, *, after_event_id: int = 0) -> list[JobEventRecord]:
+        statement = (
+            select(JobEventRecord)
+            .where(JobEventRecord.job_id == job_id)
+            .where(JobEventRecord.event_id > after_event_id)
+            .order_by(JobEventRecord.event_id.asc())
+        )
+        with self.database.session() as session:
+            return list(session.scalars(statement))
 
 
 class SourceDocumentRepository:

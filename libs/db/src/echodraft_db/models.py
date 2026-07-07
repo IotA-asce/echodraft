@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -37,6 +37,60 @@ class JobRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class JobCheckpointRecord(Base):
+    __tablename__ = "job_checkpoints"
+    __table_args__ = (
+        Index("ix_job_checkpoints_job_stage_status", "job_id", "stage", "status"),
+    )
+
+    unit_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), index=True)
+    stage: Mapped[str] = mapped_column(String(100), nullable=False)
+    stage_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    scope_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    attempt: Mapped[int] = mapped_column(nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    output_ref: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class InferenceCacheRecord(Base):
+    __tablename__ = "inference_cache"
+
+    cache_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    model_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    model_version: Mapped[str | None] = mapped_column(String(200))
+    schema_id: Mapped[str | None] = mapped_column(String(128))
+    value_json: Mapped[str | None] = mapped_column(Text)
+    value_path: Mapped[str | None] = mapped_column(Text)
+    bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    hit_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_hit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class JobEventRecord(Base):
+    __tablename__ = "job_events"
+    __table_args__ = (
+        Index("ix_job_events_job_event_id", "job_id", "event_id"),
+    )
+
+    event_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), index=True)
+    type: Mapped[str] = mapped_column(String(100), nullable=False)
+    stage: Mapped[str | None] = mapped_column(String(100))
+    scope_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class ModelInstallationRecord(Base):
