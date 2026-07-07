@@ -73,6 +73,10 @@ def build_container(settings: AppSettings) -> AppContainer:
     orchestrator_pools = OrchestratorPools.from_probe(
         HardwareProbe(),
         llm_workers_override=settings.llm_worker_override,
+        subprocess_workers_override=settings.subprocess_worker_override,
+        tts_workers_override=settings.tts_worker_override,
+        audiogen_workers_override=settings.audiogen_worker_override,
+        model_vram_budget_gib=settings.model_vram_budget_gib,
     )
     return AppContainer(
         settings=settings,

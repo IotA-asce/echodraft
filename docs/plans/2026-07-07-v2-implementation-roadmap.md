@@ -248,7 +248,7 @@ claimed). Current `main` green.
   route all writes through a single writer task/queue (SQLite is single-writer) so fan-out does
   not hit the 30 s busy timeout. Verify: `uv run pytest` (concurrency + no-`database is locked`
   test), `uv run ruff check .`, `uv run mypy ...`. Size: **L**.
-- [ ] **W2.5 — audio-gen + tts pool seams.** Branch `feat/orchestrator-pools`. Register `subprocess`,
+- [x] **W2.5 — audio-gen + tts pool seams.** Branch `feat/orchestrator-pools`. Register `subprocess`,
   `tts`, and `audiogen` pools (schedulable independently of the `llm` pool) so W5/W6 have a home;
   add the VRAM-budget LRU model loader stub. Verify: `uv run pytest`, `uv run ruff check .`,
   `uv run mypy ...`. Size: **M**.
