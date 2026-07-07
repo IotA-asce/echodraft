@@ -200,12 +200,12 @@ It is separate from the completed G1-G20 alpha gap tracker above.
   - [x] W1.1 - Golden corpus fetch/seed script.
   - [x] W1.2 - Attribution and cast metrics module.
   - [x] W1.3 - Baseline report harness and recorded baseline.
-- [ ] W2 - Orchestrator core.
+- [x] W2 - Orchestrator core.
   - [x] W2.1 - Orchestrator package alongside the old runner.
   - [x] W2.2 - Event bus and SSE endpoint.
   - [x] W2.3 - Inference cache and provider abstraction.
   - [x] W2.4 - Adaptive LLM worker pool and hardware probe.
-  - [ ] W2.5 - audio-gen and tts pool seams.
+  - [x] W2.5 - audio-gen and tts pool seams.
 - [ ] W3 - Extraction v2.
   - [ ] W3.1 - Parallelize existing LLM loops.
   - [ ] W3.2 - Ingestion v2.
