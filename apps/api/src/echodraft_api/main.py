@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 import json
 from pathlib import Path
@@ -114,7 +114,7 @@ from echodraft_domain import (
 )
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from .config import AppSettings
 from .container import AppContainer, build_container
@@ -665,6 +665,41 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 raise HTTPException(status_code=422, detail="Invalid job status filter") from error
         return app_container.jobs_repository.list_for_project(
             project_id, job_type=job_type, statuses=statuses, limit=limit
+        )
+
+    @app.get("/api/v1/events")
+    def stream_job_events(
+        request: Request,
+        job_id: str = Query(..., alias="jobId"),
+        after: int = Query(0, ge=0),
+    ) -> StreamingResponse:
+        app_container: AppContainer = request.app.state.container
+        if not app_container.jobs_repository.get(job_id):
+            raise HTTPException(status_code=404, detail="Job not found")
+        last_event_id = _event_cursor(request.headers.get("last-event-id"), after)
+
+        def event_stream() -> Iterable[str]:
+            for event in app_container.orchestrator_repository.events_for_job(
+                job_id, after_event_id=last_event_id
+            ):
+                payload = {
+                    "jobId": event.job_id,
+                    "projectId": event.project_id,
+                    "type": event.type,
+                    "stage": event.stage,
+                    "scope": json.loads(event.scope_json or "{}"),
+                    "payload": json.loads(event.payload_json or "{}"),
+                    "ts": event.ts.isoformat(),
+                }
+                yield f"id: {event.event_id}\n"
+                yield f"event: {event.type}\n"
+                yield f"data: {json.dumps(payload, sort_keys=True)}\n\n"
+            yield ": heartbeat\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache"},
         )
 
     @app.post("/api/v1/projects/{project_id}/source/import", response_model=Job, status_code=202)
@@ -1954,6 +1989,15 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         return FileResponse(package.archive_path, filename=Path(package.archive_path).name)
 
     return app
+
+
+def _event_cursor(header_value: str | None, fallback: int) -> int:
+    if not header_value:
+        return fallback
+    try:
+        return max(0, int(header_value))
+    except ValueError:
+        return fallback
 
 
 app = create_app()
