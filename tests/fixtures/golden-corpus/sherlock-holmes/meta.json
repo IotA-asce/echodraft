@@ -1,0 +1,11 @@
+{
+  "slug": "sherlock-holmes",
+  "title": "The Adventures of Sherlock Holmes",
+  "author": "Arthur Conan Doyle",
+  "source": "project-gutenberg",
+  "gutenbergId": 1661,
+  "sourceUrl": "https://www.gutenberg.org/files/1661/1661-0.txt",
+  "checksumSha256": "b9c105a5c0cf9fcb37c7d0211658851ed56074519c9455d15e20f04c0c5a3174",
+  "license": "public-domain",
+  "labelVersion": "1.0.0"
+}
