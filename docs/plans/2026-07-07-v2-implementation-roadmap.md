@@ -242,7 +242,7 @@ claimed). Current `main` green.
   content-addressed `inference_cache`; preserve the fail-closed schema-validation contract
   bit-for-bit. No concurrency yet — caching + the seam only; reruns get cheaper immediately.
   Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy ...`. Size: **M**.
-- [ ] **W2.4 — Adaptive LLM worker pool + hardware probe.** Branch `feat/adaptive-llm-pool`.
+- [x] **W2.4 — Adaptive LLM worker pool + hardware probe.** Branch `feat/adaptive-llm-pool`.
   Add `HardwareProbe` (RAM/VRAM/core detection) and an adaptively-sized `llm` worker pool
   (`P` from detected memory, per [`extraction-pipeline-v2.md` risks](../architecture/extraction-pipeline-v2.md));
   route all writes through a single writer task/queue (SQLite is single-writer) so fan-out does
