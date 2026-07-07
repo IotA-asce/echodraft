@@ -203,7 +203,7 @@ It is separate from the completed G1-G20 alpha gap tracker above.
 - [ ] W2 - Orchestrator core.
   - [x] W2.1 - Orchestrator package alongside the old runner.
   - [x] W2.2 - Event bus and SSE endpoint.
-  - [ ] W2.3 - Inference cache and provider abstraction.
+  - [x] W2.3 - Inference cache and provider abstraction.
   - [ ] W2.4 - Adaptive LLM worker pool and hardware probe.
   - [ ] W2.5 - audio-gen and tts pool seams.
 - [ ] W3 - Extraction v2.
