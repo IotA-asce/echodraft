@@ -56,6 +56,66 @@ def test_alembic_head_matches_models(tmp_path: Path, monkeypatch: pytest.MonkeyP
     )
 
 
+def test_alembic_head_creates_cast_graph_tables_and_character_enrichment_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = f"sqlite:///{tmp_path / 'cast-graph-head.db'}"
+    monkeypatch.setenv("ECHODRAFT_DATABASE_URL", url)
+
+    config = Config(str(ALEMBIC_INI))
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    try:
+        inspector = inspect(engine)
+        assert {"character_mentions", "cast_graph_decisions"} <= set(inspector.get_table_names())
+
+        character_columns = {column["name"] for column in inspector.get_columns("characters")}
+        assert {"relationships_json", "speaking_style_json"} <= character_columns
+
+        mention_columns = {column["name"] for column in inspector.get_columns("character_mentions")}
+        assert {
+            "window_id",
+            "normalized_key",
+            "segment_ids_json",
+            "traits_json",
+            "relationships_json",
+            "metadata_json",
+        } <= mention_columns
+
+        decision_columns = {
+            column["name"] for column in inspector.get_columns("cast_graph_decisions")
+        }
+        assert {
+            "source_key",
+            "target_character_id",
+            "evidence_segment_ids_json",
+            "metadata_json",
+        } <= decision_columns
+
+        mention_indexes = {index["name"] for index in inspector.get_indexes("character_mentions")}
+        assert {
+            "ix_character_mentions_project_id",
+            "ix_character_mentions_scene_id",
+            "ix_character_mentions_window_id",
+            "ix_character_mentions_normalized_key",
+            "ix_character_mentions_source_document_id",
+            "ix_character_mentions_llm_run_id",
+        } <= mention_indexes
+
+        decision_indexes = {
+            index["name"] for index in inspector.get_indexes("cast_graph_decisions")
+        }
+        assert {
+            "ix_cast_graph_decisions_project_id",
+            "ix_cast_graph_decisions_source_key",
+            "ix_cast_graph_decisions_target_character_id",
+            "ix_cast_graph_decisions_llm_run_id",
+        } <= decision_indexes
+    finally:
+        engine.dispose()
+
+
 def test_sqlite_repair_adds_segment_direction_evidence_json(tmp_path: Path) -> None:
     database = Database(f"sqlite:///{tmp_path / 'legacy.db'}")
     with database.engine.begin() as connection:
@@ -78,6 +138,34 @@ def test_sqlite_repair_adds_segment_direction_evidence_json(tmp_path: Path) -> N
 
     columns = {column["name"] for column in inspect(database.engine).get_columns("segment_directions")}
     assert "evidence_json" in columns
+
+
+def test_sqlite_create_schema_repairs_characters_and_creates_cast_graph_tables(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'legacy-cast-graph.db'}")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE characters ("
+                "id VARCHAR(64) PRIMARY KEY, "
+                "project_id VARCHAR(64), "
+                "display_name VARCHAR(200) NOT NULL, "
+                "aliases_json TEXT NOT NULL DEFAULT '[]', "
+                "role_type VARCHAR(32) NOT NULL DEFAULT 'supporting', "
+                "confidence FLOAT NOT NULL DEFAULT 0, "
+                "notes TEXT"
+                ")"
+            )
+        )
+
+    database.create_schema()
+
+    inspector = inspect(database.engine)
+    assert {"character_mentions", "cast_graph_decisions"} <= set(inspector.get_table_names())
+
+    character_columns = {column["name"] for column in inspector.get_columns("characters")}
+    assert {"relationships_json", "speaking_style_json"} <= character_columns
 
 
 def test_segment_direction_without_evidence_deserializes_as_empty() -> None:
