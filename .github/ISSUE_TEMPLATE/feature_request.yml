@@ -1,0 +1,56 @@
+name: Feature request
+description: Propose a new feature or enhancement for Echodraft
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an improvement. Check the [v2 implementation roadmap](https://github.com/IotA-asce/echodraft/blob/main/docs/plans/2026-07-07-v2-implementation-roadmap.md) first — your idea may already be scoped into a workstream (W0–W9).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem are you trying to solve? Who is affected?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like to happen?
+    validations:
+      required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Pipeline stage / workstream
+      description: Which part of the pipeline (or v2 roadmap workstream) does this relate to?
+      options:
+        - Ingestion
+        - Structure
+        - Casting
+        - Direction
+        - TTS
+        - Sound design
+        - Review
+        - Export
+        - UI
+        - Platform (desktop/mobile packaging)
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative solutions, workarounds, or existing features you've considered.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links to related docs, issues, or discussion.
+    validations:
+      required: false
