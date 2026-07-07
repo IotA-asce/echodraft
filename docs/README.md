@@ -18,20 +18,41 @@ The source files above remain raw reference inputs. The documents in this direct
 - Patch-oriented workflow. Regenerate only the affected scope and preserve render history.
 - Tasteful production. Ambience and expressive delivery are intentionally conservative.
 
+## Target product (v2) documentation suite
+
+The v2 suite is the design for the complete product: any book in, finished multi-voice
+audiobook out, zero-touch by default, cross-platform, self-contained dependencies,
+minimal monochrome UI. It documents the target state; the docs listed under the
+directory map below describe the current implementation and remain the build contracts
+until v2 work lands.
+
+Read the v2 suite in this order:
+1. [product-vision-v2.md](product/product-vision-v2.md) — north-star vision, quality targets, phased roadmap
+2. [target-architecture.md](architecture/target-architecture.md) — engine/UI split, checkpointed DAG orchestration, inference runtime, event push
+3. [extraction-pipeline-v2.md](architecture/extraction-pipeline-v2.md) — LLM-first book understanding: parallel, cached, resumable, minimal flags
+4. [automatic-casting-v2.md](pipeline/casting/automatic-casting-v2.md) — fully automatic narrator/character voice assignment
+5. [tts-engine-strategy.md](pipeline/tts/tts-engine-strategy.md) — production-grade expressive TTS, voice synthesis, engine tiering
+6. [generative-sound-design.md](pipeline/assembly/generative-sound-design.md) — AI-generated ambience/music/SFX, auto-placed
+7. [design-system.md](ui/design-system.md) — monochrome minimal design system (tokens, typography, motion, components)
+8. [frontend-architecture.md](ui/frontend-architecture.md) — routes, state/data layer, performance remediation
+9. [cross-platform-strategy.md](platform/cross-platform-strategy.md) — desktop/mobile packaging, self-contained dependency and model management
+
 ## Directory map
-- **`product/`** — vision, scope, and strategy: [project-overview](product/project-overview.md), [mvp-product-spec](product/mvp-product-spec.md), [platform-evolution](product/platform-evolution.md), [quality-benchmark](product/quality-benchmark.md) (the Sunday Suspense yardstick for "flawless"), [roadmap](product/roadmap.md)
-- **`architecture/`** — system design & cross-cutting infra: [end-to-end-workflow-architecture](architecture/end-to-end-workflow-architecture.md), [architecture](architecture/architecture.md), [current-pipeline-behavior](architecture/current-pipeline-behavior.md), [pipeline-manifest-spec](architecture/pipeline-manifest-spec.md), [repository-blueprint](architecture/repository-blueprint.md), and `local-ai/` ([model-center](architecture/local-ai/model-center.md), [local-llm-service](architecture/local-ai/local-llm-service.md))
+- **`product/`** — vision, scope, and strategy: [product-vision-v2](product/product-vision-v2.md) (target product), [project-overview](product/project-overview.md), [mvp-product-spec](product/mvp-product-spec.md), [platform-evolution](product/platform-evolution.md), [quality-benchmark](product/quality-benchmark.md) (the Sunday Suspense yardstick for "flawless"), [roadmap](product/roadmap.md)
+- **`architecture/`** — system design & cross-cutting infra: [target-architecture](architecture/target-architecture.md) (v2), [extraction-pipeline-v2](architecture/extraction-pipeline-v2.md) (v2), [end-to-end-workflow-architecture](architecture/end-to-end-workflow-architecture.md), [architecture](architecture/architecture.md), [current-pipeline-behavior](architecture/current-pipeline-behavior.md), [pipeline-manifest-spec](architecture/pipeline-manifest-spec.md), [repository-blueprint](architecture/repository-blueprint.md), and `local-ai/` ([model-center](architecture/local-ai/model-center.md), [local-llm-service](architecture/local-ai/local-llm-service.md))
 - **`domain/`** — data model & persistence: [domain-model](domain/domain-model.md), [db-schema](domain/db-schema.md)
 - **`pipeline/`** — stage-by-stage build contracts, grouped by stage:
   - `ingestion/` — [pdf-ocr-ingestion](pipeline/ingestion/pdf-ocr-ingestion.md), [clean-text-review](pipeline/ingestion/clean-text-review.md)
   - `structure/` — [structure-parser-v2](pipeline/structure/structure-parser-v2.md)
-  - `casting/` — [character-bible](pipeline/casting/character-bible.md), [speaker-attribution](pipeline/casting/speaker-attribution.md), [voice-bible-spec](pipeline/casting/voice-bible-spec.md)
+  - `casting/` — [automatic-casting-v2](pipeline/casting/automatic-casting-v2.md) (v2), [character-bible](pipeline/casting/character-bible.md), [speaker-attribution](pipeline/casting/speaker-attribution.md), [voice-bible-spec](pipeline/casting/voice-bible-spec.md)
   - `direction/` — [direction-studio](pipeline/direction/direction-studio.md)
-  - `tts/` — [tts-production-upgrade](pipeline/tts/tts-production-upgrade.md)
-  - `assembly/` — [sound-design](pipeline/assembly/sound-design.md)
+  - `tts/` — [tts-engine-strategy](pipeline/tts/tts-engine-strategy.md) (v2), [tts-production-upgrade](pipeline/tts/tts-production-upgrade.md)
+  - `assembly/` — [generative-sound-design](pipeline/assembly/generative-sound-design.md) (v2), [sound-design](pipeline/assembly/sound-design.md)
   - `qa/` — [qa-rulebook](pipeline/qa/qa-rulebook.md), [readiness-qa](pipeline/qa/readiness-qa.md)
   - `review/` — [review-patch-workbench](pipeline/review/review-patch-workbench.md)
   - `export/` — [export-polish](pipeline/export/export-polish.md)
+- **`ui/`** — target UI specs (v2): [design-system](ui/design-system.md) (monochrome tokens, typography, motion, components), [frontend-architecture](ui/frontend-architecture.md) (routes, state/data layer, performance)
+- **`platform/`** — cross-platform delivery (v2): [cross-platform-strategy](platform/cross-platform-strategy.md) (desktop/mobile packaging, self-contained dependencies, model management)
 - **`api/`** — [api-spec.yaml](api/api-spec.yaml)
 - **`operations/`** — [alpha-operations](operations/alpha-operations.md)
 - **`analysis/`** — point-in-time evaluations: [deep-analysis-report](analysis/deep-analysis-report.md) (engineering), [product-vision-analysis](analysis/product-vision-analysis.md) (capability vision), [gap-analysis](analysis/gap-analysis.md) (current vs. vision). The resulting plan lives at [product/roadmap.md](product/roadmap.md).
