@@ -198,7 +198,7 @@ It is separate from the completed G1-G20 alpha gap tracker above.
 
 - [ ] W1 - Eval baseline harness.
   - [x] W1.1 - Golden corpus fetch/seed script.
-  - [ ] W1.2 - Attribution and cast metrics module.
+  - [x] W1.2 - Attribution and cast metrics module.
   - [ ] W1.3 - Baseline report harness and recorded baseline.
 - [ ] W2 - Orchestrator core.
   - [ ] W2.1 - Orchestrator package alongside the old runner.
