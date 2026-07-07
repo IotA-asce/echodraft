@@ -50,6 +50,9 @@ class FakeProvider:
         }
         return OllamaGenerateResult(response=response, raw={"response": "{}"})
 
+    def infer(self, model: str, prompt: str, schema: dict[str, object]) -> OllamaGenerateResult:
+        return self.generate_json(model, prompt, schema)
+
     def embed(self, _request: object) -> object:
         from echodraft_domain import EmbeddingResult
 
@@ -162,6 +165,35 @@ def test_llm_extraction_job_records_retry_and_result(
     assert runs[0]["result"]["characters"][0]["name"] == "Mara"
     assert Path(runs[0]["promptPath"]).is_file()
     assert Path(runs[0]["responsePath"]).is_file()
+
+
+def test_llm_extraction_reuses_inference_cache(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    FakeProvider.calls = 0
+    monkeypatch.setattr(local_llm, "OllamaProvider", FakeProvider)
+    project = project_with_source(client)
+
+    first = client.post(
+        f"/api/v1/projects/{project}/local-llm/extractions",
+        json={"model": "qwen3:4b"},
+    )
+    assert first.status_code == 202
+    assert wait_for_job(client, first.json()["id"])["status"] == "succeeded"
+    assert FakeProvider.calls == 2
+
+    second = client.post(
+        f"/api/v1/projects/{project}/local-llm/extractions",
+        json={"model": "qwen3:4b"},
+    )
+    assert second.status_code == 202
+    assert wait_for_job(client, second.json()["id"])["status"] == "succeeded"
+
+    runs = client.get(f"/api/v1/projects/{project}/llm-runs").json()
+    assert FakeProvider.calls == 2
+    assert runs[0]["status"] == "succeeded"
+    assert runs[0]["result"]["characters"][0]["name"] == "Mara"
+    assert runs[0]["retries"] == 0
 
 
 def test_llm_extraction_accepts_wrapped_json_response(

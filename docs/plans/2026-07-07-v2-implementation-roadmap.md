@@ -237,7 +237,7 @@ claimed). Current `main` green.
   Implement `GET /api/v1/events` and persist `job_events`; the client adopts it later (W7 step 5),
   polling still works until removed. Verify: `uv run pytest` (new SSE test), `uv run ruff check .`,
   `uv run mypy ...`. Size: **M**.
-- [ ] **W2.3 — Inference cache + provider abstraction.** Branch `feat/inference-cache`. Replace
+- [x] **W2.3 — Inference cache + provider abstraction.** Branch `feat/inference-cache`. Replace
   the raw `urllib` call in `local_llm.py` with `OllamaLlmProvider.infer` fronted by the
   content-addressed `inference_cache`; preserve the fail-closed schema-validation contract
   bit-for-bit. No concurrency yet — caching + the seam only; reruns get cheaper immediately.

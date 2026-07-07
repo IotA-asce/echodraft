@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 import urllib.error
@@ -48,7 +49,7 @@ class SchemaValidationError(ValueError):
     pass
 
 
-class OllamaProvider:
+class OllamaLlmProvider:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url.rstrip("/")
 
@@ -60,6 +61,11 @@ class OllamaProvider:
         return [cast(dict[str, object], item) for item in models if isinstance(item, dict)]
 
     def generate_json(
+        self, model: str, prompt: str, schema: dict[str, object]
+    ) -> OllamaGenerateResult:
+        return self.infer(model, prompt, schema)
+
+    def infer(
         self, model: str, prompt: str, schema: dict[str, object]
     ) -> OllamaGenerateResult:
         payload = self._post_or_get(
@@ -132,6 +138,9 @@ class OllamaProvider:
         return cast(dict[str, object], parsed)
 
 
+OllamaProvider = OllamaLlmProvider
+
+
 class LocalLlmService:
     def __init__(self, container: AppContainer) -> None:
         self.container = container
@@ -173,6 +182,38 @@ class LocalLlmService:
             prompt_path=str(prompt_path),
             schema=schema,
         )
+        cache_key = _inference_cache_key(request.model, request.task, prompt, schema)
+        cached = self.container.orchestrator_repository.cache_entry(cache_key, record_hit=True)
+        if cached and cached.value_json:
+            try:
+                cached_result = cast(dict[str, object], json.loads(cached.value_json))
+            except json.JSONDecodeError as error:
+                raise ValueError("Local LLM inference cache entry was invalid JSON.") from error
+            cache_errors = validate_json_schema(cached_result, schema)
+            if cache_errors:
+                raise ValueError(
+                    "Local LLM inference cache entry failed schema validation: "
+                    + "; ".join(cache_errors)
+                )
+            response_path.write_text(
+                json.dumps(
+                    {"cached": True, "cacheKey": cache_key, "result": cached_result},
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            run = self.container.llm_runs.complete(
+                run_id,
+                status="succeeded",
+                response_path=str(response_path),
+                result=cached_result,
+                retries=0,
+            )
+            if job_id:
+                self.container.jobs_repository.set_progress(
+                    job_id, {"phase": "llm_extract", "runId": run_id, "status": "succeeded"}
+                )
+            return LlmExtractionResult(run=run, result=cached_result)
         retries = 0
         errors: list[str] = []
         try:
@@ -183,11 +224,19 @@ class LocalLlmService:
                         f"{prompt}\n\nPrevious response failed validation: {'; '.join(errors)}. "
                         "Return only JSON that satisfies the schema."
                     )
-                result = self.provider.generate_json(request.model, candidate_prompt, schema)
+                result = self.provider.infer(request.model, candidate_prompt, schema)
                 errors = validate_json_schema(result.response, schema)
                 retries = attempt
                 if not errors:
                     response_path.write_text(json.dumps(result.raw, indent=2), encoding="utf-8")
+                    self.container.orchestrator_repository.put_cache(
+                        cache_key=cache_key,
+                        kind="llm.generate",
+                        model_id=request.model,
+                        schema_id=request.task,
+                        value_json=result.response,
+                        size_bytes=len(json.dumps(result.raw)),
+                    )
                     run = self.container.llm_runs.complete(
                         run_id,
                         status="succeeded",
@@ -271,6 +320,22 @@ def validate_json_schema(value: object, schema: dict[str, object], path: str = "
     elif expected == "boolean" and not isinstance(value, bool):
         errors.append(f"{path} must be a boolean")
     return errors
+
+
+def _inference_cache_key(
+    model: str,
+    task: str,
+    prompt: str,
+    schema: dict[str, object],
+) -> str:
+    payload = {
+        "model": model,
+        "task": task,
+        "prompt": prompt,
+        "schema": schema,
+    }
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+    return f"llm.generate:{digest}"
 
 
 def parse_llm_json_object(response: str) -> dict[str, object]:
