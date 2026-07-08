@@ -6,9 +6,12 @@ from types import SimpleNamespace
 
 import echodraft_api.cast_discovery as cast_discovery_module
 import echodraft_api.structure as structure_module
+import echodraft_api.structure_v2 as structure_v2
 import pytest
 from docx import Document
 from ebooklib import epub
+from fastapi.testclient import TestClient
+from echodraft_api.main import create_app
 from echodraft_api.structure_parsing import (
     ChapterSignal,
     StructureCompiler,
@@ -1414,3 +1417,67 @@ def test_merge_prompt_uses_recent_decisions_and_caps_shortlist(client) -> None:
     assert len(shortlist) == 5
     assert "confirmed same person" in prompt
     assert prompt.count("id=") == 5
+
+
+def test_structure_v2_chunking_and_coverage_helpers() -> None:
+    text = "Chapter 1\n\n" + ("A paragraph with text.\n\n" * 20)
+    chunks = structure_v2.chunk_text(text, chunk_chars=120, overlap_chars=20)
+
+    assert len(chunks) > 1
+    assert chunks[0].start_offset == 0
+    assert chunks[1].read_only_context_start <= chunks[1].start_offset
+    assert structure_v2.seam_windows(chunks)
+
+    valid = structure_v2.verify_structure_coverage(
+        [
+            {
+                "scenes": [
+                    {
+                        "segments": [
+                            {"record": {"start_offset": 0, "end_offset": 5, "text_content": "Hello"}},
+                            {"record": {"start_offset": 5, "end_offset": 11, "text_content": " world"}},
+                        ]
+                    }
+                ]
+            }
+        ]
+    )
+    overlap = structure_v2.verify_structure_coverage(
+        [
+            {
+                "scenes": [
+                    {
+                        "segments": [
+                            {"record": {"start_offset": 0, "end_offset": 6, "text_content": "Hello!"}},
+                            {"record": {"start_offset": 5, "end_offset": 11, "text_content": " world"}},
+                        ]
+                    }
+                ]
+            }
+        ]
+    )
+
+    assert valid.ok is True
+    assert overlap.ok is False
+    assert overlap.overlap_count == 1
+
+
+def test_structure_v2_flag_adds_manifest_trace(client, settings) -> None:
+    flagged_settings = settings.__class__(
+        **{**settings.__dict__, "structure_v2_enabled": True}
+    )
+    with TestClient(create_app(flagged_settings)) as flagged_client:
+        project = project_with_source(
+            flagged_client,
+            "Chapter 1\n\nMara opened the door.\n\nChapter 2\n\nMara closed it.",
+        )
+        extract(flagged_client, project)
+        project_record = flagged_client.app.state.container.projects.get(project)
+        assert project_record
+        manifest_path = Path(project_record.artifact_path) / "manifests" / "structure_manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    trace = manifest["payload"]["structureV2"]
+    assert trace["version"] == structure_v2.STRUCTURE_V2_VERSION
+    assert trace["coverage"]["segmentCount"] > 0
+    assert trace["fallback"] == "deterministic_compiler"
