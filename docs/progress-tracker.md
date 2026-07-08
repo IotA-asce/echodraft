@@ -209,7 +209,7 @@ It is separate from the completed G1-G20 alpha gap tracker above.
 - [ ] W3 - Extraction v2.
   - [x] W3.1 - Parallelize existing LLM loops.
   - [x] W3.2 - Ingestion v2.
-  - [ ] W3.3 - Structure v2.
+  - [x] W3.3 - Structure v2.
   - [ ] W3.4 - Cast v2.
   - [ ] W3.5 - Attribution v2.
   - [ ] W3.6 - Confidence and flag model.

@@ -37,6 +37,7 @@ from .structure_parsing import (
     compatible_segment_type,
     ignored_speaker,
 )
+from .structure_v2 import StructureV2Pipeline, structure_v2_manifest_payload
 
 STRUCTURE_PARSER_VERSION = "structure-parser-0.4.0"
 DEFAULT_REFINEMENT_MODEL = "qwen3:4b"
@@ -93,7 +94,14 @@ class StructureService:
             )
         compiler = StructureCompiler(project_id, source.id, STRUCTURE_PARSER_VERSION)
         chapter_signals = self._load_chapter_signals(source.structure_signals_path)
-        compiled = compiler.compile(text, max_chars, chapter_signals=chapter_signals)
+        if self.container.settings.structure_v2_enabled:
+            compiled = StructureV2Pipeline(compiler).compile(
+                text,
+                max_chars,
+                chapter_signals=chapter_signals,
+            )
+        else:
+            compiled = compiler.compile(text, max_chars, chapter_signals=chapter_signals)
         hierarchy = compiled.hierarchy
         warnings = compiled.warnings
         llm_used, accepted, rejected = self._refine_hierarchy(
@@ -602,6 +610,7 @@ class StructureService:
                     "cast_discovery",
                     "speaker_attribution",
                 ],
+                "structureV2": structure_v2_manifest_payload(warnings),
                 "quality": quality.model_dump(by_alias=True),
                 "chapters": _manifest_hierarchy(hierarchy),
             },
