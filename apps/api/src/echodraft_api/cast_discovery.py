@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import cast
 from uuid import uuid4
 
 from echodraft_db.models import ChapterRecord, CharacterRecord, SceneRecord, SegmentRecord
-from echodraft_domain import LlmExtractionRequest
+from echodraft_domain import LlmExtractionRequest, LlmExtractionResult
 from sqlalchemy import select
 
 from .container import AppContainer
@@ -505,7 +506,36 @@ class CastDiscoveryService:
         llm = LocalLlmService(self.container)
         segment_map = {segment.id: segment for segment in segments}
         mentions: list[CharacterMention] = []
-        for index, window in enumerate(windows, 1):
+        max_workers = min(len(windows), self.container.orchestrator_pools.llm.max_workers)
+
+        def extract_window(
+            index: int,
+            window: CastWindow,
+        ) -> tuple[int, CastWindow, LlmExtractionRequest, LlmExtractionResult | ValueError]:
+            request = LlmExtractionRequest(
+                model=DEFAULT_REFINEMENT_MODEL,
+                task="cast_discovery",
+                schema=CAST_MENTION_SCHEMA,
+                prompt=self._cast_prompt(window, segment_map),
+            )
+            try:
+                return index, window, request, llm.extract(project_id, request, job_id)
+            except ValueError as error:
+                return index, window, request, error
+
+        results: list[tuple[int, CastWindow, LlmExtractionRequest, LlmExtractionResult | ValueError]] = []
+        with ThreadPoolExecutor(
+            max_workers=max(1, max_workers),
+            thread_name_prefix="echodraft-cast-llm",
+        ) as executor:
+            futures = [
+                executor.submit(extract_window, index, window)
+                for index, window in enumerate(windows, 1)
+            ]
+            for future in futures:
+                results.append(future.result())
+
+        for index, window, _request, outcome in sorted(results, key=lambda item: item[0]):
             if job_id:
                 self.container.jobs_repository.set_progress(
                     job_id,
@@ -516,28 +546,18 @@ class CastDiscoveryService:
                         "message": "Extracting character mentions from scene windows.",
                     },
                 )
-            try:
-                result = llm.extract(
-                    project_id,
-                    LlmExtractionRequest(
-                        model=DEFAULT_REFINEMENT_MODEL,
-                        task="cast_discovery",
-                        schema=CAST_MENTION_SCHEMA,
-                        prompt=self._cast_prompt(window, segment_map),
-                    ),
-                    job_id,
-                )
-            except ValueError as error:
+            if isinstance(outcome, ValueError):
                 self.container.review.create_issue(
                     project_id=project_id,
                     category="cast_discovery",
                     severity="warning",
                     title="LLM cast discovery skipped a structure window",
                     description="Local Ollama failed while extracting cast mentions; deterministic evidence was kept.",
-                    metadata={"error": str(error)[:500], "segmentIds": window.segment_ids},
+                    metadata={"error": str(outcome)[:500], "segmentIds": window.segment_ids},
                     dedupe_key=f"cast-discovery-llm:{project_id}:{window.id}",
                 )
                 continue
+            result = outcome
             raw_mentions = result.result.get("mentions")
             if not isinstance(raw_mentions, list):
                 continue

@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -16,6 +17,7 @@ from echodraft_db.models import (
 from echodraft_domain import (
     Chapter,
     LlmExtractionRequest,
+    LlmExtractionResult,
     Scene,
     Segment,
     SegmentRevision,
@@ -244,7 +246,38 @@ class StructureService:
                 refined_records: list[dict[str, object]] = []
                 batch_rejected = False
                 batches = _atom_batches(atoms)
-                for batch_index, batch in enumerate(batches, 1):
+                batch_results: list[tuple[int, list[TextAtom], LlmExtractionRequest, object]] = []
+                max_workers = min(len(batches), self.container.orchestrator_pools.llm.max_workers)
+
+                def refine_batch(
+                    batch_index: int, batch: list[TextAtom]
+                ) -> tuple[int, list[TextAtom], LlmExtractionRequest, object]:
+                    request = LlmExtractionRequest(
+                        model=DEFAULT_REFINEMENT_MODEL,
+                        task="atom_segment_refinement",
+                        schema=ATOM_SEGMENT_REFINEMENT_SCHEMA,
+                        prompt=self._atom_refinement_prompt(atoms, batch),
+                    )
+                    try:
+                        return batch_index, batch, request, llm.extract(project_id, request, job_id)
+                    except ValueError as error:
+                        return batch_index, batch, request, error
+
+                with ThreadPoolExecutor(
+                    max_workers=max(1, max_workers),
+                    thread_name_prefix="echodraft-structure-llm",
+                ) as executor:
+                    futures = [
+                        executor.submit(refine_batch, batch_index, batch)
+                        for batch_index, batch in enumerate(batches, 1)
+                    ]
+                    for future in futures:
+                        batch_results.append(future.result())
+
+                for batch_index, batch, _request, outcome in sorted(
+                    batch_results,
+                    key=lambda item: item[0],
+                ):
                     if job_id:
                         self.container.jobs_repository.set_progress(
                             job_id,
@@ -255,18 +288,7 @@ class StructureService:
                                 "message": "Grouping source-preserving atoms with local Ollama.",
                             },
                         )
-                    try:
-                        result = llm.extract(
-                            project_id,
-                            LlmExtractionRequest(
-                                model=DEFAULT_REFINEMENT_MODEL,
-                                task="atom_segment_refinement",
-                                schema=ATOM_SEGMENT_REFINEMENT_SCHEMA,
-                                prompt=self._atom_refinement_prompt(atoms, batch),
-                            ),
-                            job_id,
-                        )
-                    except ValueError as error:
+                    if isinstance(outcome, ValueError):
                         warnings.append(
                             compiler.structure_issue(
                                 "scene",
@@ -277,7 +299,7 @@ class StructureService:
                                 "review_deterministic_segments",
                                 {
                                     "source": "optional_atom_llm_grouping",
-                                    "error": str(error)[:500],
+                                    "error": str(outcome)[:500],
                                     "atomIds": [atom.id for atom in batch],
                                 },
                                 0.55,
@@ -288,6 +310,7 @@ class StructureService:
                         rejected += 1
                         batch_rejected = True
                         break
+                    result = cast(LlmExtractionResult, outcome)
                     raw_segments = result.result.get("segments")
                     if not isinstance(raw_segments, list):
                         warnings.append(
