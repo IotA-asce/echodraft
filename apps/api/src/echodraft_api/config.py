@@ -29,6 +29,7 @@ class AppSettings:
     tts_worker_override: int | None = None
     audiogen_worker_override: int | None = None
     model_vram_budget_gib: float | None = None
+    structure_v2_enabled: bool = False
 
     @classmethod
     def from_environment(cls) -> "AppSettings":
@@ -106,6 +107,8 @@ class AppSettings:
             model_vram_budget_gib=_optional_positive_float(
                 os.getenv("ECHODRAFT_MODEL_VRAM_BUDGET_GIB")
             ),
+            structure_v2_enabled=_env_truthy("ECHODRAFT_STRUCTURE_V2_ENABLED")
+            or _env_truthy("ECHODRAFT_STRUCTURE_V2"),
         )
 
 
@@ -124,3 +127,7 @@ def _optional_positive_float(value: str | None) -> float | None:
     except ValueError:
         return None
     return parsed if parsed > 0 else None
+
+
+def _env_truthy(name: str) -> bool:
+    return os.getenv(name, "").lower() in {"1", "true", "yes"}

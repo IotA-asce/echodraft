@@ -283,7 +283,7 @@ field rather than breaking readers.
   and the front/back-matter classifier; remove the 150-page cap.
   **Gate:** OCR wall-clock scales with cores; no regression on the corpus.
   Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy ...`. Size: **M**.
-- [ ] **W3.3 — Structure v2 (chunk MAP + seam REDUCE + coverage VERIFY).** Branch
+- [x] **W3.3 — Structure v2 (chunk MAP + seam REDUCE + coverage VERIFY).** Branch
   `feat/structure-v2-mapreduce`. Add the map/reduce/verify pipeline behind a feature flag;
   keep `structure_parsing.StructureCompiler` as the deterministic evidence provider and fallback.
   **Gate:** flip the flag only when the harness shows chapter/scene/segment fidelity ≥ baseline.
