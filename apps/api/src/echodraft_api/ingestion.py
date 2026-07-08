@@ -5,8 +5,10 @@ import shutil
 import subprocess
 import tempfile
 import unicodedata
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -36,7 +38,6 @@ from .system_tools import resolve_system_tool
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 PARSER_VERSION = "ingestion-0.1.0"
 MIN_PDF_TEXT_CHARS = 20
-MAX_PDF_OCR_PAGES = 150
 PDF_RENDER_DPI = 200
 SUPPORTED = {
     ".txt": "text/plain",
@@ -66,6 +67,8 @@ class PdfPageExtraction:
     selected_text: str
     extraction_method: str
     confidence: float
+    quality_score: float
+    matter_type: str
     image_path: Path | None
     embedded_text_path: Path | None
     selected_text_path: Path | None
@@ -76,6 +79,17 @@ class PdfPageExtraction:
 class PdfTextQuality:
     usable: bool
     score: float
+
+
+@dataclass(frozen=True)
+class PdfPageWork:
+    page_number: int
+    embedded: str
+    embedded_path: Path
+    quality: PdfTextQuality
+    image_path: Path | None
+    warnings: list[ParserWarning]
+    ocr_future: Future[tuple[str, Path, Path, float, Path | None]] | None
 
 
 class IngestionError(ValueError):
@@ -370,35 +384,47 @@ class IngestionService:
         except Exception as error:
             raise IngestionError(f"Unreadable PDF text content: {error}") from error
 
-        if len(ocr_pages) > MAX_PDF_OCR_PAGES:
-            raise IngestionError(
-                f"PDF requires OCR for {len(ocr_pages)} pages; the local OCR limit is "
-                f"{MAX_PDF_OCR_PAGES} pages. Split or OCR the document before importing."
-            )
         if ocr_pages:
             self._require_ocr_tools()
             with tempfile.TemporaryDirectory(prefix="echodraft-pdf-ocr-") as temporary:
                 temporary_root = Path(temporary)
-                for page_number in ocr_pages:
-                    pages[page_number - 1] = self._ocr_page(path, temporary_root, page_number)
-                    if pages[page_number - 1].strip():
-                        warnings.append(
-                            ParserWarning(
-                                severity=WarningSeverity.INFO,
-                                sourceRange=f"page {page_number}",
-                                message="Text was extracted with local OCR.",
-                                suggestedAction="Review this page for OCR errors before generation.",
-                            )
+                max_workers = min(
+                    len(ocr_pages),
+                    self.container.orchestrator_pools.subprocess.max_workers,
+                )
+                with ThreadPoolExecutor(
+                    max_workers=max(1, max_workers),
+                    thread_name_prefix="echodraft-pdf-ocr",
+                ) as executor:
+                    futures = {
+                        page_number: executor.submit(
+                            self.container.orchestrator_pools.subprocess.run,
+                            lambda page_number=page_number: self._ocr_page(
+                                path, temporary_root, page_number
+                            ),
                         )
-                    else:
-                        warnings.append(
-                            ParserWarning(
-                                severity=WarningSeverity.WARNING,
-                                sourceRange=f"page {page_number}",
-                                message="No readable text was found after local OCR.",
-                                suggestedAction="Check the scan quality or OCR this page before import.",
+                        for page_number in ocr_pages
+                    }
+                    for page_number in ocr_pages:
+                        pages[page_number - 1] = futures[page_number].result()
+                        if pages[page_number - 1].strip():
+                            warnings.append(
+                                ParserWarning(
+                                    severity=WarningSeverity.INFO,
+                                    sourceRange=f"page {page_number}",
+                                    message="Text was extracted with local OCR.",
+                                    suggestedAction="Review this page for OCR errors before generation.",
+                                )
                             )
-                        )
+                        else:
+                            warnings.append(
+                                ParserWarning(
+                                    severity=WarningSeverity.WARNING,
+                                    sourceRange=f"page {page_number}",
+                                    message="No readable text was found after local OCR.",
+                                    suggestedAction="Check the scan quality or OCR this page before import.",
+                                )
+                            )
         text = "\n\n".join(page for page in pages if page.strip())
         if not text.strip():
             raise IngestionError("Unreadable PDF: no readable text was found after extraction and OCR.")
@@ -426,62 +452,101 @@ class IngestionService:
         self.container.source_artifacts.clear_source(source_id)
 
         page_count = len(reader.pages)
-        pages_requiring_ocr: list[int] = []
+        pages_requiring_ocr = 0
+        page_work: list[PdfPageWork] = []
         page_extractions: list[PdfPageExtraction] = []
         warnings: list[ParserWarning] = []
         ocr_run = None
+        ocr_executor: ThreadPoolExecutor | None = None
 
-        for page_number, page in enumerate(reader.pages, start=1):
-            embedded = _safe_text(page.extract_text()).strip()
-            embedded_path = paths.embedded_text / f"page_{page_number:04d}.txt"
-            embedded_path.write_text(embedded, encoding="utf-8")
-            quality = self._embedded_pdf_quality(embedded)
-            image_path, render_warning = self._try_render_pdf_page(path, paths.pages, page_number)
-            page_warnings: list[ParserWarning] = []
-            if render_warning:
-                page_warnings.append(render_warning)
+        def render_page(page_number: int) -> tuple[Path | None, ParserWarning | None]:
+            return self._try_render_pdf_page(path, paths.pages, page_number)
 
-            selected_text = embedded
-            extraction_method = "embedded_text"
-            confidence = quality.score
-            ocr_result: tuple[str, Path, Path, float] | None = None
+        try:
+            for page_number, page in enumerate(reader.pages, start=1):
+                embedded = _safe_text(page.extract_text()).strip()
+                embedded_path = paths.embedded_text / f"page_{page_number:04d}.txt"
+                embedded_path.write_text(embedded, encoding="utf-8")
+                quality = self._embedded_pdf_quality(embedded)
+                image_path, render_warning = self.container.orchestrator_pools.subprocess.run(
+                    partial(render_page, page_number)
+                )
+                page_warnings: list[ParserWarning] = []
+                if render_warning:
+                    page_warnings.append(render_warning)
+                ocr_future: Future[tuple[str, Path, Path, float, Path | None]] | None = None
 
-            if not quality.usable:
-                pages_requiring_ocr.append(page_number)
-                if len(pages_requiring_ocr) > MAX_PDF_OCR_PAGES:
-                    raise IngestionError(
-                        f"PDF requires OCR for more than {MAX_PDF_OCR_PAGES} pages. "
-                        "Split or OCR the document before importing."
-                    )
-                if ocr_run is None:
-                    ocr_run = self.container.source_artifacts.create_ocr_run(
-                        OcrRunRecord(
-                            id=f"ocr_{uuid4().hex[:16]}",
-                            source_document_id=source_id,
-                            provider="tesseract",
-                            status="running",
-                            settings_json=json.dumps({"language": "eng", "dpi": PDF_RENDER_DPI}),
-                            started_at=datetime.now(UTC),
+                if not quality.usable:
+                    pages_requiring_ocr += 1
+                    if ocr_run is None:
+                        ocr_run = self.container.source_artifacts.create_ocr_run(
+                            OcrRunRecord(
+                                id=f"ocr_{uuid4().hex[:16]}",
+                                source_document_id=source_id,
+                                provider="tesseract",
+                                status="running",
+                                settings_json=json.dumps(
+                                    {
+                                        "language": "eng",
+                                        "dpi": PDF_RENDER_DPI,
+                                        "mode": "parallel",
+                                    }
+                                ),
+                                started_at=datetime.now(UTC),
+                            )
                         )
-                    )
-                try:
-                    if not image_path:
-                        self._require_ocr_tools()
-                        image_path = self._render_pdf_page(path, paths.pages, page_number)
-                    ocr_result = self._ocr_page_image(
-                        image_path, paths.ocr / f"run_{ocr_run.id}", page_number
-                    )
-                except Exception as error:
-                    self.container.source_artifacts.update_ocr_run(
+                    if ocr_executor is None:
+                        ocr_executor = ThreadPoolExecutor(
+                            max_workers=max(
+                                1,
+                                self.container.orchestrator_pools.subprocess.max_workers,
+                            ),
+                            thread_name_prefix="echodraft-pdf-v2-ocr",
+                        )
+                    assert ocr_run is not None
+                    ocr_future = ocr_executor.submit(
+                        self._ocr_pdf_page_v2,
+                        path,
+                        paths,
+                        page_number,
+                        image_path,
                         ocr_run.id,
-                        status="failed",
-                        completed_at=datetime.now(UTC),
-                        error_message=str(error),
                     )
-                    raise
-                ocr_text, _ocr_text_path, _ocr_json_path, ocr_confidence = ocr_result
+
+                page_work.append(
+                    PdfPageWork(
+                        page_number=page_number,
+                        embedded=embedded,
+                        embedded_path=embedded_path,
+                        quality=quality,
+                        image_path=image_path,
+                        warnings=page_warnings,
+                        ocr_future=ocr_future,
+                    )
+                )
+
+            for work in page_work:
+                page_number = work.page_number
+                page_warnings = list(work.warnings)
+                selected_text = work.embedded
+                extraction_method = "embedded_text"
+                confidence = work.quality.score
+                image_path = work.image_path
+                ocr_result: tuple[str, Path, Path, float, Path | None] | None = None
+
+                if work.ocr_future is not None:
+                    ocr_result = work.ocr_future.result()
+                    ocr_text, _ocr_text_path, _ocr_json_path, ocr_confidence, ocr_image_path = (
+                        ocr_result
+                    )
+                    if ocr_image_path:
+                        image_path = ocr_image_path
+                else:
+                    ocr_text = ""
+                    ocr_confidence = 0.0
+
                 normalized_ocr_text = _safe_text(ocr_text).strip()
-                if normalized_ocr_text:
+                if work.ocr_future is not None and normalized_ocr_text:
                     selected_text = normalized_ocr_text
                     extraction_method = "ocr"
                     confidence = ocr_confidence
@@ -493,7 +558,7 @@ class IngestionService:
                             suggestedAction="Review this page for OCR errors before generation.",
                         )
                     )
-                elif not embedded:
+                elif work.ocr_future is not None and not work.embedded:
                     page_warnings.append(
                         ParserWarning(
                             severity=WarningSeverity.WARNING,
@@ -503,52 +568,68 @@ class IngestionService:
                         )
                     )
 
-            selected_text = _safe_text(selected_text)
-            selected_path = paths.selected_text / f"page_{page_number:04d}.txt"
-            selected_path.write_text(selected_text, encoding="utf-8")
-            source_page_id = f"srcpage_{uuid4().hex[:16]}"
-            page_record = self.container.source_artifacts.create_page(
-                SourcePageRecord(
-                    id=source_page_id,
-                    source_document_id=source_id,
-                    page_number=page_number,
-                    image_path=str(image_path) if image_path else None,
-                    embedded_text_path=str(embedded_path),
-                    selected_text_path=str(selected_path),
-                    extraction_method=extraction_method,
-                    confidence=confidence,
-                    warnings_json=self._warnings_json(page_warnings),
-                )
-            )
-            if ocr_result and ocr_run:
-                _ocr_text, ocr_text_path, ocr_json_path, ocr_confidence = ocr_result
-                self.container.source_artifacts.create_ocr_page_result(
-                    OcrPageResultRecord(
-                        id=f"ocrpage_{uuid4().hex[:16]}",
-                        ocr_run_id=ocr_run.id,
-                        source_page_id=page_record.id,
+                selected_text = _safe_text(selected_text)
+                selected_path = paths.selected_text / f"page_{page_number:04d}.txt"
+                selected_path.write_text(selected_text, encoding="utf-8")
+                source_page_id = f"srcpage_{uuid4().hex[:16]}"
+                page_record = self.container.source_artifacts.create_page(
+                    SourcePageRecord(
+                        id=source_page_id,
+                        source_document_id=source_id,
                         page_number=page_number,
-                        text_path=str(ocr_text_path),
-                        json_path=str(ocr_json_path),
-                        confidence=ocr_confidence,
+                        image_path=str(image_path) if image_path else None,
+                        embedded_text_path=str(work.embedded_path),
+                        selected_text_path=str(selected_path),
+                        extraction_method=extraction_method,
+                        confidence=confidence,
                         warnings_json=self._warnings_json(page_warnings),
                     )
                 )
-            page_extractions.append(
-                PdfPageExtraction(
-                    page_number=page_number,
-                    source_page_id=source_page_id,
-                    embedded_text=embedded,
-                    selected_text=selected_text,
-                    extraction_method=extraction_method,
-                    confidence=confidence,
-                    image_path=image_path,
-                    embedded_text_path=embedded_path,
-                    selected_text_path=selected_path,
-                    warnings=page_warnings,
+                if ocr_result and ocr_run:
+                    _ocr_text, ocr_text_path, ocr_json_path, ocr_confidence, _ocr_image_path = (
+                        ocr_result
+                    )
+                    self.container.source_artifacts.create_ocr_page_result(
+                        OcrPageResultRecord(
+                            id=f"ocrpage_{uuid4().hex[:16]}",
+                            ocr_run_id=ocr_run.id,
+                            source_page_id=page_record.id,
+                            page_number=page_number,
+                            text_path=str(ocr_text_path),
+                            json_path=str(ocr_json_path),
+                            confidence=ocr_confidence,
+                            warnings_json=self._warnings_json(page_warnings),
+                        )
+                    )
+                page_extractions.append(
+                    PdfPageExtraction(
+                        page_number=page_number,
+                        source_page_id=source_page_id,
+                        embedded_text=work.embedded,
+                        selected_text=selected_text,
+                        extraction_method=extraction_method,
+                        confidence=confidence,
+                        quality_score=work.quality.score,
+                        matter_type=_classify_pdf_page_matter(selected_text, page_number, page_count),
+                        image_path=image_path,
+                        embedded_text_path=work.embedded_path,
+                        selected_text_path=selected_path,
+                        warnings=page_warnings,
+                    )
                 )
-            )
-            warnings.extend(page_warnings)
+                warnings.extend(page_warnings)
+        except Exception as error:
+            if ocr_run:
+                self.container.source_artifacts.update_ocr_run(
+                    ocr_run.id,
+                    status="failed",
+                    completed_at=datetime.now(UTC),
+                    error_message=str(error),
+                )
+            raise
+        finally:
+            if ocr_executor:
+                ocr_executor.shutdown(wait=True, cancel_futures=True)
 
         if ocr_run:
             self.container.source_artifacts.update_ocr_run(
@@ -625,6 +706,8 @@ class IngestionService:
                     else None,
                     "extractionMethod": page.extraction_method,
                     "confidence": page.confidence,
+                    "qualityScore": page.quality_score,
+                    "matterType": page.matter_type,
                     "warnings": [warning.model_dump(by_alias=True) for warning in page.warnings],
                 }
                 for page in pages
@@ -722,6 +805,26 @@ class IngestionService:
             detail = rendered.stderr.strip() or "Poppler did not create a page image."
             raise IngestionError(f"PDF page render failed on page {page_number}: {detail}")
         return image_path
+
+    def _ocr_pdf_page_v2(
+        self,
+        pdf_path: Path,
+        paths: PdfArtifactPaths,
+        page_number: int,
+        image_path: Path | None,
+        ocr_run_id: str,
+    ) -> tuple[str, Path, Path, float, Path | None]:
+        def operation() -> tuple[str, Path, Path, float, Path | None]:
+            resolved_image = image_path
+            if not resolved_image:
+                self._require_ocr_tools()
+                resolved_image = self._render_pdf_page(pdf_path, paths.pages, page_number)
+            text, text_path, json_path, confidence = self._ocr_page_image(
+                resolved_image, paths.ocr / f"run_{ocr_run_id}", page_number
+            )
+            return text, text_path, json_path, confidence, resolved_image
+
+        return self.container.orchestrator_pools.subprocess.run(operation)
 
     @staticmethod
     def _ocr_page_image(
@@ -909,6 +1012,36 @@ def _epub_section_text(soup: BeautifulSoup) -> str:
     if blocks:
         return "\n\n".join(blocks)
     return soup.get_text("\n", strip=True)
+
+
+def _classify_pdf_page_matter(text: str, page_number: int, page_count: int) -> str:
+    normalized = re.sub(r"\s+", " ", text).strip().casefold()
+    if not normalized:
+        return "unknown"
+    first_page_terms = {
+        "title page",
+        "copyright",
+        "all rights reserved",
+        "isbn",
+        "dedication",
+        "contents",
+        "table of contents",
+        "preface",
+        "foreword",
+    }
+    back_page_terms = {
+        "acknowledgments",
+        "acknowledgements",
+        "about the author",
+        "also by",
+        "bibliography",
+        "index",
+    }
+    if page_number <= min(8, page_count) and any(term in normalized for term in first_page_terms):
+        return "front_matter"
+    if page_number > max(0, page_count - 12) and any(term in normalized for term in back_page_terms):
+        return "back_matter"
+    return "body"
 
 
 def _epub_blocks(node: Tag) -> list[str]:

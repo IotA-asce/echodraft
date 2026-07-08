@@ -257,8 +257,15 @@ def test_pdf_ocr_candidates_and_failures(app, monkeypatch, tmp_path: Path) -> No
     monkeypatch.setattr(
         ingestion, "PdfReader", lambda _: FakeReader([FakePage("") for _ in range(151)])
     )
-    with pytest.raises(IngestionError, match="150 pages"):
-        service._extract_pdf(tmp_path / "too-many.pdf")
+    monkeypatch.setattr(IngestionService, "_require_ocr_tools", staticmethod(lambda: None))
+    monkeypatch.setattr(
+        IngestionService,
+        "_ocr_page",
+        staticmethod(lambda _pdf, _root, page: f"OCR page {page} text."),
+    )
+    text, warnings = service._extract_pdf(tmp_path / "many-pages.pdf")
+    assert "OCR page 151 text." in text
+    assert len(warnings) == 151
 
 
 def test_scanned_pdf_path_uses_mocked_ocr_for_every_page(app, monkeypatch, tmp_path: Path) -> None:
@@ -345,9 +352,23 @@ def test_pdf_v2_scanned_page_records_ocr_artifacts(
     assert pages[0].extraction_method == "ocr"
     runs = app.state.container.source_artifacts.ocr_runs(source_id)
     assert len(runs) == 1 and runs[0].status == "succeeded"
+    assert runs[0].settings["mode"] == "parallel"
     results = app.state.container.source_artifacts.ocr_results(runs[0].id)
     assert len(results) == 1
     assert Path(results[0].text_path).is_file()
+    project_record = app.state.container.projects.get(project)
+    assert project_record
+    manifest_path = (
+        Path(project_record.artifact_path)
+        / "sources"
+        / source_id
+        / "pdf"
+        / "manifests"
+        / "ingestion_manifest.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["pages"][0]["qualityScore"] == 0.35
+    assert manifest["pages"][0]["matterType"] == "body"
 
 
 def test_pdf_v2_none_text_fails_with_readable_ingestion_error(
