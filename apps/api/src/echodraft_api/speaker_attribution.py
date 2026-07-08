@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import cast
 
 from echodraft_db.models import ChapterRecord, CharacterRecord, SceneRecord, SegmentRecord
 from echodraft_domain import (
     LlmExtractionRequest,
+    LlmExtractionResult,
     SpeakerAttribution,
     SpeakerAttributionUpdateResult,
 )
@@ -267,7 +269,45 @@ class SpeakerAttributionService:
             if item.segment_id in segment_map
         ]
         windows = list(_scene_context_windows(segments, unresolved_segments))
-        for batch_index, window in enumerate(windows, 1):
+        llm = LocalLlmService(self.container)
+        max_workers = min(len(windows), self.container.orchestrator_pools.llm.max_workers)
+
+        def attribute_window(
+            batch_index: int,
+            window: SpeakerAttributionWindow,
+        ) -> tuple[int, SpeakerAttributionWindow, LlmExtractionRequest, LlmExtractionResult | ValueError]:
+            request = LlmExtractionRequest(
+                model=model,
+                task="speaker_attribution",
+                schema=SPEAKER_ATTRIBUTION_SCHEMA,
+                prompt=self._llm_prompt(
+                    window.segments,
+                    character_index,
+                    exemplars,
+                    target_segment_ids=window.target_segment_ids,
+                    active_speakers=window.active_speakers,
+                ),
+            )
+            try:
+                return batch_index, window, request, llm.extract(project_id, request, job_id)
+            except ValueError as error:
+                return batch_index, window, request, error
+
+        results: list[
+            tuple[int, SpeakerAttributionWindow, LlmExtractionRequest, LlmExtractionResult | ValueError]
+        ] = []
+        with ThreadPoolExecutor(
+            max_workers=max(1, max_workers),
+            thread_name_prefix="echodraft-attribution-llm",
+        ) as executor:
+            futures = [
+                executor.submit(attribute_window, batch_index, window)
+                for batch_index, window in enumerate(windows, 1)
+            ]
+            for future in futures:
+                results.append(future.result())
+
+        for batch_index, window, _request, outcome in sorted(results, key=lambda item: item[0]):
             scene_window_segment_ids = [segment.id for segment in window.segments]
             target_segment_ids = [
                 segment.id for segment in window.segments if segment.id in window.target_segment_ids
@@ -281,34 +321,18 @@ class SpeakerAttributionService:
                         "total": len(windows),
                     },
                 )
-            try:
-                result = LocalLlmService(self.container).extract(
-                    project_id,
-                    LlmExtractionRequest(
-                        model=model,
-                        task="speaker_attribution",
-                        schema=SPEAKER_ATTRIBUTION_SCHEMA,
-                        prompt=self._llm_prompt(
-                            window.segments,
-                            character_index,
-                            exemplars,
-                            target_segment_ids=window.target_segment_ids,
-                            active_speakers=window.active_speakers,
-                        ),
-                    ),
-                    job_id,
-                )
-            except ValueError as error:
+            if isinstance(outcome, ValueError):
                 self.container.review.create_issue(
                     project_id=project_id,
                     category="cast_discovery",
                     severity="warning",
                     title="LLM speaker attribution skipped a segment window",
                     description="Local Ollama failed while assigning speakers; deterministic review rows remain.",
-                    metadata={"error": str(error)[:500], "segmentIds": target_segment_ids},
+                    metadata={"error": str(outcome)[:500], "segmentIds": target_segment_ids},
                     dedupe_key=f"speaker-llm:{project_id}:{target_segment_ids[0]}",
                 )
                 continue
+            result = outcome
             attributions = result.result.get("attributions")
             if not isinstance(attributions, list):
                 continue

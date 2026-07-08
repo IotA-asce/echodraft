@@ -272,7 +272,7 @@ baseline before its flag flips on.** Owning doc:
 **Tasks.** Each task keeps the old path available behind a flag and adds a manifest version
 field rather than breaking readers.
 
-- [ ] **W3.1 — Parallelize existing LLM loops (no accuracy change).** Branch `feat/extraction-parallelize`.
+- [x] **W3.1 — Parallelize existing LLM loops (no accuracy change).** Branch `feat/extraction-parallelize`.
   Route v1's three sequential LLM loops (`structure.py:_refine_hierarchy`, `cast_discovery.py`,
   `speaker_attribution.py`) through the W2 pool + cache — same prompts, now concurrent + cached.
   **Gate:** W1 report shows accuracy unchanged (±noise) and wall-clock collapsed toward budget.
