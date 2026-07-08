@@ -278,7 +278,7 @@ field rather than breaking readers.
   **Gate:** W1 report shows accuracy unchanged (±noise) and wall-clock collapsed toward budget.
   Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy ...`, `uv run scripts/run_eval.py`
   vs baseline. Size: **M**.
-- [ ] **W3.2 — Ingestion v2 (parallel OCR, no page cap).** Branch `feat/ingestion-v2-ocr`.
+- [x] **W3.2 — Ingestion v2 (parallel OCR, no page cap).** Branch `feat/ingestion-v2-ocr`.
   Move the per-page OCR subprocess loop onto the `subprocess` pool; add per-page quality scoring
   and the front/back-matter classifier; remove the 150-page cap.
   **Gate:** OCR wall-clock scales with cores; no regression on the corpus.
