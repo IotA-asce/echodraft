@@ -15,7 +15,14 @@ from echodraft_domain import (
 )
 
 from .container import AppContainer
-from .llm_providers import GenerateResult, parse_llm_json_object
+from .llm_providers import (
+    EffectiveLlmSettings,
+    GenerateResult,
+    OpenAiCompatProvider,
+    ensure_cloud_ready,
+    parse_llm_json_object,
+    resolve_effective_llm_settings,
+)
 from .ollama_models import find_ollama_model
 from .orchestrator import CheckpointStore, Stage, Unit
 
@@ -189,10 +196,19 @@ OllamaProvider = OllamaLlmProvider
 class LocalLlmService:
     def __init__(self, container: AppContainer) -> None:
         self.container = container
-        self.provider = OllamaProvider(container.settings.ollama_base_url)
+        self.ollama = OllamaProvider(container.settings.ollama_base_url)
+        self.effective: EffectiveLlmSettings = resolve_effective_llm_settings(container.llm_settings)
+        if self.effective.provider != "ollama":
+            self.provider_name = "openai_compat"
+            self.provider: OllamaLlmProvider | OpenAiCompatProvider = OpenAiCompatProvider(
+                self.effective.base_url or "", self.effective.api_key or ""
+            )
+        else:
+            self.provider_name = "ollama"
+            self.provider = self.ollama
 
     def installed_models(self) -> list[dict[str, object]]:
-        return self.provider.tags()
+        return self.ollama.tags()
 
     def extract(
         self,
@@ -205,6 +221,10 @@ class LocalLlmService:
         project = self.container.projects.get(project_id)
         if not project:
             raise ValueError("Project not found.")
+        effective_model = request.model
+        if self.provider_name != "ollama":
+            ensure_cloud_ready(self.effective)
+            effective_model = self.effective.model or request.model
         store: CheckpointStore | None = None
         unit: Unit | None = None
         if checkpoint is not None:
@@ -217,7 +237,7 @@ class LocalLlmService:
         )
         if not source or not source.canonical_path:
             raise ValueError("A successfully imported canonical source is required.")
-        self._require_model(request.model)
+        self._require_model(effective_model)
         schema = request.output_schema or DEFAULT_EXTRACTION_SCHEMA
         text = Path(source.canonical_path).read_text(encoding="utf-8")[:12000]
         prompt = request.prompt or self._prompt(request.task, text)
@@ -232,15 +252,21 @@ class LocalLlmService:
                 run_id,
                 project_id=project_id,
                 source_document_id=source.id,
-                provider="ollama",
-                model=request.model,
+                provider=self.provider_name,
+                model=effective_model,
                 task=request.task,
                 prompt_path=str(prompt_path),
                 schema=schema,
             )
         )
         cache_key = _inference_cache_key(
-            request.model, request.task, prompt, schema, request.temperature, request.seed
+            effective_model,
+            request.task,
+            prompt,
+            schema,
+            request.temperature,
+            request.seed,
+            provider=self.provider_name,
         )
 
         def _mark_checkpoint(status: str, *, error: str | None = None) -> None:
@@ -314,7 +340,7 @@ class LocalLlmService:
                     )
                 result = self.container.orchestrator_pools.llm.run(
                     lambda: self.provider.infer(
-                        request.model,
+                        effective_model,
                         candidate_prompt,
                         schema,
                         temperature=request.temperature,
@@ -329,7 +355,7 @@ class LocalLlmService:
                         lambda: self.container.orchestrator_repository.put_cache(
                             cache_key=cache_key,
                             kind="llm.generate",
-                            model_id=request.model,
+                            model_id=effective_model,
                             schema_id=request.task,
                             value_json=result.response,
                             size_bytes=len(json.dumps(result.raw)),
@@ -375,11 +401,21 @@ class LocalLlmService:
             raise ValueError(f"Local LLM extraction failed closed: {run.error_message}") from error
 
     def embed(self, request: EmbeddingRequest) -> EmbeddingResult:
-        self._require_model(request.model)
-        return self.provider.embed(request)
+        self._require_ollama_model(request.model)
+        return self.ollama.embed(request)
 
     def _require_model(self, model: str) -> None:
-        models = self.provider.tags()
+        if self.provider_name == "ollama":
+            self._require_ollama_model(model)
+            return
+        provider = cast(OpenAiCompatProvider, self.provider)
+        if model not in provider.available_models():
+            raise ValueError(
+                f"Model {model} is not served by the configured cloud endpoint."
+            )
+
+    def _require_ollama_model(self, model: str) -> None:
+        models = self.ollama.tags()
         if not find_ollama_model(models, model):
             raise ValueError(f"Ollama model {model} is not installed. Pull it in Model Center first.")
 
@@ -439,6 +475,8 @@ def _inference_cache_key(
     schema: dict[str, object],
     temperature: float | None = None,
     seed: int | None = None,
+    *,
+    provider: str | None = None,
 ) -> str:
     payload = {
         "model": model,
@@ -452,5 +490,10 @@ def _inference_cache_key(
         "temperature": temperature,
         "seed": seed,
     }
+    # Cloud draws get their own cache namespace. Local Ollama calls keep the
+    # historical payload shape so existing cache entries and checkpoint
+    # output_refs keep their identity.
+    if provider and provider != "ollama":
+        payload["provider"] = provider
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
     return f"llm.generate:{digest}"
