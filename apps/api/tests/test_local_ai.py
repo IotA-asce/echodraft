@@ -27,6 +27,12 @@ def test_local_ai_catalog_exposes_required_capabilities(client) -> None:
     whisper = next(item for item in catalog if item["modelKey"] == "whisper_cpp")
     assert whisper["capability"] == "asr"
     assert whisper["required"] is False
+    tier_zero = next(
+        item for item in catalog if item["modelKey"] == "procedural_sound_bank"
+    )
+    assert tier_zero["status"] == "installed"
+    assert tier_zero["health"] == "ready"
+    assert tier_zero["required"] is True
     required = [item for item in catalog if item["required"]]
     assert required
     assert all("health" in item and "installType" in item for item in catalog)
