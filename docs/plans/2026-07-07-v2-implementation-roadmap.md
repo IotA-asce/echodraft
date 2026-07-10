@@ -339,7 +339,7 @@ W5.4 (voice identity records) exists — or W4.1 lands its own minimal catalog t
   Onboard the DSP feature-extraction library (librosa-equivalent) through Model Center — never
   assume preinstalled. Verify: `uv run pytest`, migration check, `uv run ruff check .`,
   `uv run mypy ...`. Size: **M**.
-- [ ] **W4.2 — Narrator selection (runs first, always).** Branch `feat/casting-narrator-selection`.
+- [x] **W4.2 — Narrator selection (runs first, always).** Branch `feat/casting-narrator-selection`.
   Implement Step 0 narrator selection from POV detection + the pronoun-ratio sanity check.
   Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy ...`. Size: **S–M**.
 - [ ] **W4.3 — Scoring + constraint-solving assignment.** Branch `feat/casting-solver`. Add

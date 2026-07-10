@@ -241,7 +241,10 @@ It is separate from the completed G1-G20 alpha gap tracker above.
     - Evidence: `feat/voice-catalog`; migration `0033` adds versioned global catalog entries and
       voice-profile links, while the idempotent audition job stores WAVs on disk and persists local
       acoustic measurements, provenance, license metadata, and measured facets.
-  - [ ] W4.2 - Narrator selection.
+  - [x] W4.2 - Narrator selection.
+    - Evidence: `feat/casting-narrator-selection`; ordered narration drives a first-person-pronoun
+      ratio sanity check, commercially usable measured voices are ranked deterministically, and
+      reruns reuse the persisted catalog-linked narrator profile.
   - [ ] W4.3 - Scoring and constraint-solving assignment.
   - [ ] W4.4 - Auto-chain, override model, and backward compatibility.
 
