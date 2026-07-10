@@ -95,6 +95,16 @@ def test_alembic_head_creates_automatic_casting_schema(
             "casting_style_preset",
             "auto_cast_enabled",
         } <= settings_columns
+        assignment_columns = {
+            column["name"]
+            for column in inspector.get_columns("character_voice_assignments")
+        }
+        assert {"user_locked", "locked_reason", "casting_decision_id"} <= assignment_columns
+        assignment_indexes = {
+            index["name"]
+            for index in inspector.get_indexes("character_voice_assignments")
+        }
+        assert "ix_character_voice_assignments_casting_decision_id" in assignment_indexes
     finally:
         engine.dispose()
 

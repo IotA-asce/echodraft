@@ -551,6 +551,29 @@ class StructureService:
             SpeakerAttributionService(self.container).generate(
                 project_id, use_local_llm=ready, model=DEFAULT_REFINEMENT_MODEL, job_id=job_id
             )
+            if self.container.settings.automatic_casting_v2_enabled:
+                from .automatic_casting import AutomaticCastingService
+
+                try:
+                    AutomaticCastingService(self.container).auto_cast(
+                        project_id,
+                        style_preset=self.container.production.get(
+                            project_id
+                        ).casting_style_preset,
+                        job_id=job_id,
+                    )
+                except ValueError as casting_error:
+                    self.container.review.create_issue(
+                        project_id=project_id,
+                        category="casting",
+                        severity="warning",
+                        title="Automatic casting needs review",
+                        description=(
+                            "Automatic casting could not complete after attribution stabilized."
+                        ),
+                        metadata={"error": str(casting_error)[:500]},
+                        dedupe_key=f"automatic-casting:{project_id}:{source_id}",
+                    )
             if self.container.settings.direction_v2_enabled:
                 from .direction import DirectionService
 

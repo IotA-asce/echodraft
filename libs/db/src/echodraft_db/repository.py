@@ -27,6 +27,7 @@ from .database import Database
 from .models import (
     CastGraphDecisionRecord,
     CastMergeDecisionRecord,
+    CastingDecisionRecord,
     ChapterRecord,
     CharacterMentionRecord,
     CharacterRecord,
@@ -1891,13 +1892,66 @@ class CastingRepository:
             s.commit()
             return True
 
-    def assign(self, character_id: str, voice_id: str) -> None:
+    def assign(
+        self,
+        character_id: str,
+        voice_id: str,
+        *,
+        user_locked: bool = True,
+        locked_reason: str | None = None,
+        casting_decision_id: str | None = None,
+    ) -> None:
         with self.database.session() as s:
             character = s.get(CharacterRecord, character_id)
             if not character:
                 raise KeyError(character_id)
-            self._set_assignment(s, character.project_id, character_id, voice_id)
+            self._set_assignment(
+                s,
+                character.project_id,
+                character_id,
+                voice_id,
+                user_locked=user_locked,
+                locked_reason=locked_reason,
+                casting_decision_id=casting_decision_id,
+            )
             s.commit()
+
+    def prepare_automatic_casting_assignments(
+        self, project_id: str
+    ) -> list[CharacterVoiceAssignmentRecord]:
+        with self.database.session() as session:
+            rows = list(
+                session.scalars(
+                    select(CharacterVoiceAssignmentRecord)
+                    .join(
+                        CharacterRecord,
+                        CharacterVoiceAssignmentRecord.character_id == CharacterRecord.id,
+                    )
+                    .where(CharacterRecord.project_id == project_id)
+                )
+            )
+            for row in rows:
+                if row.casting_decision_id:
+                    continue
+                decision = session.scalar(
+                    select(CastingDecisionRecord).where(
+                        CastingDecisionRecord.character_id == row.character_id,
+                        CastingDecisionRecord.role == "character",
+                        CastingDecisionRecord.superseded_by_id.is_(None),
+                    )
+                )
+                if decision:
+                    row.casting_decision_id = decision.id
+                    row.user_locked = decision.user_locked
+                    row.locked_reason = decision.locked_reason
+                else:
+                    row.user_locked = True
+                    row.locked_reason = (
+                        row.locked_reason
+                        or "Legacy hand assignment preserved during automatic casting."
+                    )
+            session.commit()
+            return rows
 
     def _set_assignment(
         self,
@@ -1905,6 +1959,10 @@ class CastingRepository:
         project_id: str,
         character_id: str,
         voice_profile_id: str | None,
+        *,
+        user_locked: bool | None = None,
+        locked_reason: str | None = None,
+        casting_decision_id: str | None = None,
     ) -> None:
         existing = session.scalar(
             select(CharacterVoiceAssignmentRecord).where(
@@ -1920,12 +1978,26 @@ class CastingRepository:
             raise ValueError("Voice profile must belong to the same project.")
         if existing:
             existing.voice_profile_id = voice_profile_id
+            if user_locked is None:
+                existing.user_locked = True
+                existing.locked_reason = "Manual voice assignment preserved."
+            else:
+                existing.user_locked = user_locked
+                existing.locked_reason = locked_reason if user_locked else None
+            existing.casting_decision_id = casting_decision_id
         else:
             session.add(
                 CharacterVoiceAssignmentRecord(
                     id=f"assign_{uuid4().hex[:16]}",
                     character_id=character_id,
                     voice_profile_id=voice_profile_id,
+                    user_locked=user_locked if user_locked is not None else True,
+                    locked_reason=(
+                        locked_reason
+                        if user_locked is not None
+                        else "Manual voice assignment preserved."
+                    ),
+                    casting_decision_id=casting_decision_id,
                 )
             )
 
