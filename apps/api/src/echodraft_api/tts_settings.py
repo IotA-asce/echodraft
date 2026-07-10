@@ -79,6 +79,7 @@ class TtsSettingsStore:
                 else None,
                 config.reference_voice_consent,
                 config.language,
+                worker_manager.device if worker_manager else "cpu",
             )
         if config.setup_mode == "managed_onnx":
             return ManagedKokoroOnnxAdapter(

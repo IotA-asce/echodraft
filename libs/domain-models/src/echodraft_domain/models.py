@@ -665,6 +665,8 @@ class TtsWorkerStatus(ApiModel):
     pid: int | None = None
     request_count: int = Field(default=0, alias="requestCount")
     last_error: str | None = Field(default=None, alias="lastError")
+    device: str = "cpu"
+    worker_count: int = Field(default=0, alias="workerCount")
 
 
 class TtsTestRequest(ApiModel):

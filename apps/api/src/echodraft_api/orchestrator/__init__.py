@@ -1,5 +1,11 @@
 from .core import CheckpointStore, Stage, Unit, WorkQueue
-from .hardware import HardwareProbe, HardwareSnapshot, recommended_llm_workers
+from .hardware import (
+    HardwareProbe,
+    HardwareSnapshot,
+    recommended_llm_workers,
+    recommended_tts_workers,
+    tts_device,
+)
 from .pools import (
     AdaptiveWorkerPool,
     ModelLease,
@@ -27,4 +33,6 @@ __all__ = [
     "VramBudgetModelLoader",
     "WorkQueue",
     "recommended_llm_workers",
+    "recommended_tts_workers",
+    "tts_device",
 ]

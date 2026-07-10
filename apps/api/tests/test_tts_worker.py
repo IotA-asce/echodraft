@@ -1,7 +1,9 @@
 import sys
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from echodraft_api.orchestrator import AdaptiveWorkerPool
 from echodraft_api.tts_providers import ManagedKokoroOnnxAdapter
 from echodraft_api.tts_worker import TtsWorkerManager
 from echodraft_domain import DirectionProfile
@@ -10,6 +12,7 @@ from echodraft_domain import DirectionProfile
 FAKE_WORKER_SOURCE = """\
 import argparse
 import json
+import os
 import sys
 import wave
 from pathlib import Path
@@ -23,6 +26,7 @@ def write_wav(path):
         target.setsampwidth(2)
         target.setframerate(16000)
         target.writeframes(b"\\x00\\x00" * 1000)
+    Path(str(output) + ".pid").write_text(str(os.getpid()), encoding="utf-8")
 
 
 parser = argparse.ArgumentParser()
@@ -88,12 +92,51 @@ def test_resident_kokoro_worker_reuses_one_process_and_writes_wav(tmp_path: Path
 
     assert second_status.pid == first_status.pid
     assert second_status.request_count == 2
+    assert second_status.worker_count == 1
+    assert second_status.device == "cpu"
     with wave.open(str(second), "rb") as audio:
         assert audio.getframerate() == 16000
         assert audio.getnframes() > 0
 
     manager.stop_all()
     assert manager.status(provider="kokoro", setup_mode="managed_onnx").state == "idle"
+
+
+def test_engine_host_runs_two_resident_workers_on_tts_pool(tmp_path: Path) -> None:
+    python, wrapper, model, voices_data, registry = _ready_managed_paths(tmp_path)
+    pool = AdaptiveWorkerPool("tts-host-test", 2)
+    manager = TtsWorkerManager(execution_pool=pool, device="cpu")
+    outputs = [tmp_path / "parallel-a.wav", tmp_path / "parallel-b.wav"]
+
+    def synthesize(index: int) -> int:
+        return manager.synthesize_managed_kokoro(
+            python_path=python,
+            wrapper_path=wrapper,
+            model_path=model,
+            voices_data_path=voices_data,
+            voice_registry_path=registry,
+            text=f"Parallel line {index}.",
+            voice_id="af_heart",
+            output=outputs[index],
+            speed=1.0,
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            sample_rates = list(executor.map(synthesize, range(2)))
+        pids = {
+            Path(str(output) + ".pid").read_text(encoding="utf-8")
+            for output in outputs
+        }
+        status = manager.status(provider="kokoro", setup_mode="managed_onnx")
+    finally:
+        manager.stop_all()
+        pool.shutdown()
+
+    assert sample_rates == [16000, 16000]
+    assert len(pids) == 2
+    assert status.worker_count == 2
+    assert status.request_count == 2
 
 
 class FakeWorkerManager:
