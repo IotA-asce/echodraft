@@ -90,6 +90,7 @@ from echodraft_domain import (
     StructureParserWarning,
     TextCleanlinessIssue,
     TextCleanlinessIssueUpdate,
+    TierZeroSoundRequest,
     VoicePreview,
     VoicePreviewRequest,
     VoiceProfile,
@@ -142,6 +143,7 @@ from .kokoro_setup import ManagedKokoroSetupService
 from .local_ai import LocalAiService
 from .local_llm import LocalLlmService
 from .speaker_attribution import SpeakerAttributionService
+from .tier0_sound import LICENSE_NOTE as TIER_ZERO_LICENSE_NOTE, TierZeroSoundBank
 
 logger = configure_logging()
 
@@ -1695,6 +1697,47 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             payload.provenance,
             asset_type=asset_type,
             duration_ms=duration_ms,
+        )
+        return ambience_asset_model(record)
+
+    @app.post(
+        "/api/v1/projects/{project_id}/sound-assets/tier0",
+        response_model=AmbienceAsset,
+        status_code=201,
+    )
+    def create_tier_zero_sound_asset(
+        project_id: str,
+        payload: TierZeroSoundRequest,
+        request: Request,
+    ) -> AmbienceAsset:
+        container: AppContainer = request.app.state.container
+        if not container.projects.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+        resolved = TierZeroSoundBank(
+            container.settings.artifact_root.parent / "cache" / "generated-audio"
+        ).resolve(
+            payload.tags,
+            asset_type=payload.asset_type,
+            duration_ms=payload.duration_ms,
+        )
+        existing = next(
+            (
+                item
+                for item in container.ambience.assets(project_id)
+                if item.asset_path == str(resolved.path)
+            ),
+            None,
+        )
+        if existing:
+            return ambience_asset_model(existing)
+        record = container.ambience.create_asset(
+            project_id,
+            resolved.entry.name,
+            str(resolved.path),
+            TIER_ZERO_LICENSE_NOTE,
+            "bank",
+            asset_type=resolved.entry.asset_type,
+            duration_ms=resolved.duration_ms,
         )
         return ambience_asset_model(record)
 

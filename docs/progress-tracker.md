@@ -274,6 +274,15 @@ It is separate from the completed G1-G20 alpha gap tracker above.
   - [ ] W5.5 - Expressive mappings and ASR-gated retry.
   - [ ] W5.6 - New-voice synthesis and consent-gated cloning.
 
+- [ ] W6 - Generative sound design.
+  - [x] W6.1 - Tier-0 procedural DSP and bundled CC0 recipe bank.
+    - Evidence: `feat/sound-tier0`; deterministic tagged ambience/SFX recipes materialize quiet,
+      loop-prepared PCM into the shared content-addressed cache, persist CC0 provenance through the
+      existing project asset path, and appear as an always-installed Model Center capability.
+  - [ ] W6.2 - Optional atmosphere-profile extraction.
+  - [ ] W6.3 - Deterministic planner and automatic cue placement.
+  - [ ] W6.4 - Consent-gated Tier-1 generation.
+
 ### v2 Remaining Phases
 
 - [ ] Phase B - Expressive TTS and generative sound.

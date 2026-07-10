@@ -881,6 +881,12 @@ class AmbienceAssetCreate(ApiModel):
     provenance: str
 
 
+class TierZeroSoundRequest(ApiModel):
+    tags: list[str] = Field(default_factory=list)
+    asset_type: Literal["ambience", "sfx"] = Field(default="ambience", alias="assetType")
+    duration_ms: int = Field(default=10_000, ge=250, le=60_000, alias="durationMs")
+
+
 class AmbienceProfile(ApiModel):
     id: str
     project_id: str = Field(alias="projectId")

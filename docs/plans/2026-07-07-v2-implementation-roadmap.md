@@ -426,7 +426,7 @@ shared cache exist. Ships Tier 0 first (no model dependency).
 
 **Tasks.**
 
-- [ ] **W6.1 — Tier 0: procedural DSP + bundled CC0 bank.** Branch `feat/sound-tier0`. Ship
+- [x] **W6.1 — Tier 0: procedural DSP + bundled CC0 bank.** Branch `feat/sound-tier0`. Ship
   procedural DSP ambience + a bundled CC0 sound bank — no model dependency, immediately satisfies
   "not user-uploaded" for common ambience. Verify: `uv run pytest`, `uv run ruff check .`,
   `uv run mypy ...`. Size: **M**.
