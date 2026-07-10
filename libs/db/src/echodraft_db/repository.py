@@ -1251,6 +1251,26 @@ class SpeakerAttributionRepository:
                 if row.character_id and row.character_id in assignments
             }
 
+    def resolved_character_ids(self, segment_ids: list[str]) -> dict[str, str]:
+        """Segment -> character mapping for approved attributions only.
+
+        Mirrors ``resolved_voice_profiles`` but keyed to the character, not the
+        voice profile -- needed because pooled minor characters can share the
+        same project voice profile yet still need per-character differentiation
+        (see automatic casting's pooled pace offset).
+        """
+        if not segment_ids:
+            return {}
+        with self.database.session() as session:
+            rows = session.scalars(
+                select(SpeakerAttributionRecord).where(
+                    SpeakerAttributionRecord.segment_id.in_(segment_ids),
+                    SpeakerAttributionRecord.status == "approved",
+                    SpeakerAttributionRecord.character_id.is_not(None),
+                )
+            )
+            return {row.segment_id: row.character_id for row in rows if row.character_id}
+
     def upsert(
         self,
         project_id: str,

@@ -11,6 +11,7 @@ from echodraft_domain import (
     SegmentRenderRequest,
 )
 from echodraft_db.models import (
+    CastingDecisionRecord,
     ChapterRecord,
     SceneRecord,
     SegmentDirectionRecord,
@@ -156,8 +157,9 @@ class ProductionService:
         settings = self.settings(project_id)
         override = self.container.production.override(segment_id)
         segment_directions = self.container.segment_directions.records([segment_id])
+        pool_offset = self._pool_offset_for_segment(segment_id)
         return self._direction_for(
-            segment_id, override, segment_directions, settings.default_direction
+            segment_id, override, segment_directions, settings.default_direction, pool_offset
         )
 
     def resolve_voice_and_direction(
@@ -190,6 +192,7 @@ class ProductionService:
             [segment.id for segment in segments]
         )
         segment_directions = self.container.segment_directions.records([segment.id for segment in segments])
+        pool_offsets = self._pool_offsets_for_segments([segment.id for segment in segments])
         pronunciation_entries = self.container.casting.pronunciations(project_id)
         provider_identity = self.container.tts_adapter.render_identity()
         current = 0
@@ -200,7 +203,11 @@ class ProductionService:
                     segment.id, override, speaker_voices, settings.narrator_voice_profile_id
                 )
                 requested_direction = self._direction_for(
-                    segment.id, override, segment_directions, settings.default_direction
+                    segment.id,
+                    override,
+                    segment_directions,
+                    settings.default_direction,
+                    pool_offsets.get(segment.id, 0.0),
                 )
                 latest = SegmentRenderer._latest_successful(session, segment.id)
                 if latest:
@@ -240,13 +247,18 @@ class ProductionService:
             [segment.id for segment in segments]
         )
         segment_directions = self.container.segment_directions.records([segment.id for segment in segments])
+        pool_offsets = self._pool_offsets_for_segments([segment.id for segment in segments])
         renderer = SegmentRenderer(self.container)
         for index, segment in enumerate(segments, 1):
             override = overrides.get(segment.id)
             voice = self._voice_for(segment.id, override, speaker_voices, settings.narrator_voice_profile_id)
             assert voice
             direction = self._direction_for(
-                segment.id, override, segment_directions, settings.default_direction
+                segment.id,
+                override,
+                segment_directions,
+                settings.default_direction,
+                pool_offsets.get(segment.id, 0.0),
             )
             self.container.jobs_repository.set_progress(
                 job_id,
@@ -313,14 +325,76 @@ class ProductionService:
         override: SegmentProductionOverrideRecord | None,
         segment_directions: dict[str, SegmentDirectionRecord],
         default_direction: DirectionProfile | None,
+        pool_offset: float = 0.0,
     ) -> DirectionProfile:
+        """Resolve one segment's direction, then layer the pooled-minor pace offset.
+
+        A pooled minor character's small deterministic pace nudge (recorded by
+        automatic casting on the character's casting decision as
+        ``poolOffset``, see `automatic_casting.py`) is applied last, and only
+        when it does not clobber something a user actually set: a segment
+        production override is a direct user override and always wins
+        untouched, and a user-locked segment direction is respected as-is.
+        An auto-inferred (not user-locked) segment direction, or the project
+        default/blank profile, still gets the offset layered on top.
+        """
         direction_json = getattr(override, "direction_json", None)
         if direction_json:
             return DirectionProfile.model_validate(json.loads(direction_json))
         segment_direction = segment_directions.get(segment_id)
         if segment_direction:
-            return DirectionProfile.model_validate(json.loads(segment_direction.direction_json))
-        return default_direction or DirectionProfile(scopeType="segment", scopeId=segment_id)
+            direction = DirectionProfile.model_validate(json.loads(segment_direction.direction_json))
+            if segment_direction.user_locked or not pool_offset:
+                return direction
+            return ProductionService._with_pool_offset(direction, pool_offset)
+        base = default_direction or DirectionProfile(scopeType="segment", scopeId=segment_id)
+        if not pool_offset:
+            return base
+        return ProductionService._with_pool_offset(base, pool_offset)
+
+    @staticmethod
+    def _with_pool_offset(direction: DirectionProfile, pool_offset: float) -> DirectionProfile:
+        pace = min(2.0, max(0.5, round(direction.pace * (1 + pool_offset), 4)))
+        return direction.model_copy(update={"pace": pace})
+
+    def _pool_offset_for_segment(self, segment_id: str) -> float:
+        character_ids = self.container.speaker_attributions.resolved_character_ids([segment_id])
+        character_id = character_ids.get(segment_id)
+        if not character_id:
+            return 0.0
+        return self._pool_offsets([character_id]).get(character_id, 0.0)
+
+    def _pool_offsets_for_segments(self, segment_ids: list[str]) -> dict[str, float]:
+        character_ids = self.container.speaker_attributions.resolved_character_ids(segment_ids)
+        offsets = self._pool_offsets(list(character_ids.values()))
+        return {
+            segment_id: offsets.get(character_id, 0.0)
+            for segment_id, character_id in character_ids.items()
+        }
+
+    def _pool_offsets(self, character_ids: list[str]) -> dict[str, float]:
+        unique_ids = sorted(set(character_ids))
+        if not unique_ids:
+            return {}
+        with self.container.structure.database.session() as session:
+            rows = session.scalars(
+                select(CastingDecisionRecord).where(
+                    CastingDecisionRecord.character_id.in_(unique_ids),
+                    CastingDecisionRecord.role == "character",
+                    CastingDecisionRecord.superseded_by_id.is_(None),
+                )
+            )
+            offsets: dict[str, float] = {}
+            for row in rows:
+                if not row.character_id:
+                    continue
+                try:
+                    evidence = json.loads(row.evidence_json or "{}")
+                except (TypeError, ValueError):
+                    evidence = {}
+                value = evidence.get("poolOffset") if isinstance(evidence, dict) else None
+                offsets[row.character_id] = float(value) if isinstance(value, (int, float)) else 0.0
+            return offsets
 
     def _validate_segment_project(self, project_id: str, segment_id: str) -> None:
         segment = self.container.structure.segment(segment_id)
