@@ -48,6 +48,11 @@ def main() -> int:
         action="store_true",
         help="Enable the feature-flagged attribution-v2 path for comparison.",
     )
+    parser.add_argument(
+        "--confidence-v2",
+        action="store_true",
+        help="Enable grouped extraction review tasks and three-tier confidence auditing.",
+    )
     args = parser.parse_args()
 
     books = args.books or ["modern-format-synthetic"]
@@ -57,6 +62,7 @@ def main() -> int:
         "pipeline": _pipeline_name(
             cast_v2=args.cast_v2,
             attribution_v2=args.attribution_v2,
+            confidence_v2=args.confidence_v2,
         ),
         "books": [
             evaluate_book(
@@ -64,6 +70,7 @@ def main() -> int:
                 max_segment_chars=args.max_segment_chars,
                 cast_v2_enabled=args.cast_v2,
                 attribution_v2_enabled=args.attribution_v2,
+                confidence_v2_enabled=args.confidence_v2,
             )
             for book in books
         ],
@@ -81,12 +88,15 @@ def _display_path(path: Path) -> Path:
     return path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
 
 
-def _pipeline_name(*, cast_v2: bool, attribution_v2: bool) -> str:
+def _pipeline_name(
+    *, cast_v2: bool, attribution_v2: bool, confidence_v2: bool
+) -> str:
     enabled = [
         name
         for active, name in (
             (cast_v2, "cast-v2-clustering"),
             (attribution_v2, "attribution-v2"),
+            (confidence_v2, "confidence-v2"),
         )
         if active
     ]
@@ -99,6 +109,7 @@ def evaluate_book(
     max_segment_chars: int,
     cast_v2_enabled: bool = False,
     attribution_v2_enabled: bool = False,
+    confidence_v2_enabled: bool = False,
 ) -> dict[str, Any]:
     text = load_book_text(book_slug)
     labels = load_labels(book_slug)
@@ -113,6 +124,7 @@ def evaluate_book(
                 kokoro_runtime_root=tmp_path / "kokoro" / "managed-onnx-v1",
                 cast_v2_enabled=cast_v2_enabled,
                 attribution_v2_enabled=attribution_v2_enabled,
+                confidence_v2_enabled=confidence_v2_enabled,
             )
         )
         with TestClient(app) as client:
@@ -189,6 +201,7 @@ def collect_snapshot(client: TestClient, project_id: str) -> dict[str, list[dict
         "attributions": client.get(f"/api/v1/projects/{project_id}/speaker-attributions").json(),
         "issues": client.get(f"/api/v1/projects/{project_id}/issues").json(),
         "warnings": client.get(f"/api/v1/projects/{project_id}/structure-warnings").json(),
+        "reviewTasks": client.get(f"/api/v1/projects/{project_id}/review-tasks").json(),
     }
 
 
@@ -202,7 +215,15 @@ def compute_metrics(
         attribution_predictions(labels.get("attribution_sample", {}), snapshot),
     )
     cast = cast_metrics(cast_gold(labels.get("roster", {})), cast_predictions(snapshot))
-    flags = flag_metrics(book_slug, [*snapshot["issues"], *snapshot["warnings"]])
+    review_tasks = [
+        {**task, "severity": "optional"}
+        for task in snapshot.get("reviewTasks", [])
+        if task.get("status") == "open"
+    ]
+    flags = flag_metrics(
+        book_slug,
+        review_tasks or [*snapshot["issues"], *snapshot["warnings"]],
+    )
     return {
         "attribution": attribution.__dict__,
         "cast": cast.__dict__,

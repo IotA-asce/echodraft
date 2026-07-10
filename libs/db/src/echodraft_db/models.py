@@ -287,6 +287,8 @@ class ChapterRecord(Base):
     parser_evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
     lock_reason: Mapped[str | None] = mapped_column(Text)
+    auto_accepted: Mapped[bool] = mapped_column(nullable=False, default=False)
+    decision_tier: Mapped[str | None] = mapped_column(String(16))
 
 
 class SceneRecord(Base):
@@ -301,6 +303,8 @@ class SceneRecord(Base):
     parser_evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
     lock_reason: Mapped[str | None] = mapped_column(Text)
+    auto_accepted: Mapped[bool] = mapped_column(nullable=False, default=False)
+    decision_tier: Mapped[str | None] = mapped_column(String(16))
 
 
 class SegmentRecord(Base):
@@ -313,6 +317,7 @@ class SegmentRecord(Base):
     segment_type: Mapped[str] = mapped_column(String(32), nullable=False)
     speaker_candidate: Mapped[str | None] = mapped_column(String(128))
     speaker_confidence: Mapped[float] = mapped_column(nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False, default=0.9)
     start_offset: Mapped[int] = mapped_column(nullable=False)
     end_offset: Mapped[int] = mapped_column(nullable=False)
     revision: Mapped[int] = mapped_column(nullable=False, default=1)
@@ -320,6 +325,8 @@ class SegmentRecord(Base):
     parser_evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
     lock_reason: Mapped[str | None] = mapped_column(Text)
+    auto_accepted: Mapped[bool] = mapped_column(nullable=False, default=False)
+    decision_tier: Mapped[str | None] = mapped_column(String(16))
 
 
 class StructureParserWarningRecord(Base):
@@ -466,6 +473,34 @@ class AmbienceCueRecord(Base):
     no_sfx: Mapped[bool] = mapped_column(nullable=False, default=False)
 
 
+class ReviewTaskRecord(Base):
+    __tablename__ = "review_tasks"
+    __table_args__ = (
+        Index(
+            "uq_review_tasks_open_cause",
+            "project_id",
+            "cause_key",
+            unique=True,
+            sqlite_where=text("status = 'open'"),
+        ),
+        Index("ix_review_tasks_project_status", "project_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    cause_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_id: Mapped[str | None] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    member_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    member_refs_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class IssueRecord(Base):
     __tablename__ = "issues"
 
@@ -480,6 +515,7 @@ class IssueRecord(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
     metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     dedupe_key: Mapped[str | None] = mapped_column(String(256), unique=True)
+    review_task_id: Mapped[str | None] = mapped_column(ForeignKey("review_tasks.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -614,6 +650,11 @@ class SpeakerAttributionRecord(Base):
     confidence: Mapped[float] = mapped_column(nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
+    auto_accepted: Mapped[bool] = mapped_column(nullable=False, default=False)
+    decision_tier: Mapped[str | None] = mapped_column(String(16))
+    review_task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("review_tasks.id"), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

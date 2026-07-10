@@ -183,3 +183,62 @@ def test_segment_direction_without_evidence_deserializes_as_empty() -> None:
     )
 
     assert row.evidence == {}
+
+
+def test_alembic_head_creates_grouped_review_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = f"sqlite:///{tmp_path / 'review-tasks-head.db'}"
+    monkeypatch.setenv("ECHODRAFT_DATABASE_URL", url)
+    config = Config(str(ALEMBIC_INI))
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    try:
+        inspector = inspect(engine)
+        assert "review_tasks" in inspector.get_table_names()
+        task_columns = {
+            column["name"] for column in inspector.get_columns("review_tasks")
+        }
+        assert {
+            "cause_key",
+            "scope_type",
+            "member_count",
+            "member_refs_json",
+            "evidence_json",
+            "status",
+        } <= task_columns
+        for table in ("chapters", "scenes", "segments"):
+            columns = {column["name"] for column in inspector.get_columns(table)}
+            assert {"auto_accepted", "decision_tier"} <= columns
+        attribution_columns = {
+            column["name"]
+            for column in inspector.get_columns("speaker_attributions")
+        }
+        assert {"auto_accepted", "decision_tier", "review_task_id"} <= attribution_columns
+        indexes = {index["name"] for index in inspector.get_indexes("review_tasks")}
+        assert {
+            "ix_review_tasks_project_status",
+            "uq_review_tasks_open_cause",
+        } <= indexes
+    finally:
+        engine.dispose()
+
+
+def test_sqlite_repair_adds_confidence_columns_to_legacy_tables(tmp_path: Path) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'legacy-confidence.db'}")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE chapters ("
+                "id VARCHAR(64) PRIMARY KEY, project_id VARCHAR(64), "
+                "order_index INTEGER, title VARCHAR(512), start_offset INTEGER, "
+                "end_offset INTEGER, confidence FLOAT, status VARCHAR(32))"
+            )
+        )
+    database.create_schema()
+
+    inspector = inspect(database.engine)
+    columns = {column["name"] for column in inspector.get_columns("chapters")}
+    assert {"auto_accepted", "decision_tier"} <= columns
+    assert "review_tasks" in inspector.get_table_names()

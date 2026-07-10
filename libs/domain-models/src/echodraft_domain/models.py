@@ -301,6 +301,8 @@ class Chapter(ApiModel):
     parser_evidence: dict[str, object] = Field(default_factory=dict, alias="parserEvidence")
     user_locked: bool = Field(default=False, alias="userLocked")
     lock_reason: str | None = Field(default=None, alias="lockReason")
+    auto_accepted: bool = Field(default=False, alias="autoAccepted")
+    decision_tier: str | None = Field(default=None, alias="decisionTier")
 
 
 class Scene(ApiModel):
@@ -314,6 +316,8 @@ class Scene(ApiModel):
     parser_evidence: dict[str, object] = Field(default_factory=dict, alias="parserEvidence")
     user_locked: bool = Field(default=False, alias="userLocked")
     lock_reason: str | None = Field(default=None, alias="lockReason")
+    auto_accepted: bool = Field(default=False, alias="autoAccepted")
+    decision_tier: str | None = Field(default=None, alias="decisionTier")
 
 
 class Segment(ApiModel):
@@ -326,11 +330,14 @@ class Segment(ApiModel):
     segment_type: str = Field(alias="segmentType")
     speaker_candidate: str | None = Field(default=None, alias="speakerCandidate")
     speaker_confidence: float = Field(alias="speakerConfidence")
+    confidence: float = 0.9
     start_offset: int = Field(alias="startOffset")
     end_offset: int = Field(alias="endOffset")
     parser_evidence: dict[str, object] = Field(default_factory=dict, alias="parserEvidence")
     user_locked: bool = Field(default=False, alias="userLocked")
     lock_reason: str | None = Field(default=None, alias="lockReason")
+    auto_accepted: bool = Field(default=False, alias="autoAccepted")
+    decision_tier: str | None = Field(default=None, alias="decisionTier")
     revision: int
 
 
@@ -345,6 +352,9 @@ class SpeakerAttribution(ApiModel):
     confidence: float
     status: str
     user_locked: bool = Field(default=False, alias="userLocked")
+    auto_accepted: bool = Field(default=False, alias="autoAccepted")
+    decision_tier: str | None = Field(default=None, alias="decisionTier")
+    review_task_id: str | None = Field(default=None, alias="reviewTaskId")
     voice_profile_id: str | None = Field(default=None, alias="voiceProfileId")
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
@@ -861,6 +871,27 @@ class Issue(ApiModel):
     description: str
     status: str
     metadata: dict[str, object] = Field(default_factory=dict)
+    review_task_id: str | None = Field(default=None, alias="reviewTaskId")
+
+
+class ReviewTask(ApiModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    cause_key: str = Field(alias="causeKey")
+    category: str
+    scope_type: str = Field(alias="scopeType")
+    scope_id: str | None = Field(default=None, alias="scopeId")
+    title: str
+    member_count: int = Field(alias="memberCount")
+    member_refs: list[dict[str, object]] = Field(default_factory=list, alias="memberRefs")
+    evidence: dict[str, object] = Field(default_factory=dict)
+    status: str
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+
+class ReviewTaskUpdate(ApiModel):
+    status: str
 
 
 class IssueCreate(ApiModel):
