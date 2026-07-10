@@ -133,3 +133,89 @@ def test_cache_key_provider_field_preserves_local_identity() -> None:
     cloud = _inference_cache_key("qwen3:4b", "t", "p", schema, provider="openai_compat")
     assert local_default == local_explicit   # existing cache entries keep their identity
     assert cloud != local_default            # cloud draws can never collide with local ones
+
+
+def test_settings_endpoint_round_trip_never_echoes_key(client) -> None:
+    initial = client.get("/api/v1/llm/settings").json()
+    assert initial["provider"] == "ollama"
+    assert initial["hasApiKey"] is False
+
+    response = client.put(
+        "/api/v1/llm/settings",
+        json={
+            "provider": "openai_compat",
+            "baseUrl": "https://api.x.ai/v1",
+            "model": "grok-4.5",
+            "apiKey": "xai-secret",
+            "cloudConsent": True,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "openai_compat"
+    assert body["hasApiKey"] is True
+    assert "xai-secret" not in response.text
+
+    # omitted apiKey keeps the stored key
+    kept = client.put(
+        "/api/v1/llm/settings",
+        json={
+            "provider": "openai_compat",
+            "baseUrl": "https://api.x.ai/v1",
+            "model": "grok-4.5",
+            "cloudConsent": True,
+        },
+    ).json()
+    assert kept["hasApiKey"] is True
+
+    # explicit empty string clears it -> activation must now fail
+    cleared = client.put(
+        "/api/v1/llm/settings",
+        json={
+            "provider": "openai_compat",
+            "baseUrl": "https://api.x.ai/v1",
+            "model": "grok-4.5",
+            "apiKey": "",
+            "cloudConsent": True,
+        },
+    )
+    assert cleared.status_code == 422
+
+
+def test_settings_endpoint_rejects_consentless_cloud(client) -> None:
+    response = client.put(
+        "/api/v1/llm/settings",
+        json={
+            "provider": "openai_compat",
+            "baseUrl": "https://api.x.ai/v1",
+            "model": "grok-4.5",
+            "apiKey": "xai-secret",
+            "cloudConsent": False,
+        },
+    )
+    assert response.status_code == 422
+    assert "consent" in response.json()["detail"].lower()
+
+
+def test_connection_test_endpoint(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        OpenAiCompatProvider,
+        "available_models",
+        lambda self, **kw: ["grok-4.5", "grok-4"],
+    )
+    body = client.post(
+        "/api/v1/llm/settings/test",
+        json={"baseUrl": "https://api.x.ai/v1", "apiKey": "k", "model": "grok-4.5"},
+    ).json()
+    assert body == {"ok": True, "models": ["grok-4.5", "grok-4"], "modelFound": True, "error": None}
+
+    def boom(self, **kw):
+        raise ValueError("cloud request failed for /models: HTTP 401 unauthorized")
+
+    monkeypatch.setattr(OpenAiCompatProvider, "available_models", boom)
+    body = client.post(
+        "/api/v1/llm/settings/test",
+        json={"baseUrl": "https://api.x.ai/v1", "apiKey": "bad"},
+    ).json()
+    assert body["ok"] is False
+    assert "401" in body["error"]

@@ -291,6 +291,38 @@ class EmbeddingResult(ApiModel):
     embeddings: list[list[float]]
 
 
+class LlmProviderSettings(ApiModel):
+    provider: str = "ollama"
+    base_url: str | None = Field(default=None, alias="baseUrl")
+    model: str | None = None
+    cloud_consent: bool = Field(default=False, alias="cloudConsent")
+    has_api_key: bool = Field(default=False, alias="hasApiKey")
+    env_overrides: list[str] = Field(default_factory=list, alias="envOverrides")
+
+
+class LlmProviderSettingsUpdate(ApiModel):
+    provider: str
+    base_url: str | None = Field(default=None, alias="baseUrl")
+    model: str | None = None
+    # None = keep the stored key; "" = clear it; any other string replaces it.
+    api_key: str | None = Field(default=None, alias="apiKey")
+    cloud_consent: bool = Field(default=False, alias="cloudConsent")
+
+
+class LlmConnectionTestRequest(ApiModel):
+    base_url: str = Field(alias="baseUrl")
+    # None = use the stored/env key.
+    api_key: str | None = Field(default=None, alias="apiKey")
+    model: str | None = None
+
+
+class LlmConnectionTestResult(ApiModel):
+    ok: bool
+    models: list[str] = Field(default_factory=list)
+    model_found: bool | None = Field(default=None, alias="modelFound")
+    error: str | None = None
+
+
 class ReparseRequest(ApiModel):
     parser_version: str = Field(default="ingestion-0.1.0", alias="parserVersion")
 

@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 import json
+import os
 from pathlib import Path
 import re
 import time
@@ -110,7 +111,11 @@ from echodraft_domain import (
     LocalAiInstallJob,
     LocalAiInstallRequest,
     LocalAiModelCatalogItem,
+    LlmConnectionTestRequest,
+    LlmConnectionTestResult,
     LlmExtractionRequest,
+    LlmProviderSettings,
+    LlmProviderSettingsUpdate,
     LlmRun,
     TtsSettings,
     TtsSettingsUpdate,
@@ -145,6 +150,7 @@ from .exporting import ExportService
 from .production import ProductionService
 from .readiness import ReadinessService
 from .kokoro_setup import ManagedKokoroSetupService
+from .llm_providers import OpenAiCompatProvider, resolve_effective_llm_settings
 from .local_ai import LocalAiService
 from .local_llm import LocalLlmService
 from .speaker_attribution import SpeakerAttributionService
@@ -648,6 +654,83 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         if not run:
             raise HTTPException(status_code=404, detail="LLM run not found")
         return run
+
+    def _llm_settings_response(container: AppContainer) -> LlmProviderSettings:
+        effective = resolve_effective_llm_settings(container.llm_settings)
+        return LlmProviderSettings.model_validate(
+            {
+                "provider": effective.provider,
+                "baseUrl": effective.base_url,
+                "model": effective.model,
+                "cloudConsent": effective.cloud_consent,
+                "hasApiKey": bool(effective.api_key),
+                "envOverrides": list(effective.env_overrides),
+            }
+        )
+
+    @app.get("/api/v1/llm/settings", response_model=LlmProviderSettings)
+    def get_llm_settings(request: Request) -> LlmProviderSettings:
+        return _llm_settings_response(request.app.state.container)
+
+    @app.put("/api/v1/llm/settings", response_model=LlmProviderSettings)
+    def update_llm_settings(
+        payload: LlmProviderSettingsUpdate, request: Request
+    ) -> LlmProviderSettings:
+        container: AppContainer = request.app.state.container
+        if payload.provider not in {"ollama", "openai_compat"}:
+            raise HTTPException(status_code=422, detail="Unknown LLM provider.")
+        stored = container.llm_settings.get()
+        if payload.api_key is None:
+            effective_key = stored.api_key
+        elif payload.api_key == "":
+            effective_key = None
+        else:
+            effective_key = payload.api_key
+        if payload.provider == "openai_compat":
+            if not payload.cloud_consent:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Cloud providers require explicit consent: manuscript text will be "
+                        "sent to the provider's servers."
+                    ),
+                )
+            if not (effective_key or os.getenv("ECHODRAFT_LLM_API_KEY")):
+                raise HTTPException(status_code=422, detail="Cloud providers require an API key.")
+            if not payload.base_url or not payload.model:
+                raise HTTPException(
+                    status_code=422, detail="Cloud providers require a base URL and a model."
+                )
+        container.orchestrator_pools.writer.run(
+            lambda: container.llm_settings.update(
+                provider=payload.provider,
+                base_url=payload.base_url,
+                model=payload.model,
+                api_key=effective_key,
+                cloud_consent=payload.cloud_consent,
+            )
+        )
+        return _llm_settings_response(container)
+
+    @app.post("/api/v1/llm/settings/test", response_model=LlmConnectionTestResult)
+    def test_llm_connection(
+        payload: LlmConnectionTestRequest, request: Request
+    ) -> LlmConnectionTestResult:
+        container: AppContainer = request.app.state.container
+        key = payload.api_key
+        if key is None:
+            key = resolve_effective_llm_settings(container.llm_settings).api_key
+        provider = OpenAiCompatProvider(payload.base_url, key or "")
+        try:
+            models = provider.available_models(use_cache=False)
+        except ValueError as error:
+            return LlmConnectionTestResult.model_validate(
+                {"ok": False, "models": [], "modelFound": None, "error": str(error)}
+            )
+        found = payload.model in models if payload.model else None
+        return LlmConnectionTestResult.model_validate(
+            {"ok": True, "models": models, "modelFound": found, "error": None}
+        )
 
     @app.get("/api/v1/projects/{project_id}/artifacts/{artifact_path:path}")
     def get_artifact(project_id: str, artifact_path: str, request: Request) -> FileResponse:
