@@ -49,7 +49,11 @@ export function AiProviderCard() {
   const isCloud = form.provider === "openai_compat";
   const canSave =
     !save.isPending &&
-    (!isCloud || (form.cloudConsent && (form.apiKey !== "" || current.hasApiKey)));
+    (!isCloud ||
+      (form.cloudConsent &&
+        (form.apiKey !== "" || current.hasApiKey) &&
+        form.baseUrl.trim() !== "" &&
+        form.model.trim() !== ""));
 
   return (
     <article className="studio-card ai-provider-card">

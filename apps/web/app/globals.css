@@ -204,9 +204,8 @@ button:disabled { background:var(--color-border); color:var(--color-text-disable
 .model-actions { display:flex; gap:8px; flex-wrap:wrap; }
 .model-progress { margin-top:16px; }
 .ai-provider-card { display:grid; gap:10px; }
-.ai-provider-card label { display:grid; gap:6px; color:var(--color-text-secondary); font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.09em; }
 .field-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
-.field-row label,.override-label { display:grid; gap:6px; color:var(--color-text-secondary); font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.09em; }
+.field-row label,.override-label,.ai-provider-card label:not(.rights-check) { display:grid; gap:6px; color:var(--color-text-secondary); font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.09em; }
 .capability { margin:15px 0 0; color:var(--color-danger); font-size:.84rem; line-height:1.5; }
 .capability.ready { color:var(--color-text-primary); }
 .kokoro-setup-card { margin-top:14px; display:grid; gap:14px; }
