@@ -38,15 +38,24 @@ def main() -> int:
     parser.add_argument("--output-json", type=Path, default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-md", type=Path, default=DEFAULT_OUTPUT_MD)
     parser.add_argument("--max-segment-chars", type=int, default=120)
+    parser.add_argument(
+        "--cast-v2",
+        action="store_true",
+        help="Enable the feature-flagged cast-v2 clustering path for comparison.",
+    )
     args = parser.parse_args()
 
     books = args.books or ["modern-format-synthetic"]
     report = {
         "schemaVersion": "1.0.0",
         "generatedAt": datetime.now(UTC).isoformat(),
-        "pipeline": "current-structure-service",
+        "pipeline": "cast-v2-clustering" if args.cast_v2 else "current-structure-service",
         "books": [
-            evaluate_book(book, max_segment_chars=args.max_segment_chars)
+            evaluate_book(
+                book,
+                max_segment_chars=args.max_segment_chars,
+                cast_v2_enabled=args.cast_v2,
+            )
             for book in books
         ],
     }
@@ -54,12 +63,21 @@ def main() -> int:
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     args.output_md.write_text(markdown_summary(report), encoding="utf-8")
-    print(f"wrote {args.output_json.relative_to(REPO_ROOT)}")
-    print(f"wrote {args.output_md.relative_to(REPO_ROOT)}")
+    print(f"wrote {_display_path(args.output_json)}")
+    print(f"wrote {_display_path(args.output_md)}")
     return 0
 
 
-def evaluate_book(book_slug: str, *, max_segment_chars: int) -> dict[str, Any]:
+def _display_path(path: Path) -> Path:
+    return path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
+
+
+def evaluate_book(
+    book_slug: str,
+    *,
+    max_segment_chars: int,
+    cast_v2_enabled: bool = False,
+) -> dict[str, Any]:
     text = load_book_text(book_slug)
     labels = load_labels(book_slug)
     started = time.perf_counter()
@@ -71,6 +89,7 @@ def evaluate_book(book_slug: str, *, max_segment_chars: int) -> dict[str, Any]:
                 artifact_root=tmp_path / "artifacts",
                 tts_settings_path=tmp_path / "tts-settings.json",
                 kokoro_runtime_root=tmp_path / "kokoro" / "managed-onnx-v1",
+                cast_v2_enabled=cast_v2_enabled,
             )
         )
         with TestClient(app) as client:

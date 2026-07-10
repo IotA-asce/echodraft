@@ -210,7 +210,13 @@ It is separate from the completed G1-G20 alpha gap tracker above.
   - [x] W3.1 - Parallelize existing LLM loops.
   - [x] W3.2 - Ingestion v2.
   - [x] W3.3 - Structure v2.
-  - [ ] W3.4 - Cast v2.
+  - [x] W3.4 - Cast v2.
+    - Evidence: `feat/cast-v2-clustering`; feature-flagged constrained alias clustering batches
+      local embeddings, respects cannot-link and durable merge rulings, reconciles once per
+      cluster, synthesizes W4-ready profiles, and records additive manifest diagnostics.
+    - Gate: cast precision/recall/F1 and alias purity remained 1.0, merge/split error rates
+      remained 0, and flags fell from 3 to 2 on `modern-format-synthetic`; see
+      `docs/analysis/eval-baselines/2026-07-10-cast-v2-gate.md`.
   - [ ] W3.5 - Attribution v2.
   - [ ] W3.6 - Confidence and flag model.
   - [ ] W3.7 - Direction v2 and progressive delivery.
