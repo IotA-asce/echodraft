@@ -782,6 +782,7 @@ class ProjectProductionSettings(ApiModel):
     casting_style_preset: str = Field(default="warm_neutral", alias="castingStylePreset")
     auto_cast_enabled: bool = Field(default=True, alias="autoCastEnabled")
     default_direction: DirectionProfile | None = Field(default=None, alias="defaultDirection")
+    auto_sound_design: dict[str, object] | None = Field(default=None, alias="autoSoundDesign")
 
 
 class ProjectProductionSettingsUpdate(ApiModel):
@@ -789,6 +790,7 @@ class ProjectProductionSettingsUpdate(ApiModel):
     casting_style_preset: str | None = Field(default=None, alias="castingStylePreset")
     auto_cast_enabled: bool | None = Field(default=None, alias="autoCastEnabled")
     default_direction: DirectionProfile | None = Field(default=None, alias="defaultDirection")
+    auto_sound_design: dict[str, object] | None = Field(default=None, alias="autoSoundDesign")
 
 
 class SegmentProductionOverride(ApiModel):
@@ -873,6 +875,11 @@ class AmbienceAsset(ApiModel):
     duration_ms: int | None = Field(default=None, alias="durationMs")
     license_note: str = Field(alias="licenseNote")
     provenance: str
+    model: str | None = None
+    prompt: str | None = None
+    seed: int | None = None
+    cache_key: str | None = Field(default=None, alias="cacheKey")
+    qa_status: str = Field(default="n/a", alias="qaStatus")
 
 
 class AmbienceAssetCreate(ApiModel):
@@ -914,6 +921,10 @@ class AmbienceCue(ApiModel):
     ducking: bool = True
     render_mode: str = Field(default="light", alias="renderMode")
     no_sfx: bool = Field(alias="noSfx")
+    origin: str = "user_created"
+    evidence: dict[str, object] = Field(default_factory=dict)
+    muted: bool = False
+    user_locked: bool = Field(default=False, alias="userLocked")
 
 
 class AmbienceCueCreate(ApiModel):
@@ -927,6 +938,26 @@ class AmbienceCueCreate(ApiModel):
     ducking: bool = True
     render_mode: str = Field(default="light", alias="renderMode")
     no_sfx: bool = Field(default=False, alias="noSfx")
+
+
+class AmbienceCueUpdate(ApiModel):
+    muted: bool
+
+
+class SoundPlanRequest(ApiModel):
+    render_mode: Literal["speech_only", "light_cinematic", "dramatized"] = Field(
+        default="light_cinematic", alias="renderMode"
+    )
+
+
+class SoundPlanResult(ApiModel):
+    chapter_id: str = Field(alias="chapterId")
+    render_mode: str = Field(alias="renderMode")
+    manifest_path: str = Field(alias="manifestPath")
+    planned_cues: list[dict[str, object]] = Field(alias="plannedCues")
+    skipped: list[dict[str, object]]
+    materialized_asset_ids: list[str] = Field(alias="materializedAssetIds")
+    materialized_cue_ids: list[str] = Field(alias="materializedCueIds")
 
 
 class Issue(ApiModel):

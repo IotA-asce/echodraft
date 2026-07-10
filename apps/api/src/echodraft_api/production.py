@@ -42,6 +42,9 @@ class ProductionService:
             defaultDirection=json.loads(record.default_direction_json)
             if record.default_direction_json
             else None,
+            autoSoundDesign=json.loads(record.auto_sound_design_json)
+            if record.auto_sound_design_json
+            else None,
         )
 
     def update_settings(
@@ -51,6 +54,7 @@ class ProductionService:
         direction: DirectionProfile | None,
         casting_style_preset: str | None = None,
         auto_cast_enabled: bool | None = None,
+        auto_sound_design: dict[str, object] | None = None,
     ) -> ProjectProductionSettings:
         if not self.container.projects.get(project_id):
             raise ValueError("Project not found.")
@@ -76,6 +80,10 @@ class ProductionService:
                 style_preset=casting_style_preset,
                 auto_cast_enabled=auto_cast_enabled,
             )
+        if auto_sound_design is not None:
+            record = self.container.production.configure_sound_design(
+                project_id, json.dumps(auto_sound_design, sort_keys=True)
+            )
         return ProjectProductionSettings(
             projectId=project_id,
             narratorVoiceProfileId=record.narrator_voice_profile_id,
@@ -84,6 +92,9 @@ class ProductionService:
             autoCastEnabled=record.auto_cast_enabled,
             defaultDirection=json.loads(record.default_direction_json)
             if record.default_direction_json
+            else None,
+            autoSoundDesign=json.loads(record.auto_sound_design_json)
+            if record.auto_sound_design_json
             else None,
         )
 
