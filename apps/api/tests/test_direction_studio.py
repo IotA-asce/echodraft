@@ -1,5 +1,6 @@
 import json
 import time
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -237,3 +238,96 @@ def test_invalid_or_missing_llm_direction_falls_back_to_deterministic(client, mo
     assert row["source"] == "inferred"
     assert row["direction"]["emotion"] == "urgent"
     assert row["evidence"]["reason"] == "deterministic_direction_inference"
+
+
+def test_progressive_direction_emits_chapter_ready_events_during_structure(client) -> None:
+    container = client.app.state.container
+    container.settings = replace(
+        container.settings,
+        direction_v2_enabled=True,
+        progressive_delivery_enabled=True,
+    )
+    project = client.post(
+        "/api/v1/projects",
+        json={"title": "Progressive", "rightsStatus": "declared"},
+    ).json()["id"]
+    imported = client.post(
+        f"/api/v1/projects/{project}/source/import",
+        files={
+            "file": (
+                "book.txt",
+                b"Chapter 1\n\nFirst chapter.\n\nChapter 2\n\nSecond chapter.",
+                "text/plain",
+            )
+        },
+        data={"rightsAcknowledged": "true"},
+    ).json()
+    assert wait_for_job(client, imported["id"])["status"] == "succeeded"
+    structured = client.post(
+        f"/api/v1/projects/{project}/structure/extract", json={}
+    ).json()
+    assert wait_for_job(client, structured["id"])["status"] == "succeeded"
+
+    events = container.orchestrator_repository.events_for_job(structured["id"])
+    ready = [event for event in events if event.type == "chapter.direction.ready"]
+    assert len(ready) == 2
+    assert [json.loads(event.scope_json)["chapterOrder"] for event in ready] == [0, 1]
+    assert all(json.loads(event.payload_json)["provisional"] is True for event in ready)
+    directions = container.segment_directions.all_for_project(project)
+    assert directions
+
+
+def test_direction_v2_prompt_uses_character_profiles_and_writes_manifest(
+    client, monkeypatch
+) -> None:
+    project, _chapter, _scene, segments = project_with_segments(
+        client,
+        b"Chapter 1\n\nMara: Hold.\n\nThe rain softened.",
+    )
+    container = client.app.state.container
+    container.settings = replace(container.settings, direction_v2_enabled=True)
+    captured: list[tuple[str, str]] = []
+
+    def fake_extract(_self, _project_id, request, _job_id=None):
+        captured.append((request.task, request.prompt or ""))
+        target_ids = [
+            line.split()[2].rstrip(":")
+            for line in (request.prompt or "").splitlines()
+            if line.startswith("- TARGET ")
+        ]
+        return SimpleNamespace(
+            run=SimpleNamespace(id="llmrun_direction_v2"),
+            result={
+                "directions": [
+                    {
+                        "segmentId": segment_id,
+                        "emotion": "somber",
+                        "tone": "somber",
+                        "pace": 0.92,
+                        "intensity": 0.35,
+                        "confidence": 0.88,
+                        "evidence": "profile-aware scene mood",
+                    }
+                    for segment_id in target_ids
+                ],
+                "warnings": [],
+            },
+        )
+
+    monkeypatch.setattr(direction_module.LocalLlmService, "extract", fake_extract)
+    inferred = client.post(
+        f"/api/v1/projects/{project}/directions/infer",
+        json={"useLocalLlm": True},
+    ).json()
+    assert wait_for_job(client, inferred["id"])["status"] == "succeeded"
+
+    assert captured
+    assert all(task == "direction_v2_map" for task, _prompt in captured)
+    assert any("Character profiles" in prompt for _task, prompt in captured)
+    record = container.projects.get(project)
+    assert record is not None
+    manifest = json.loads(
+        (Path(record.artifact_path) / "manifests" / "direction_manifest.json").read_text()
+    )
+    assert manifest["manifestVersion"] == "direction-v2"
+    assert len(manifest["payload"]["rows"]) == len(segments)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import deque
 from dataclasses import dataclass, field
 from typing import Iterable
 
@@ -23,6 +22,7 @@ class Unit:
     project_id: str | None
     scope: dict[str, object] = field(default_factory=dict)
     unit_key: str | None = None
+    priority: int = 100
 
     @property
     def key(self) -> str:
@@ -41,14 +41,19 @@ class Unit:
 
 class WorkQueue:
     def __init__(self, units: Iterable[Unit] = ()) -> None:
-        self._pending: deque[Unit] = deque(units)
+        self._pending: list[tuple[int, int, Unit]] = []
+        self._sequence = 0
+        for unit in units:
+            self.push(unit)
 
     def push(self, unit: Unit) -> None:
-        self._pending.append(unit)
+        self._pending.append((unit.priority, self._sequence, unit))
+        self._sequence += 1
+        self._pending.sort(key=lambda item: (item[0], item[1]))
 
     def pop_ready(self, checkpoints: CheckpointStore) -> Unit | None:
         while self._pending:
-            unit = self._pending.popleft()
+            _priority, _sequence, unit = self._pending.pop(0)
             checkpoint = checkpoints.get(unit)
             if checkpoint is None or checkpoint.status in {"pending", "failed"}:
                 return unit
