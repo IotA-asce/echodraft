@@ -301,6 +301,7 @@ class SceneRecord(Base):
     confidence: Mapped[float] = mapped_column(nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     parser_evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    atmosphere_profile_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
     lock_reason: Mapped[str | None] = mapped_column(Text)
     auto_accepted: Mapped[bool] = mapped_column(nullable=False, default=False)
