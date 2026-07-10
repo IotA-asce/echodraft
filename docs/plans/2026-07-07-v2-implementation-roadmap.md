@@ -380,7 +380,7 @@ produced (W3.7) before the emotion mappings can be validated end-to-end.
   supporting N workers on the `tts` pool; existing Kokoro/Piper/XTTS/Mock adapters keep working
   unchanged as Tier-A providers; fix the XTTS `gpu=False` hardcode behind the hardware probe.
   Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy ...`. Size: **L**.
-- [ ] **W5.2 — Direction compiler (Kokoro/Piper mappings first).** Branch `feat/direction-compiler`.
+- [x] **W5.2 — Direction compiler (Kokoro/Piper mappings first).** Branch `feat/direction-compiler`.
   Land `compile_direction` with today's honest pace+pauses mappings only, preserving the
   `direction_support`/`unsupportedDirection`/`effectiveDirection` contract bit-for-bit — plumbing
   ships before any new model. Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy ...`.

@@ -8,9 +8,11 @@ import subprocess
 import wave
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from echodraft_domain import DirectionProfile
+
+from .direction_compiler import compile_direction
 
 if TYPE_CHECKING:
     from .tts_worker import TtsWorkerManager
@@ -173,13 +175,19 @@ class KokoroTtsAdapter(TtsProvider):
         ]
         _run_tts_command(command, "Kokoro", timeout=120)
         sample_rate = _validate_wav(output, "Kokoro")
+        compiled = compile_direction(
+            direction,
+            engine_id=self.provider_id,
+            setup_mode=self.setup_mode,
+            direction_support=self.direction_support,
+        )
         return {
             **self.render_identity(),
             "voiceId": voice_id,
             "sampleRate": sample_rate,
             # No CLI contract transmits any direction to the custom engine.
-            "effectiveDirection": {},
-            "unsupportedDirection": _unsupported_direction(self.direction_support),
+            "effectiveDirection": compiled.effective_direction,
+            "unsupportedDirection": compiled.unsupported_direction,
         }
 
 
@@ -252,6 +260,13 @@ class ManagedKokoroOnnxAdapter(TtsProvider):
         from .kokoro_setup import write_managed_wrapper
 
         write_managed_wrapper(self.wrapper_path)
+        compiled = compile_direction(
+            direction,
+            engine_id=self.provider_id,
+            setup_mode=self.setup_mode,
+            direction_support=self.direction_support,
+        )
+        speed = cast(float, compiled.engine_controls["speed"])
         if self.worker_manager:
             sample_rate = self.worker_manager.synthesize_managed_kokoro(
                 python_path=self.python_path,
@@ -262,15 +277,15 @@ class ManagedKokoroOnnxAdapter(TtsProvider):
                 text=text,
                 voice_id=voice_id,
                 output=output,
-                speed=direction.pace,
+                speed=speed,
             )
             return {
                 **self.render_identity(),
                 "voiceId": voice_id,
                 "sampleRate": sample_rate,
                 "workerMode": "resident",
-                "effectiveDirection": {"pace": direction.pace},
-                "unsupportedDirection": _unsupported_direction(self.direction_support),
+                "effectiveDirection": compiled.effective_direction,
+                "unsupportedDirection": compiled.unsupported_direction,
             }
         command = [
             str(self.python_path),
@@ -288,7 +303,7 @@ class ManagedKokoroOnnxAdapter(TtsProvider):
             "--output",
             str(output),
             "--speed",
-            f"{direction.pace:.3f}",
+            f"{speed:.3f}",
         ]
         _run_tts_command(command, "Kokoro", timeout=180)
         sample_rate = _validate_wav(output, "Kokoro")
@@ -297,8 +312,8 @@ class ManagedKokoroOnnxAdapter(TtsProvider):
             "voiceId": voice_id,
             "sampleRate": sample_rate,
             "workerMode": "subprocess",
-            "effectiveDirection": {"pace": direction.pace},
-            "unsupportedDirection": _unsupported_direction(self.direction_support),
+            "effectiveDirection": compiled.effective_direction,
+            "unsupportedDirection": compiled.unsupported_direction,
         }
 
 
@@ -362,20 +377,29 @@ class PiperTtsAdapter(TtsProvider):
         speaker_id = _piper_speaker_id(voice_id)
         if speaker_id is not None:
             command.extend(["-s", str(speaker_id)])
-        command.extend(["--length-scale", f"{max(0.5, min(2.0, 1 / direction.pace)):.3f}"])
-        if direction.pause_after_ms:
-            command.extend(["--sentence-silence", f"{direction.pause_after_ms / 1000:.3f}"])
+        compiled = compile_direction(
+            direction,
+            engine_id=self.provider_id,
+            setup_mode=self.setup_mode,
+            direction_support=self.direction_support,
+        )
+        command.extend(
+            [
+                "--length-scale",
+                f"{cast(float, compiled.engine_controls['lengthScale']):.3f}",
+            ]
+        )
+        sentence_silence = compiled.engine_controls.get("sentenceSilence")
+        if isinstance(sentence_silence, (int, float)):
+            command.extend(["--sentence-silence", f"{sentence_silence:.3f}"])
         _run_tts_command(command, "Piper", timeout=180, stdin=text)
         sample_rate = _validate_wav(output, "Piper")
         return {
             **self.render_identity(),
             "voiceId": voice_id,
             "sampleRate": sample_rate,
-            "effectiveDirection": {
-                "pace": direction.pace,
-                "pauseAfterMs": direction.pause_after_ms,
-            },
-            "unsupportedDirection": _unsupported_direction(self.direction_support),
+            "effectiveDirection": compiled.effective_direction,
+            "unsupportedDirection": compiled.unsupported_direction,
         }
 
 
@@ -456,6 +480,12 @@ class XttsV2Adapter(TtsProvider):
         ]
         _run_tts_command(command, "XTTS-v2", timeout=420)
         sample_rate = _validate_wav(output, "XTTS-v2")
+        compiled = compile_direction(
+            direction,
+            engine_id=self.provider_id,
+            setup_mode=self.setup_mode,
+            direction_support=self.direction_support,
+        )
         return {
             **self.render_identity(),
             "voiceId": voice_id,
@@ -464,8 +494,8 @@ class XttsV2Adapter(TtsProvider):
             "language": self.language,
             "device": self.device,
             # tts_to_file has no style/pace hook; the engine honors no direction.
-            "effectiveDirection": {},
-            "unsupportedDirection": _unsupported_direction(self.direction_support),
+            "effectiveDirection": compiled.effective_direction,
+            "unsupportedDirection": compiled.unsupported_direction,
         }
 
 
@@ -494,22 +524,6 @@ def _validate_wav(output: Path, provider_name: str) -> int:
             return audio.getframerate()
     except wave.Error as wave_error:
         raise ValueError(f"{provider_name} produced malformed WAV output: {wave_error}") from wave_error
-
-
-def _unsupported_direction(supported: set[str]) -> list[str]:
-    all_controls = {
-        "pace",
-        "intensity",
-        "tone",
-        "emotion",
-        "pauseBeforeMs",
-        "pauseAfterMs",
-        "emphasis",
-        "whisper",
-        "stylePrompt",
-        "noSfx",
-    }
-    return sorted(all_controls - supported)
 
 
 def _piper_speaker_id(voice_id: str) -> int | None:

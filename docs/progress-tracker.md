@@ -261,7 +261,10 @@ It is separate from the completed G1-G20 alpha gap tracker above.
     - Evidence: `feat/tts-engine-host`; the provider-neutral resident host dispatches N workers
       through the bounded TTS pool, reports device/worker state, shuts down cleanly, and lets XTTS
       use the hardware-probed CPU/CUDA/MPS device instead of forcing CPU.
-  - [ ] W5.2 - Tier-A direction compiler.
+  - [x] W5.2 - Tier-A direction compiler.
+    - Evidence: `feat/direction-compiler`; a pure compiler now maps managed Kokoro pace and Piper
+      pace/sentence silence while preserving the existing effective/unsupported direction contract
+      exactly for custom Kokoro, Piper, managed Kokoro, and XTTS.
   - [ ] W5.3 - Tier-S bake-off and selection.
   - [ ] W5.4 - Selected Tier-S integration and voice identities.
   - [ ] W5.5 - Expressive mappings and ASR-gated retry.
