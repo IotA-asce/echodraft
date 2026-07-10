@@ -256,6 +256,17 @@ It is separate from the completed G1-G20 alpha gap tracker above.
       preserves locked narrator/character choices, blocks accidental narrator reuse, and writes a
       versioned casting manifest while keeping ranked decision alternatives inspectable.
 
+- [ ] W5 - Expressive TTS.
+  - [x] W5.1 - Device-aware multi-worker engine host.
+    - Evidence: `feat/tts-engine-host`; the provider-neutral resident host dispatches N workers
+      through the bounded TTS pool, reports device/worker state, shuts down cleanly, and lets XTTS
+      use the hardware-probed CPU/CUDA/MPS device instead of forcing CPU.
+  - [ ] W5.2 - Tier-A direction compiler.
+  - [ ] W5.3 - Tier-S bake-off and selection.
+  - [ ] W5.4 - Selected Tier-S integration and voice identities.
+  - [ ] W5.5 - Expressive mappings and ASR-gated retry.
+  - [ ] W5.6 - New-voice synthesis and consent-gated cloning.
+
 ### v2 Remaining Phases
 
 - [ ] Phase B - Expressive TTS and generative sound.
