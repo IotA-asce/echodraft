@@ -539,6 +539,16 @@ class StructureService:
         from .cast_discovery import CastDiscoveryService
         from .speaker_attribution import SpeakerAttributionService
 
+        if self.container.settings.atmosphere_profiles_enabled:
+            from .atmosphere import AtmosphereProfileService
+
+            AtmosphereProfileService(self.container).generate(
+                project_id,
+                use_local_llm=ready,
+                model=DEFAULT_REFINEMENT_MODEL,
+                job_id=job_id,
+            )
+
         CastDiscoveryService(self.container).discover(
             project_id, source_id=source_id, use_local_llm=ready, job_id=job_id
         )
@@ -610,6 +620,16 @@ class StructureService:
         project = self.container.projects.get(project_id)
         if not project:
             raise ValueError("Project not found.")
+        chapters_payload = _manifest_hierarchy(hierarchy)
+        from .atmosphere import AtmosphereProfileService
+
+        atmosphere_profiles = AtmosphereProfileService(self.container).profiles(project_id)
+        for chapter in chapters_payload:
+            for scene in cast(list[dict[str, object]], chapter.get("scenes", [])):
+                record = cast(dict[str, object], scene.get("record", {}))
+                scene["atmosphereProfile"] = atmosphere_profiles.get(
+                    str(record.get("id") or ""), {}
+                )
         manifest = {
             "manifestType": "structure_manifest",
             "schemaVersion": "0.2.0",
@@ -641,10 +661,15 @@ class StructureService:
                     "optional_atom_llm_grouping",
                     "cast_discovery",
                     "speaker_attribution",
+                    *(
+                        ["atmosphere_profiles"]
+                        if self.container.settings.atmosphere_profiles_enabled
+                        else []
+                    ),
                 ],
                 "structureV2": structure_v2_manifest_payload(warnings),
                 "quality": quality.model_dump(by_alias=True),
-                "chapters": _manifest_hierarchy(hierarchy),
+                "chapters": chapters_payload,
             },
         }
         root = Path(project.artifact_path) / "manifests"
@@ -874,6 +899,7 @@ def scene_model(record: SceneRecord) -> Scene:
             "endOffset": record.end_offset,
             "status": record.status,
             "parserEvidence": _evidence(record.parser_evidence_json),
+            "atmosphereProfile": _evidence(record.atmosphere_profile_json),
             "userLocked": record.user_locked,
             "lockReason": record.lock_reason,
             "autoAccepted": record.auto_accepted,
