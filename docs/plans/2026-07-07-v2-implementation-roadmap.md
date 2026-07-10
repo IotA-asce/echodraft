@@ -430,7 +430,7 @@ shared cache exist. Ships Tier 0 first (no model dependency).
   procedural DSP ambience + a bundled CC0 sound bank — no model dependency, immediately satisfies
   "not user-uploaded" for common ambience. Verify: `uv run pytest`, `uv run ruff check .`,
   `uv run mypy ...`. Size: **M**.
-- [ ] **W6.2 — Atmosphere-profile extraction (additive, optional, non-blocking).** Branch
+- [x] **W6.2 — Atmosphere-profile extraction (additive, optional, non-blocking).** Branch
   `feat/atmosphere-profiles`. Add atmosphere-profile extraction as an optional structure-extraction
   sub-step behind a flag; a failed/low-confidence call degrades to "no ambience for this scene,"
   never blocks structure extraction (mirrors the existing LLM-failure-creates-warning convention).

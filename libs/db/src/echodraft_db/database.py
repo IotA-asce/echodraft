@@ -265,6 +265,11 @@ class Database:
                         f"ALTER TABLE {table_name} "
                         "ADD COLUMN parser_evidence_json TEXT NOT NULL DEFAULT '{}'"
                     )
+                if table_name == "scenes" and "atmosphere_profile_json" not in columns:
+                    repairs.append(
+                        "ALTER TABLE scenes "
+                        "ADD COLUMN atmosphere_profile_json TEXT NOT NULL DEFAULT '{}'"
+                    )
                 if "user_locked" not in columns:
                     repairs.append(
                         f"ALTER TABLE {table_name} "

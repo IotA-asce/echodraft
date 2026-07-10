@@ -105,6 +105,8 @@ def test_alembic_head_creates_automatic_casting_schema(
             for index in inspector.get_indexes("character_voice_assignments")
         }
         assert "ix_character_voice_assignments_casting_decision_id" in assignment_indexes
+        scene_columns = {column["name"] for column in inspector.get_columns("scenes")}
+        assert "atmosphere_profile_json" in scene_columns
     finally:
         engine.dispose()
 
