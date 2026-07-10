@@ -1,0 +1,73 @@
+.button {
+  display: inline-flex;
+  width: auto;
+  min-width: 0;
+  min-height: var(--hit-area-min);
+  margin: 0;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-4);
+  font: 500 var(--text-label-size) / var(--text-label-line) var(--font-sans);
+  cursor: pointer;
+  transition: background var(--motion-duration-fast) var(--motion-ease-standard), opacity 80ms var(--motion-ease-standard), transform 80ms var(--motion-ease-standard);
+}
+.button:hover:not(:disabled) { transform: none; }
+.button:active:not(:disabled) { transform: translateY(1px); opacity: .92; }
+.button:disabled { color: var(--color-text-disabled); cursor: not-allowed; }
+.primary { color: var(--color-text-inverse-primary); background: var(--color-bg-inverse); }
+.secondary { color: var(--color-text-primary); background: transparent; border-color: var(--color-border-strong); }
+.secondary:hover:not(:disabled), .ghost:hover:not(:disabled) { color: var(--color-text-primary); background: var(--color-surface-sunken); }
+.ghost { color: var(--color-text-secondary); background: transparent; }
+.destructive { color: var(--white); background: var(--color-danger-fill); }
+.destructive:hover:not(:disabled) { background: var(--color-danger-fill-hover); }
+.sm { height: var(--control-height-sm); padding-inline: var(--space-3); }
+.md { height: var(--control-height-md); }
+.lg { height: var(--control-height-lg); padding-inline: var(--space-5); font-size: var(--text-body-size); }
+.icon { width: var(--hit-area-min); padding: 0; }
+.button:focus-visible, .selectTrigger:focus-visible, .range:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 var(--focus-ring-offset) var(--focus-ring-offset-color), 0 0 0 calc(var(--focus-ring-offset) + var(--focus-ring-width)) var(--focus-ring-color);
+}
+.field { position: relative; display: grid; min-width: 0; gap: var(--space-2); color: var(--color-text-secondary); font: 500 var(--text-label-size) / var(--text-label-line) var(--font-sans); }
+.selectTrigger { display: flex; width: 100%; min-height: var(--control-height-md); margin: 0; align-items: center; justify-content: space-between; gap: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 10px 12px; color: var(--color-text-primary); background: var(--color-surface-sunken); font: 400 var(--text-body-size) / var(--text-body-line) var(--font-sans); text-align: left; cursor: pointer; }
+.selectTrigger:hover:not(:disabled) { border-color: var(--color-border-strong); background: var(--color-surface-sunken); transform: none; }
+.selectTrigger:disabled { color: var(--color-text-disabled); cursor: not-allowed; }
+.chevron { color: var(--color-text-tertiary); font-size: 11px; transition: transform var(--motion-duration-base) var(--motion-ease-standard); }
+.chevronOpen { transform: rotate(180deg); }
+.listbox { position: absolute; z-index: var(--z-dropdown); top: calc(100% + var(--space-1)); right: 0; left: 0; max-height: 260px; margin: 0; padding: var(--space-1); overflow: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-primary); background: var(--color-surface-raised); box-shadow: var(--shadow-md); list-style: none; animation: listbox-in var(--motion-duration-base) var(--motion-ease-decelerate); }
+.option { display: grid; min-height: 40px; grid-template-columns: 18px 1fr; align-items: center; gap: var(--space-2); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font: 400 var(--text-body-size) / var(--text-body-line) var(--font-sans); cursor: pointer; }
+.optionActive { background: var(--color-surface-sunken); }
+.optionCheck { visibility: hidden; }
+.optionSelected .optionCheck { visibility: visible; }
+.rangeHeader { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.rangeValue { color: var(--color-text-primary); font: 400 var(--text-caption-size) / var(--text-caption-line) var(--font-mono); font-variant-numeric: tabular-nums; }
+.range { --range-position: 0%; width: 100%; height: var(--hit-area-min); margin: 0; appearance: none; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.range::-webkit-slider-runnable-track { height: 4px; border-radius: var(--radius-full); background: linear-gradient(to right, var(--color-text-primary) 0 var(--range-position), var(--color-border) var(--range-position) 100%); }
+.range::-moz-range-track { height: 4px; border-radius: var(--radius-full); background: linear-gradient(to right, var(--color-text-primary) 0 var(--range-position), var(--color-border) var(--range-position) 100%); }
+.range::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -6px; appearance: none; border: 2px solid var(--color-text-primary); border-radius: 50%; background: var(--color-surface); transition: width var(--motion-duration-fast) var(--motion-ease-standard), height var(--motion-duration-fast) var(--motion-ease-standard), margin var(--motion-duration-fast) var(--motion-ease-standard); }
+.range::-moz-range-thumb { width: 16px; height: 16px; border: 2px solid var(--color-text-primary); border-radius: 50%; background: var(--color-surface); }
+.range:active::-webkit-slider-thumb { width: 20px; height: 20px; margin-top: -8px; }
+.backdrop { position: fixed; inset: 0; display: grid; z-index: var(--z-modal); place-items: center; padding: var(--space-6); background: rgb(0 0 0 / 40%); animation: backdrop-in 150ms var(--motion-ease-decelerate); }
+.modal, .drawer { color: var(--color-text-primary); background: var(--color-surface-raised); box-shadow: var(--shadow-lg); }
+.modal { width: min(var(--modal-width-md), 100%); max-height: min(84vh, 820px); overflow: auto; border-radius: var(--radius-lg); padding: var(--space-8); animation: modal-in var(--motion-duration-base) var(--motion-ease-decelerate); }
+.modalSm { width: min(var(--modal-width-sm), 100%); }
+.modalLg { width: min(var(--modal-width-lg), 100%); }
+.overlayTitle { margin: 0; font: 500 var(--text-section-size) / var(--text-section-line) var(--font-sans); letter-spacing: -.01em; }
+.overlayDescription { margin: var(--space-2) 0 0; color: var(--color-text-secondary); font: 400 var(--text-body-size) / var(--text-body-line) var(--font-sans); }
+.overlayBody { margin-top: var(--space-6); }
+.overlayFooter { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-7); }
+.drawerBackdrop { place-items: stretch end; padding: 0; z-index: var(--z-drawer); }
+.drawer { width: min(var(--drawer-width), 100vw); height: 100%; overflow: auto; border-radius: var(--radius-lg) 0 0 var(--radius-lg); padding: var(--space-7); animation: drawer-in 250ms var(--motion-ease-decelerate); }
+.toastViewport { position: fixed; z-index: var(--z-toast); right: var(--space-6); bottom: var(--space-6); display: grid; width: min(360px, calc(100vw - 32px)); gap: var(--space-2); pointer-events: none; }
+.toast { display: grid; min-height: var(--control-height-md); grid-template-columns: 1fr auto; align-items: center; gap: var(--space-3); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4); color: var(--color-text-inverse-primary); background: var(--color-bg-inverse); box-shadow: var(--shadow-md); font: 400 var(--text-body-size) / var(--text-body-line) var(--font-sans); pointer-events: auto; animation: toast-in var(--motion-duration-base) var(--motion-ease-decelerate); }
+.toastClose { width: var(--hit-area-min); min-height: var(--hit-area-min); margin: calc(var(--space-2) * -1); border: 0; padding: 0; color: inherit; background: transparent; cursor: pointer; }
+@keyframes listbox-in { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes backdrop-in { from { opacity: 0; } }
+@keyframes modal-in { from { opacity: 0; transform: scale(.98); } }
+@keyframes drawer-in { from { transform: translateX(100%); } }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+@media (max-width: 1023px) { .drawerBackdrop { place-items: end stretch; } .drawer { width: 100%; height: auto; max-height: 80vh; border-radius: var(--radius-lg) var(--radius-lg) 0 0; animation-name: drawer-up; } @keyframes drawer-up { from { transform: translateY(100%); } } }
+@media (prefers-reduced-motion: reduce) { .listbox, .backdrop, .modal, .drawer, .toast { transform: none; animation-duration: 0ms; } }

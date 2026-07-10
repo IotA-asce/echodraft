@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button, Modal } from "../../design-system";
 
 export function ConfirmAction({
   label,
@@ -16,30 +17,7 @@ export function ConfirmAction({
   onConfirm: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
-  if (confirming) {
-    return (
-      <span className="confirm-action">
-        <small>{message}</small>
-        <button
-          type="button"
-          className={className}
-          disabled={disabled}
-          onClick={() => {
-            setConfirming(false);
-            onConfirm();
-          }}
-        >
-          {confirmLabel ?? "Confirm"}
-        </button>
-        <button type="button" className="small-button secondary" onClick={() => setConfirming(false)}>
-          Cancel
-        </button>
-      </span>
-    );
-  }
   return (
-    <button type="button" className={className} disabled={disabled} onClick={() => setConfirming(true)}>
-      {label}
-    </button>
+    <><button type="button" className={className} disabled={disabled} onClick={() => setConfirming(true)}>{label}</button><Modal open={confirming} onOpenChange={setConfirming} title={confirmLabel ?? "Confirm action"} description={message} size="sm" footer={<><Button type="button" variant="secondary" onClick={() => setConfirming(false)}>Cancel</Button><Button type="button" variant="destructive" disabled={disabled} onClick={() => { setConfirming(false); onConfirm(); }}>{confirmLabel ?? "Confirm"}</Button></>}><p>This action cannot be undone automatically.</p></Modal></>
   );
 }

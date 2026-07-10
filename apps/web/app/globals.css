@@ -154,3 +154,17 @@ select { min-height:36px; border:1px solid var(--line); border-radius:0; backgro
 .chapter-approval.current { border-left-color:var(--moss); background:rgba(48,75,61,.08); }
 .chapter-approval strong,.chapter-approval p { display:block; margin:0; }
 .chapter-approval p { margin-top:4px; color:var(--muted); font-size:.82rem; line-height:1.4; }
+
+/* v2 semantic bridge: legacy layouts remain operational while W7 route extraction replaces them. */
+:root {
+  --ink: var(--color-text-primary);
+  --paper: var(--color-bg);
+  --paper-deep: var(--color-surface-sunken);
+  --moss: var(--color-text-primary);
+  --clay: var(--color-text-secondary);
+  --muted: var(--color-text-secondary);
+  --line: var(--color-border);
+}
+html, body { color: var(--color-text-primary); background: var(--color-bg); font-family: var(--font-sans); }
+.skip-link { position: fixed; z-index: 100; top: var(--space-2); left: var(--space-2); padding: var(--space-3) var(--space-4); color: var(--color-text-inverse-primary); background: var(--color-bg-inverse); border-radius: var(--radius-sm); transform: translateY(-150%); }
+.skip-link:focus { transform: translateY(0); }

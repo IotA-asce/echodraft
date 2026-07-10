@@ -295,5 +295,10 @@ It is separate from the completed G1-G20 alpha gap tracker above.
 
 - [ ] Phase B - Expressive TTS and generative sound.
 - [ ] Phase C - Minimal monochrome UI.
+  - [x] W7.1 - Monochrome design tokens and accessible primitives.
+    - Evidence: `feat/design-system-primitives`; semantic light/dark tokens, reduced-motion
+      timing, custom Button/Select/Range, focus-contained Modal/Drawer, and an SSR-safe Toast live
+      region now back every primary select, slider, destructive confirmation, and evidence/model
+      disclosure. The eight-scenario Playwright workflow and static production build remain green.
 - [ ] Phase D - Desktop packaging.
 - [ ] Phase E - Mobile.

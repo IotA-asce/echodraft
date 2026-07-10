@@ -20,7 +20,7 @@ export function StudioShell({
   return (
     <div className="studio-shell-grid">
       <WorkflowSidebar steps={steps} activeStep={activeStep} onStepChange={onStepChange} />
-      <main className="studio-active-panel">
+      <main id="main-content" className="studio-active-panel" tabIndex={-1}>
         {nextAction ? (
           <aside className="next-action-card" aria-label="Next best action">
             <div>

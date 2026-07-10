@@ -1,4 +1,5 @@
 import type { Character, SpeakerAttribution } from "../../api";
+import { Select } from "../../design-system";
 
 type SpeakerAttributionUpdatePayload = {
   characterId?: string | null;
@@ -63,23 +64,18 @@ export function CastReview({
                   </small>
                 </div>
                 <div className="cast-card-actions">
-                  <select
+                  <Select
+                    label={`Character for ${item.speakerName || "speaker"}`}
                     value={item.characterId ?? ""}
-                    onChange={(event) =>
+                    onValueChange={(value) =>
                       void onSave(item.id, {
-                        characterId: event.currentTarget.value || null,
-                        status: event.currentTarget.value ? "approved" : "needs_review",
+                        characterId: value || null,
+                        status: value ? "approved" : "needs_review",
                         userLocked: true,
                       })
                     }
-                  >
-                    <option value="">No character</option>
-                    {activeCharacters.map((character) => (
-                      <option key={character.id} value={character.id}>
-                        {character.displayName}
-                      </option>
-                    ))}
-                  </select>
+                    options={[{ value: "", label: "No character" }, ...activeCharacters.map((character) => ({ value: character.id, label: character.displayName }))]}
+                  />
                   <button type="button" className="small-button" onClick={() => void onSave(item.id, { characterId: null, status: "approved", userLocked: true })}>
                     Narrator
                   </button>
