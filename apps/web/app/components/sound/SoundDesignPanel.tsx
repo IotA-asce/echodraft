@@ -1,5 +1,6 @@
 import type { ChangeEvent } from "react";
 import type { SoundAsset, SoundCue } from "../../api";
+import { Range, Select } from "../../design-system";
 import { formatDuration } from "../../lib/format";
 
 export function SoundDesignPanel({
@@ -47,50 +48,15 @@ export function SoundDesignPanel({
         <span>{cues.length} cues · clean by default</span>
       </div>
       <div className="sound-design-grid">
-        <label>
-          Import type
-          <select value={assetType} onChange={(event) => onAssetType(event.currentTarget.value as "ambience" | "music" | "sfx")}>
-            <option value="ambience">Ambience</option>
-            <option value="music">Music</option>
-            <option value="sfx">SFX</option>
-          </select>
-        </label>
+        <Select label="Import type" value={assetType} onValueChange={(value) => onAssetType(value as "ambience" | "music" | "sfx")} options={[{ value: "ambience", label: "Ambience" }, { value: "music", label: "Music" }, { value: "sfx", label: "SFX" }]} />
         <label className="sound-upload">
           WAV asset
           <input type="file" accept=".wav,audio/wav,audio/x-wav" disabled={busy} onChange={onFile} />
         </label>
-        <label>
-          Asset
-          <select value={selected?.id ?? ""} onChange={(event) => onAssetSelect(event.currentTarget.value)}>
-            <option value="">No asset</option>
-            {assets.map((asset) => (
-              <option key={asset.id} value={asset.id}>
-                {asset.name} · {asset.assetType}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Cue type
-          <select value={cueType} onChange={(event) => onCueType(event.currentTarget.value as "ambience" | "music" | "sfx")}>
-            <option value="ambience">Ambience</option>
-            <option value="music">Music</option>
-            <option value="sfx">SFX</option>
-          </select>
-        </label>
-        <label>
-          Mix mode
-          <select value={renderMode} onChange={(event) => onRenderMode(event.currentTarget.value as "light" | "dramatized" | "all")}>
-            <option value="light">Light</option>
-            <option value="dramatized">Dramatized</option>
-            <option value="all">Both</option>
-          </select>
-        </label>
-        <label>
-          Gain
-          <input type="range" min="-48" max="-6" step="1" value={gain} onChange={(event) => onGain(Number(event.currentTarget.value))} />
-          <small>{gain} dB with ducking</small>
-        </label>
+        <Select label="Asset" value={selected?.id ?? ""} onValueChange={onAssetSelect} options={[{ value: "", label: "No asset" }, ...assets.map((asset) => ({ value: asset.id, label: `${asset.name} · ${asset.assetType}` }))]} />
+        <Select label="Cue type" value={cueType} onValueChange={(value) => onCueType(value as "ambience" | "music" | "sfx")} options={[{ value: "ambience", label: "Ambience" }, { value: "music", label: "Music" }, { value: "sfx", label: "SFX" }]} />
+        <Select label="Mix mode" value={renderMode} onValueChange={(value) => onRenderMode(value as "light" | "dramatized" | "all")} options={[{ value: "light", label: "Light" }, { value: "dramatized", label: "Dramatized" }, { value: "all", label: "Both" }]} />
+        <Range label="Gain" min={-48} max={-6} step={1} value={gain} onValueChange={onGain} formatValue={(value) => `${value} dB`} />
       </div>
       <div className="sound-actions">
         <button type="button" className="small-button" disabled={busy || !currentSceneId || !selected} onClick={() => void onAddCue()}>

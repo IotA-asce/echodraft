@@ -465,7 +465,7 @@ virtualization, SSE-pushed progress, monolith retirement. Owning docs:
 
 **Tasks.**
 
-- [ ] **W7.1 — Design tokens + primitives.** Branch `feat/design-system-primitives`. Build
+- [x] **W7.1 — Design tokens + primitives.** Branch `feat/design-system-primitives`. Build
   `apps/web/app/design-system/` — monochrome black/white tokens, thin type + spacing scales,
   motion spec, and primitives (Button, Select, Range, Modal/Drawer/Toast) replacing raw
   `<select>`/`<input type=range>`/`<details>` browser chrome. Verify: `npm run web:lint`,

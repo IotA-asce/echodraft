@@ -3,6 +3,7 @@ import type { Chapter, ExportEstimate, ExportFormat, ExportPackage, Project } fr
 import { assetUrl } from "../../api";
 import { formatBytes } from "../../lib/format";
 import { EmptyState } from "../common/EmptyState";
+import { Select } from "../../design-system";
 
 export function ExportPanel({
   project,
@@ -83,14 +84,7 @@ export function ExportPanel({
           ))}
         </div>
         <div className="export-polish-grid">
-          <label>
-            Audio
-            <select value={audioVariant} onChange={(event) => onAudioVariantChange(event.currentTarget.value as "active" | "clean" | "mixed")}>
-              <option value="active">Active audio version</option>
-              <option value="clean">Clean narration</option>
-              <option value="mixed">Mixed render</option>
-            </select>
-          </label>
+          <Select label="Audio" value={audioVariant} onValueChange={(value) => onAudioVariantChange(value as "active" | "clean" | "mixed")} options={[{ value: "active", label: "Active audio version" }, { value: "clean", label: "Clean narration" }, { value: "mixed", label: "Mixed render" }]} />
           <label>
             Title
             <input value={title} placeholder={project.title} onChange={(event) => onTitleChange(event.currentTarget.value)} />
