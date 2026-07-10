@@ -32,6 +32,7 @@ class AppSettings:
     structure_v2_enabled: bool = False
     cast_v2_enabled: bool = False
     attribution_v2_enabled: bool = False
+    confidence_v2_enabled: bool = False
 
     @classmethod
     def from_environment(cls) -> "AppSettings":
@@ -115,6 +116,8 @@ class AppSettings:
             or _env_truthy("ECHODRAFT_CAST_V2"),
             attribution_v2_enabled=_env_truthy("ECHODRAFT_ATTRIBUTION_V2_ENABLED")
             or _env_truthy("ECHODRAFT_ATTRIBUTION_V2"),
+            confidence_v2_enabled=_env_truthy("ECHODRAFT_CONFIDENCE_V2_ENABLED")
+            or _env_truthy("ECHODRAFT_CONFIDENCE_V2"),
         )
 
 

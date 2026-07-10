@@ -218,6 +218,7 @@ class ReviewService:
             description=record.description,
             status=record.status,
             metadata=json.loads(record.metadata_json),
+            reviewTaskId=record.review_task_id,
         )
 
     @staticmethod

@@ -59,6 +59,8 @@ from echodraft_domain import (
     ReadinessRunRequest,
     RenderQueueItem,
     ReparseRequest,
+    ReviewTask,
+    ReviewTaskUpdate,
     Scene,
     SceneUpdate,
     Segment,
@@ -117,6 +119,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .config import AppSettings
+from .confidence import ConfidenceReviewService
 from .container import AppContainer, build_container
 from .logging import configure_logging
 from .ingestion import IngestionError, IngestionService, PARSER_VERSION
@@ -1862,6 +1865,36 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             return ReadinessService(request.app.state.container).reports(project_id)
         except ValueError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/projects/{project_id}/review-tasks",
+        response_model=list[ReviewTask],
+    )
+    def list_review_tasks(
+        project_id: str,
+        request: Request,
+        status_filter: str | None = None,
+    ) -> list[ReviewTask]:
+        try:
+            return ConfidenceReviewService(request.app.state.container).list_tasks(
+                project_id, status_filter
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.patch("/api/v1/review-tasks/{task_id}", response_model=ReviewTask)
+    def update_review_task(
+        task_id: str, payload: ReviewTaskUpdate, request: Request
+    ) -> ReviewTask:
+        try:
+            task = ConfidenceReviewService(request.app.state.container).update_task(
+                task_id, payload.status
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if not task:
+            raise HTTPException(status_code=404, detail="Review task not found")
+        return task
 
     @app.get("/api/v1/projects/{project_id}/issues", response_model=list[Issue])
     def list_issues(

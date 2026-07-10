@@ -1275,6 +1275,11 @@ class StructureCompiler:
             "segment_type": draft.segment_type,
             "speaker_candidate": draft.speaker_hint,
             "speaker_confidence": draft.speaker_confidence,
+            "confidence": (
+                min(max(draft.speaker_confidence, 0.5), 0.64)
+                if draft.status == "needs_review"
+                else max(draft.speaker_confidence, 0.9)
+            ),
             "start_offset": draft.start_offset,
             "end_offset": draft.end_offset,
             "revision": 1,
