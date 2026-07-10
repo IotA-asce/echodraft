@@ -102,7 +102,9 @@ Echodraft is a **working alpha** — the full local production loop is implement
 - Export to WAV, MP3, and M4B with chapter markers, metadata, QA scorecards, and render lineage
 - A Model Center that installs and verifies local tools and models with explicit consent
 
-**Known honest gaps** (this is exactly what the roadmap attacks): extraction of a long book is slow today (sequential LLM calls), voice assignment is manual, emotion direction doesn't yet reach the synthesizer, sound design assets are user-uploaded, and the UI needs its redesign. Every one of these has a completed design doc and a scheduled workstream — see below.
+**The v2 engine has landed behind feature flags** (default-off until they pass real-corpus quality gates): parallelized, checkpoint-resumable extraction with an inference cache; embedding-clustered cast discovery; LLM-primary speaker attribution with self-consistency voting; fully automatic voice casting with a measured voice catalog, narrator selection, and a constraint-relaxation solver; procedural (Tier-0) ambience/SFX/music planned and placed automatically from per-scene atmosphere profiles; a live SSE job-event stream; and a monochrome token-based UI with virtualized lists and query-driven polling.
+
+**Known honest gaps**: the v2 quality gates have only run on synthetic fixtures so far (real-corpus certification is the V3 "Prove" arc), expressive emotion doesn't yet reach a synthesizer (needs the GPU bake-off), generative audio models aren't integrated (procedural tier only), and desktop/mobile packaging hasn't started. Every gap has a design doc and a scheduled workstream — see the [V3 plan](docs/plans/2026-07-10-v3-plan.md).
 
 ## Quick start
 
@@ -130,22 +132,22 @@ Full setup (Windows/macOS/Linux specifics, TTS providers, OCR, configuration, tr
 
 ## Roadmap
 
-The target product is fully specified in the [v2 documentation suite](docs/README.md) and sequenced in the [implementation roadmap](docs/plans/2026-07-07-v2-implementation-roadmap.md). The ten workstreams:
+The target product is fully specified in the [v2 documentation suite](docs/README.md), sequenced in the [v2 implementation roadmap](docs/plans/2026-07-07-v2-implementation-roadmap.md), and carried forward by the [V3 plan](docs/plans/2026-07-10-v3-plan.md) (three arcs: **Prove** real-corpus quality and graduate the flags, **Perform** expressive TTS and generative sound, **Ship** desktop and mobile apps). Workstream status:
 
-| # | Workstream | Design doc |
-| --- | --- | --- |
-| W0 | UI performance quick wins (kill the freezes) | [frontend-architecture](docs/ui/frontend-architecture.md) |
-| W1 | Quality evaluation baseline (golden corpus, metrics) | [quality-evaluation-v2](docs/pipeline/qa/quality-evaluation-v2.md) |
-| W2 | Parallel, resumable pipeline orchestrator | [target-architecture](docs/architecture/target-architecture.md) |
-| W3 | LLM-first extraction — hours → minutes, minimal flags | [extraction-pipeline-v2](docs/architecture/extraction-pipeline-v2.md) |
-| W4 | Fully automatic voice casting | [automatic-casting-v2](docs/pipeline/casting/automatic-casting-v2.md) |
-| W5 | Expressive, emotion-aware TTS + voice synthesis | [tts-engine-strategy](docs/pipeline/tts/tts-engine-strategy.md) |
-| W6 | AI-generated ambience, SFX, and music | [generative-sound-design](docs/pipeline/assembly/generative-sound-design.md) |
-| W7 | Monochrome UI overhaul | [design-system](docs/ui/design-system.md) |
-| W8 | Desktop apps with self-contained dependencies | [cross-platform-strategy](docs/platform/cross-platform-strategy.md) |
-| W9 | Mobile apps | [cross-platform-strategy](docs/platform/cross-platform-strategy.md) |
+| # | Workstream | Design doc | Status |
+| --- | --- | --- | --- |
+| W0 | UI performance quick wins (kill the freezes) | [frontend-architecture](docs/ui/frontend-architecture.md) | ✅ Landed |
+| W1 | Quality evaluation baseline (golden corpus, metrics) | [quality-evaluation-v2](docs/pipeline/qa/quality-evaluation-v2.md) | ✅ Landed (synthetic baseline; real-corpus runs are V3) |
+| W2 | Parallel, resumable pipeline orchestrator | [target-architecture](docs/architecture/target-architecture.md) | ✅ Landed |
+| W3 | LLM-first extraction — hours → minutes, minimal flags | [extraction-pipeline-v2](docs/architecture/extraction-pipeline-v2.md) | ✅ Landed (flag-gated) |
+| W4 | Fully automatic voice casting | [automatic-casting-v2](docs/pipeline/casting/automatic-casting-v2.md) | ✅ Landed (flag-gated) |
+| W5 | Expressive, emotion-aware TTS + voice synthesis | [tts-engine-strategy](docs/pipeline/tts/tts-engine-strategy.md) | 🔶 Engine host + honest direction compiler landed; Tier-S bake-off needs GPU hardware |
+| W6 | AI-generated ambience, SFX, and music | [generative-sound-design](docs/pipeline/assembly/generative-sound-design.md) | 🔶 Procedural Tier-0 landed; generative tier open |
+| W7 | Monochrome UI overhaul | [design-system](docs/ui/design-system.md) | 🔶 Tokens, primitives, monochrome theme, virtualization landed; route extraction open |
+| W8 | Desktop apps with self-contained dependencies | [cross-platform-strategy](docs/platform/cross-platform-strategy.md) | ⬜ Open (V3) |
+| W9 | Mobile apps | [cross-platform-strategy](docs/platform/cross-platform-strategy.md) | ⬜ Open (V3) |
 
-Milestones: **M1** sub-hour extraction of a 500-page book → **M2** zero-touch book (upload → export with no required steps) → **M3** first signed desktop installer → **M4** phone playback of a desktop-produced book.
+Milestones: **M1** sub-hour extraction of a 500-page book → **M2** zero-touch book (upload → export with no required steps) → **M3** first signed desktop installer → **M4** phone playback of a desktop-produced book. M1/M2 mechanics are in place; certifying them on real books is [V3 Arc 1](docs/plans/2026-07-10-v3-plan.md).
 
 ## Contributing
 
