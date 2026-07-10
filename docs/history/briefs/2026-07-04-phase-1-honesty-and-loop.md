@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close gaps G4, G8, G6, G7 from [`docs/analysis/gap-analysis.md`](../analysis/gap-analysis.md) per [`docs/product/roadmap.md`](../product/roadmap.md) Phase 1: no UI control silently no-ops, well-formed DOCX/EPUB books structure correctly, corrections propagate and teach, and reviewers act on evidence-rich queues instead of text logs.
+**Goal:** Close gaps G4, G8, G6, G7 from [`docs/history/analysis/gap-analysis.md`](../analysis/gap-analysis.md) per [`docs/product/roadmap.md`](../../product/roadmap.md) Phase 1: no UI control silently no-ops, well-formed DOCX/EPUB books structure correctly, corrections propagate and teach, and reviewers act on evidence-rich queues instead of text logs.
 
 **Architecture:** Four sequential tasks (stream A), each on its own feature branch off latest `main`, merged `--no-ff` and pushed after task review. Runs in parallel with the Phase 2 stream (separate plan); Task A1 must merge before Phase 2's G5 task starts (both touch `assembly.py`).
 

@@ -1,7 +1,7 @@
 # Echodraft — Roadmap to a Flawless Product
 
 **Date:** 2026-07-03
-**Derived from:** [`gap-analysis.md`](../analysis/gap-analysis.md) (gap register G1–G20), which measures the current build against [`product-vision-analysis.md`](../analysis/product-vision-analysis.md). Engineering specifics: [`deep-analysis-report.md`](../analysis/deep-analysis-report.md).
+**Derived from:** [`gap-analysis.md`](../history/analysis/gap-analysis.md) (gap register G1–G20), which measures the current build against [`product-vision-analysis.md`](../history/analysis/product-vision-analysis.md). Engineering specifics: [`deep-analysis-report.md`](../history/analysis/deep-analysis-report.md).
 **"Flawless" means:** [`quality-benchmark.md`](quality-benchmark.md) — the Sunday Suspense yardstick. Most benchmark dimensions are reachable with the local stack (they're closed by the phases below); the expressive-performance ceiling (dimension B4) is a tiering decision surfaced in Phase 2.
 
 ---

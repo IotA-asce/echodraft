@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close gaps G11, G5, G13 per [`docs/product/roadmap.md`](../product/roadmap.md) Phase 2: exports meet ACX-style loudness/true-peak targets, ship as a tagged chapter-marked M4B (and tagged MP3) with a retail sample, and carry a trustworthy QA scorecard.
+**Goal:** Close gaps G11, G5, G13 per [`docs/product/roadmap.md`](../../product/roadmap.md) Phase 2: exports meet ACX-style loudness/true-peak targets, ship as a tagged chapter-marked M4B (and tagged MP3) with a retail sample, and carry a trustworthy QA scorecard.
 
 **Architecture:** Three sequential tasks (stream B), each on its own feature branch off latest `main`, merged `--no-ff` and pushed after task review. Runs in parallel with the Phase 1 stream. **Ordering constraint:** B1 (G5) rewrites `assembly.py` — it must not run concurrently with Phase 1's A1 (G4, also touches `assembly.py`); B1 starts only after A1 is merged. B2 (G11) is file-disjoint from stream A and runs first.
 

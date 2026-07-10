@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to execute this program workstream-by-workstream,
 > task-by-task. Every task uses checkbox (`- [ ]`) syntax for tracking. This plan is the successor
-> to the [v2 implementation roadmap](2026-07-07-v2-implementation-roadmap.md); that roadmap's
+> to the [v2 implementation roadmap](v2-implementation-roadmap.md); that roadmap's
 > workstreams (W0–W9) and their owning design docs remain valid and are the source of truth for
 > *what* and *how*. This plan owns *what remains*, *in what order*, and *how we prove it on real
 > books*.
@@ -112,7 +112,7 @@ per-flag, evidence-backed commit — never a blanket toggle.
 
 - [ ] **V3-A1 — Live corpus certification run.** Branch `feat/eval-live-corpus-run`. Fetch + verify
   the 5-book golden corpus; run `scripts/run_eval.py` end-to-end with the **live LLM** and every v2
-  flag ON; record a versioned report to `docs/analysis/eval-baselines/YYYY-MM-DD-v3-corpus.json`
+  flag ON; record a versioned report to `docs/evals/YYYY-MM-DD-v3-corpus.json`
   plus a markdown summary stating hardware tier, runtime, and per-book accuracy/flags/wall-clock.
   This is the file every graduation decision below cites. Verify: harness runs to completion on all
   5 books; `uv run ruff check .`; `uv run mypy apps/api/src libs/db/src libs/domain-models/src`.
@@ -148,14 +148,14 @@ per-flag, evidence-backed commit — never a blanket toggle.
 - [ ] **V3-A6 — 500-page wall-clock benchmark program.** Branch `feat/wallclock-benchmark`. Add a
   reproducible benchmark harness that times ingestion → structure → cast → attribution →
   first-listenable-chapter for a 500-page book across declared hardware tiers; publish results (with
-  hardware manifest, no manuscript content) to `docs/analysis/500-page-wallclock/`. **Gate:** ≤ 45
+  hardware manifest, no manuscript content) to `docs/evals/500-page-wallclock/`. **Gate:** ≤ 45
   min understanding, ≤ 10 min first chapter on the mid-tier reference machine, or an honest
   `UNCERTIFIED` + gap analysis if the reference machine is unavailable. Verify: harness runs; report
   committed; `uv run ruff check .`. Size: **M**.
 - [ ] **V3-A7 — Community benchmark contribution path.** Branch `feat/community-benchmark-kit`. Turn
   V3-A6 into a one-command, telemetry-free kit a community member runs on their own hardware, which
   emits a shareable local report (hardware tier, wall-clock, flags — no manuscript content) they can
-  PR into `docs/analysis/500-page-wallclock/community/`. Document the contribution flow in the kit's
+  PR into `docs/evals/500-page-wallclock/community/`. Document the contribution flow in the kit's
   README section. Verify: kit runs on a fresh checkout; produces a valid report; `uv run ruff check .`.
   Size: **M**.
 
@@ -196,7 +196,7 @@ arc's flags stay OFF. That is the honest state, not a failure to route around.
   GPU machine with consented model downloads, run the eight-script bake-off against R10
   (expressiveness, blind-rated) + R13 (license) hard gates; record results and the selected engine
   (or a recorded "no candidate cleared both gates") in
-  [`docs/pipeline/tts/bakeoff-results.md`](../pipeline/tts/bakeoff-results.md). This task *selects*;
+  [`docs/evals/2026-07-10-tts-bakeoff-results.md`](../evals/2026-07-10-tts-bakeoff-results.md). This task *selects*;
   it does not integrate. Verify: bake-off harness runs on real candidates; blind ratings recorded;
   `uv run ruff check .`. Size: **L**.
 - [ ] **V3-B2 — Tier-S integration + voice identity records.** Branch `feat/tts-tier-s-integration`
@@ -243,7 +243,7 @@ arc's flags stay OFF. That is the honest state, not a failure to route around.
   structured blind listening program over benchmark scenes that certifies the "supports, never
   masks" mixing discipline by measurement (spectral flatness, ducking depth, dialogue
   intelligibility) *and* by panel rating; publish the protocol + results to
-  `docs/analysis/listening-program/`. Verify: measurements reproducible; ratings recorded;
+  `docs/evals/listening-program/`. Verify: measurements reproducible; ratings recorded;
   `uv run ruff check .`. Size: **M**.
 
 **Arc 2 exit.** Directed emotion is *audible* in blind A/B on B4 scenes; a Tier-S engine is selected
@@ -508,11 +508,11 @@ front door for contributors:
 
 - **V3-A7 community benchmark kit** — a one-command, telemetry-free harness a contributor runs on
   *their* hardware to produce a shareable 500-page wall-clock report (hardware tier, timings, flag
-  counts — no manuscript content) they PR into `docs/analysis/500-page-wallclock/community/`. Every
+  counts — no manuscript content) they PR into `docs/evals/500-page-wallclock/community/`. Every
   tier of hardware a contributor owns widens the certification the maintainer alone cannot produce.
 - **Tier-S bake-off runs on contributor GPUs** — V3-B1 records blind ratings + license clearance;
   a contributor with a GPU + the consented models can run a bake-off pass and contribute results to
-  [`bakeoff-results.md`](../pipeline/tts/bakeoff-results.md), unblocking Arc 2 on hardware the
+  [`bakeoff-results.md`](../evals/2026-07-10-tts-bakeoff-results.md), unblocking Arc 2 on hardware the
   maintainer lacks.
 
 **Good-first-workstreams** (self-contained, no GPU, no signing creds, clear gate):

@@ -51,8 +51,8 @@
 
 **Files:**
 - Modify: `docs/pipeline/tts/tts-production-upgrade.md`
-- Modify: `docs/analysis/gap-analysis.md`
-- Modify: `docs/analysis/product-vision-analysis.md`
+- Modify: `docs/history/analysis/gap-analysis.md`
+- Modify: `docs/history/analysis/product-vision-analysis.md`
 - Modify: `docs/progress-tracker.md`
 
 **Steps:**

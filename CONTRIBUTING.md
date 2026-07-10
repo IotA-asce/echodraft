@@ -19,7 +19,7 @@ Read in roughly this order:
 2. The [v2 target-product documentation suite](docs/README.md#target-product-v2-documentation-suite)
    — the design for the complete product, starting with
    [`product-vision-v2.md`](docs/product/product-vision-v2.md).
-3. [`docs/plans/2026-07-07-v2-implementation-roadmap.md`](docs/plans/2026-07-07-v2-implementation-roadmap.md)
+3. [`docs/plans/v2-implementation-roadmap.md`](docs/plans/v2-implementation-roadmap.md)
    — the master implementation plan that sequences the v2 suite into
    dependency-ordered workstreams (W0–W9). This is the best map of "what's
    available to work on."
@@ -31,7 +31,7 @@ Read in roughly this order:
 
 ### Code — pick a roadmap workstream
 
-The [v2 implementation roadmap](docs/plans/2026-07-07-v2-implementation-roadmap.md)
+The [v2 implementation roadmap](docs/plans/v2-implementation-roadmap.md)
 breaks the whole program into dependency-ordered workstreams. Each one cites
 an owning design doc that remains the source of truth for *what* to build:
 
@@ -65,7 +65,7 @@ implementing are all welcome — see the
 This is uniquely valuable for an audiobook project and hard to source
 elsewhere. Extraction and casting quality are measured against a golden
 corpus of hand-labeled, public-domain text (see
-[W1](docs/plans/2026-07-07-v2-implementation-roadmap.md) and
+[W1](docs/plans/v2-implementation-roadmap.md) and
 [`quality-evaluation-v2.md`](docs/pipeline/qa/quality-evaluation-v2.md)). You
 can help by:
 
@@ -177,7 +177,7 @@ ECHODRAFT_DATABASE_URL=sqlite:///./.tmp/echodraft-migration.db \
 
 - Keep scope small — one workstream task or one logical change per PR.
 - Link the design doc and/or workstream task in the description (e.g.
-  "implements W3.1, see `docs/plans/2026-07-07-v2-implementation-roadmap.md`").
+  "implements W3.1, see `docs/plans/v2-implementation-roadmap.md`").
 - Include the verification output you ran, or state clearly which checks you
   couldn't run and why.
 - Call out any behavior change that needs a docs update, and make that

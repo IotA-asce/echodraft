@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for proposing an improvement. Check the [v2 implementation roadmap](https://github.com/IotA-asce/echodraft/blob/main/docs/plans/2026-07-07-v2-implementation-roadmap.md) first — your idea may already be scoped into a workstream (W0–W9).
+        Thanks for proposing an improvement. Check the [v2 implementation roadmap](https://github.com/IotA-asce/echodraft/blob/main/docs/plans/v2-implementation-roadmap.md) first — your idea may already be scoped into a workstream (W0–W9).
   - type: textarea
     id: problem
     attributes:

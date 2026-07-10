@@ -17,7 +17,7 @@ document sets direction, the following siblings specify the how:
 It builds on, and does not contradict, the current-state product docs:
 [`project-overview.md`](project-overview.md), [`platform-evolution.md`](platform-evolution.md),
 [`quality-benchmark.md`](quality-benchmark.md), and
-[`../analysis/product-vision-analysis.md`](../analysis/product-vision-analysis.md).
+[`../history/analysis/product-vision-analysis.md`](../history/analysis/product-vision-analysis.md).
 
 ---
 

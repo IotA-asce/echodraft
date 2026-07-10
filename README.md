@@ -51,7 +51,7 @@ Where this project is headed — and where we want collaborators:
 - **Minimal, monochrome UI.** Two colors, thin type, only necessary motion. The book is the star.
 - **Local-first, forever.** No mandatory cloud, no uploads, no accounts. Optional cloud tiers may come later; they will never be required.
 
-This isn't hand-waving: the complete target product is already designed in a **15-document engineering blueprint** — architecture, algorithms, data model, API contracts, UI spec, evaluation harness, and a workstream-by-workstream [implementation roadmap](docs/plans/2026-07-07-v2-implementation-roadmap.md). Start at [`docs/README.md`](docs/README.md).
+This isn't hand-waving: the complete target product is already designed in a **15-document engineering blueprint** — architecture, algorithms, data model, API contracts, UI spec, evaluation harness, and a workstream-by-workstream [implementation roadmap](docs/plans/v2-implementation-roadmap.md). Start at [`docs/README.md`](docs/README.md).
 
 ## How it works
 
@@ -104,7 +104,7 @@ Echodraft is a **working alpha** — the full local production loop is implement
 
 **The v2 engine has landed behind feature flags** (default-off until they pass real-corpus quality gates): parallelized, checkpoint-resumable extraction with an inference cache; embedding-clustered cast discovery; LLM-primary speaker attribution with self-consistency voting; fully automatic voice casting with a measured voice catalog, narrator selection, and a constraint-relaxation solver; procedural (Tier-0) ambience/SFX/music planned and placed automatically from per-scene atmosphere profiles; a live SSE job-event stream; and a monochrome token-based UI with virtualized lists and query-driven polling.
 
-**Known honest gaps**: the v2 quality gates have only run on synthetic fixtures so far (real-corpus certification is the V3 "Prove" arc), expressive emotion doesn't yet reach a synthesizer (needs the GPU bake-off), generative audio models aren't integrated (procedural tier only), and desktop/mobile packaging hasn't started. Every gap has a design doc and a scheduled workstream — see the [V3 plan](docs/plans/2026-07-10-v3-plan.md).
+**Known honest gaps**: the v2 quality gates have only run on synthetic fixtures so far (real-corpus certification is the V3 "Prove" arc), expressive emotion doesn't yet reach a synthesizer (needs the GPU bake-off), generative audio models aren't integrated (procedural tier only), and desktop/mobile packaging hasn't started. Every gap has a design doc and a scheduled workstream — see the [V3 plan](docs/plans/v3-plan.md).
 
 ## Quick start
 
@@ -132,7 +132,7 @@ Full setup (Windows/macOS/Linux specifics, TTS providers, OCR, configuration, tr
 
 ## Roadmap
 
-The target product is fully specified in the [v2 documentation suite](docs/README.md), sequenced in the [v2 implementation roadmap](docs/plans/2026-07-07-v2-implementation-roadmap.md), and carried forward by the [V3 plan](docs/plans/2026-07-10-v3-plan.md) (three arcs: **Prove** real-corpus quality and graduate the flags, **Perform** expressive TTS and generative sound, **Ship** desktop and mobile apps). Workstream status:
+The target product is fully specified in the [v2 documentation suite](docs/README.md), sequenced in the [v2 implementation roadmap](docs/plans/v2-implementation-roadmap.md), and carried forward by the [V3 plan](docs/plans/v3-plan.md) (three arcs: **Prove** real-corpus quality and graduate the flags, **Perform** expressive TTS and generative sound, **Ship** desktop and mobile apps). Workstream status:
 
 | # | Workstream | Design doc | Status |
 | --- | --- | --- | --- |
@@ -147,13 +147,13 @@ The target product is fully specified in the [v2 documentation suite](docs/READM
 | W8 | Desktop apps with self-contained dependencies | [cross-platform-strategy](docs/platform/cross-platform-strategy.md) | ⬜ Open (V3) |
 | W9 | Mobile apps | [cross-platform-strategy](docs/platform/cross-platform-strategy.md) | ⬜ Open (V3) |
 
-Milestones: **M1** sub-hour extraction of a 500-page book → **M2** zero-touch book (upload → export with no required steps) → **M3** first signed desktop installer → **M4** phone playback of a desktop-produced book. M1/M2 mechanics are in place; certifying them on real books is [V3 Arc 1](docs/plans/2026-07-10-v3-plan.md).
+Milestones: **M1** sub-hour extraction of a 500-page book → **M2** zero-touch book (upload → export with no required steps) → **M3** first signed desktop installer → **M4** phone playback of a desktop-produced book. M1/M2 mechanics are in place; certifying them on real books is [V3 Arc 1](docs/plans/v3-plan.md).
 
 ## Contributing
 
 Contributions are very welcome — this project is intentionally designed so people can pick up well-scoped work:
 
-- **Code:** every roadmap workstream is broken into feature-branch-sized tasks with entry/exit criteria. Pick one from the [roadmap](docs/plans/2026-07-07-v2-implementation-roadmap.md).
+- **Code:** every roadmap workstream is broken into feature-branch-sized tasks with entry/exit criteria. Pick one from the [roadmap](docs/plans/v2-implementation-roadmap.md).
 - **Not just code:** golden-corpus labeling, blind listening evaluations, and TTS/audio model bake-offs on varied hardware (especially GPUs, Apple Silicon, and low-end machines) are first-class contributions here.
 - **Docs & design:** the v2 suite thrives on review — find a hole in an algorithm, challenge a model choice, improve a spec.
 

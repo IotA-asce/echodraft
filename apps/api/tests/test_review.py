@@ -717,7 +717,7 @@ def test_patch_without_direction_resolves_saved_segment_direction(client) -> Non
 
 # --- `ReviewService._audio_rules` unit coverage -----------------------------------------
 # These call the rule function directly against fabricated WAVs (no HTTP/DB round trip) so
-# each real metric can be isolated precisely, per docs/plans/2026-07-04-phase-2-publishable-
+# each real metric can be isolated precisely, per docs/history/briefs/2026-07-04-phase-2-publishable-
 # audio.md Task B2.
 
 

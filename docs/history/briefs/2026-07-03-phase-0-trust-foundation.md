@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make "ready / resolved / fixed" live facts and make the pipeline reliably deliver what it computed — closing gaps G1, G2, G3, G12 from [`docs/analysis/gap-analysis.md`](../analysis/gap-analysis.md) per [`docs/product/roadmap.md`](../product/roadmap.md) Phase 0.
+**Goal:** Make "ready / resolved / fixed" live facts and make the pipeline reliably deliver what it computed — closing gaps G1, G2, G3, G12 from [`docs/history/analysis/gap-analysis.md`](../analysis/gap-analysis.md) per [`docs/product/roadmap.md`](../../product/roadmap.md) Phase 0.
 
 **Architecture:** Four independent, sequential tasks, each on its own feature branch merged `--no-ff` into `main` and pushed. Task 1 adds time-ordered render/export selection + a revision assertion at assembly. Task 2 makes patch force a fresh, correctly-voiced/directed re-render (server-side resolution). Task 3 replaces the readiness resolve-trap with re-derived, auto-resolving, re-surfacing semantics. Task 4 hardens SQLite (WAL/FK/busy_timeout, per-segment render serialization, uniqueness backstop), bounds the job executor, and adds CI with a schema-drift check.
 

@@ -40,9 +40,9 @@
 **Files:**
 - Modify: `apps/api/src/echodraft_api/speaker_attribution.py`
 - Modify: `apps/api/scripts/run_eval.py`
-- Modify: `docs/plans/2026-07-07-v2-implementation-roadmap.md`
+- Modify: `docs/plans/v2-implementation-roadmap.md`
 - Modify: `docs/progress-tracker.md`
-- Create: `docs/analysis/eval-baselines/2026-07-10-attribution-v2-gate.md`
+- Create: `docs/evals/2026-07-10-attribution-v2-gate.md`
 
 **Steps:**
 1. Write failing tests for cross-window state stitching, safe A/B/A repair, one row per segment, additive `attribution_manifest.json`, and user-lock survival.

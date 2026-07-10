@@ -46,7 +46,7 @@
 
 **Files:**
 - Modify: `apps/web/tests/foundations.spec.ts`
-- Modify: `docs/plans/2026-07-07-v2-implementation-roadmap.md`
+- Modify: `docs/plans/v2-implementation-roadmap.md`
 - Modify: `docs/progress-tracker.md`
 
 **Steps:**
