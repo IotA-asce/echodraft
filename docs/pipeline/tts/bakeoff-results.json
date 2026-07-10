@@ -1,0 +1,95 @@
+{
+  "candidateResults": [],
+  "candidates": [
+    {
+      "consent_required": true,
+      "display_name": "Chatterbox",
+      "eligibleForExecution": false,
+      "id": "chatterbox",
+      "import_name": "chatterbox",
+      "license": "MIT",
+      "license_gate": "pass",
+      "model_card_url": "https://huggingface.co/ResembleAI/chatterbox",
+      "runtimeInstalled": false,
+      "source_url": "https://github.com/resemble-ai/chatterbox"
+    },
+    {
+      "consent_required": true,
+      "display_name": "Zonos v0.1",
+      "eligibleForExecution": false,
+      "id": "zonos",
+      "import_name": "zonos",
+      "license": "Apache-2.0",
+      "license_gate": "pass",
+      "model_card_url": "https://huggingface.co/Zyphra/Zonos-v0.1-transformer",
+      "runtimeInstalled": false,
+      "source_url": "https://github.com/Zyphra/Zonos"
+    },
+    {
+      "consent_required": true,
+      "display_name": "Orpheus 3B",
+      "eligibleForExecution": false,
+      "id": "orpheus",
+      "import_name": "orpheus_tts",
+      "license": "Apache-2.0 model card; Llama-base terms require ledger review",
+      "license_gate": "conditional",
+      "model_card_url": "https://huggingface.co/canopylabs/orpheus-3b-0.1-pretrained",
+      "runtimeInstalled": false,
+      "source_url": "https://github.com/canopyai/Orpheus-TTS"
+    }
+  ],
+  "corpus": [
+    {
+      "id": "neutral",
+      "label": "Neutral narration",
+      "wordCount": 507
+    },
+    {
+      "id": "angry",
+      "label": "Angry outburst",
+      "wordCount": 12
+    },
+    {
+      "id": "whisper",
+      "label": "Whisper",
+      "wordCount": 10
+    },
+    {
+      "id": "laughter",
+      "label": "Authored laughter",
+      "wordCount": 10
+    },
+    {
+      "id": "grief",
+      "label": "Grief and anguish",
+      "wordCount": 14
+    },
+    {
+      "id": "long_stability",
+      "label": "Long paragraph stability",
+      "wordCount": 1640
+    },
+    {
+      "id": "multi_character",
+      "label": "Multi-character contrast",
+      "wordCount": 12
+    },
+    {
+      "id": "pronunciation",
+      "label": "Pronunciation",
+      "wordCount": 11
+    }
+  ],
+  "generatedAt": "2026-07-10T08:09:02.021921+00:00",
+  "hardware": {
+    "cpu_count": 10,
+    "gpu_vram_gib": null,
+    "machine": "arm64",
+    "platform": "darwin",
+    "source": "auto",
+    "total_ram_gib": 16.0,
+    "ttsDevice": "mps"
+  },
+  "schemaVersion": "1.0.0",
+  "selectedCandidate": null
+}

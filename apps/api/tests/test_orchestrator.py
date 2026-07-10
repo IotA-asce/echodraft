@@ -263,6 +263,7 @@ def test_tts_worker_count_and_device_follow_hardware() -> None:
         total_ram_gib=32,
         gpu_vram_gib=12,
         platform="darwin",
+        machine="arm64",
     )
 
     assert recommended_tts_workers(cpu) == 2
