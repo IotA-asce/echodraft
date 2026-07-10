@@ -266,6 +266,10 @@ It is separate from the completed G1-G20 alpha gap tracker above.
       pace/sentence silence while preserving the existing effective/unsupported direction contract
       exactly for custom Kokoro, Piper, managed Kokoro, and XTTS.
   - [ ] W5.3 - Tier-S bake-off and selection.
+    - Harness ready: `feat/tts-bakeoff`; the fixed eight-script scorer, R10/R13 hard gates, current
+      hardware/runtime preflight, and fail-closed selector are implemented. The recorded M4 run has
+      no installed candidate runtime, so no engine is selected without explicit Model Center
+      download/license consent and blind ratings.
   - [ ] W5.4 - Selected Tier-S integration and voice identities.
   - [ ] W5.5 - Expressive mappings and ASR-gated retry.
   - [ ] W5.6 - New-voice synthesis and consent-gated cloning.
