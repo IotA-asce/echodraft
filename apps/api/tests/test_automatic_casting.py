@@ -1,10 +1,17 @@
+import json
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 
+import pytest
 from echodraft_api.automatic_casting import AutomaticCastingService, detect_point_of_view
+from echodraft_api.config import AppSettings
+from echodraft_api.voice_catalog import VoiceCatalogService
 from echodraft_db.models import (
     CastingDecisionRecord,
     ChapterRecord,
+    CharacterVoiceAssignmentRecord,
     SceneRecord,
     SegmentRecord,
     SpeakerAttributionRecord,
@@ -19,6 +26,11 @@ def _wait_for_job(client, job_id: str) -> dict:
             return job
         time.sleep(0.02)
     raise AssertionError("job did not finish")
+
+
+def test_automatic_casting_v2_environment_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ECHODRAFT_AUTOMATIC_CASTING_V2_ENABLED", "true")
+    assert AppSettings.from_environment().automatic_casting_v2_enabled is True
 
 
 def test_detect_point_of_view_uses_pronoun_ratio_sanity_check() -> None:
@@ -253,3 +265,161 @@ def test_auto_cast_assigns_every_character_and_preserves_decision_history(client
         )
     assert len(decisions) == 8
     assert sum(item.superseded_by_id is None for item in decisions) == 4
+    project = container.projects.get(project_id)
+    assert project is not None
+    manifest = json.loads(
+        (Path(project.artifact_path) / "manifests" / "casting_manifest.json").read_text()
+    )
+    assert manifest["algorithmVersion"] == "1.0.0"
+    assert manifest["lockedCharacterIds"] == []
+
+
+def test_auto_cast_preserves_legacy_hand_cast_narrator_and_character(client) -> None:
+    project_id = client.post(
+        "/api/v1/projects",
+        json={"title": "Legacy hand cast", "rightsStatus": "declared"},
+    ).json()["id"]
+    narrator = client.post(
+        f"/api/v1/projects/{project_id}/voices",
+        json={
+            "name": "Hand narrator",
+            "backend": "mock",
+            "providerVoiceId": "mock-narrator",
+        },
+    ).json()
+    character_voice = client.post(
+        f"/api/v1/projects/{project_id}/voices",
+        json={
+            "name": "Hand character",
+            "backend": "mock",
+            "providerVoiceId": "mock-character",
+        },
+    ).json()
+    character = client.post(
+        f"/api/v1/projects/{project_id}/characters",
+        json={"displayName": "Mara", "roleType": "major"},
+    ).json()
+    container = client.app.state.container
+    container.casting.assign(character["id"], character_voice["id"])
+    client.put(
+        f"/api/v1/projects/{project_id}/production-settings",
+        json={"narratorVoiceProfileId": narrator["id"]},
+    )
+
+    job = client.post(
+        f"/api/v1/projects/{project_id}/casting/auto-run",
+        json={"scope": "all", "castingStylePreset": "warm_neutral"},
+    ).json()
+    assert _wait_for_job(client, job["id"])["status"] == "succeeded"
+
+    settings = client.get(f"/api/v1/projects/{project_id}/production-settings").json()
+    assert settings["narratorVoiceProfileId"] == narrator["id"]
+    assert container.casting.character_voice_assignment(character["id"]) == character_voice["id"]
+    with container.structure.database.session() as session:
+        assignment = session.scalar(
+            select(CharacterVoiceAssignmentRecord).where(
+                CharacterVoiceAssignmentRecord.character_id == character["id"]
+            )
+        )
+        narrator_decision = session.get(
+            CastingDecisionRecord, settings["narratorCastingDecisionId"]
+        )
+    assert assignment is not None
+    assert assignment.user_locked is True
+    assert assignment.casting_decision_id is None
+    assert narrator_decision is not None
+    assert narrator_decision.user_locked is True
+    assert client.get(
+        f"/api/v1/characters/{character['id']}/casting-decision"
+    ).status_code == 404
+    project = container.projects.get(project_id)
+    assert project is not None
+    manifest = json.loads(
+        (Path(project.artifact_path) / "manifests" / "casting_manifest.json").read_text()
+    )
+    assert manifest["lockedCharacterIds"] == [character["id"]]
+
+
+def test_manual_override_enforces_narrator_reuse_and_lock(client) -> None:
+    project_id = client.post(
+        "/api/v1/projects",
+        json={"title": "Override safety", "rightsStatus": "declared"},
+    ).json()["id"]
+    container = client.app.state.container
+    character = container.casting.create_character(
+        project_id, "Mara", [], "major", 1.0, None
+    )
+    AutomaticCastingService(container).auto_cast(project_id)
+    settings = client.get(f"/api/v1/projects/{project_id}/production-settings").json()
+    narrator_voice_id = settings["narratorVoiceProfileId"]
+
+    blocked = client.post(
+        f"/api/v1/characters/{character.id}/assign-voice",
+        json={"voiceProfileId": narrator_voice_id, "lockAssignment": True},
+    )
+    assert blocked.status_code == 422
+
+    alternate = client.post(
+        f"/api/v1/projects/{project_id}/voices",
+        json={
+            "name": "Alternate",
+            "backend": "mock",
+            "providerVoiceId": "mock-character",
+        },
+    ).json()
+    VoiceCatalogService(container).audition_backfill()
+    overridden = client.post(
+        f"/api/v1/characters/{character.id}/assign-voice",
+        json={
+            "voiceProfileId": alternate["id"],
+            "lockAssignment": True,
+            "allowNarratorReuse": False,
+        },
+    )
+    assert overridden.status_code == 200
+    decision = client.get(
+        f"/api/v1/characters/{character.id}/casting-decision"
+    ).json()
+    assert decision["userLocked"] is True
+    assert decision["evidence"]["source"] == "user_override"
+
+    AutomaticCastingService(container).auto_cast(project_id)
+    assert container.casting.character_voice_assignment(character.id) == alternate["id"]
+
+
+def test_structure_v2_auto_chains_casting_and_writes_manifest(client) -> None:
+    container = client.app.state.container
+    container.settings = replace(
+        container.settings,
+        automatic_casting_v2_enabled=True,
+    )
+    project_id = client.post(
+        "/api/v1/projects",
+        json={"title": "Auto-chain", "rightsStatus": "declared"},
+    ).json()["id"]
+    source = client.post(
+        f"/api/v1/projects/{project_id}/source/import",
+        files={
+            "file": (
+                "book.txt",
+                b"Chapter 1\n\nMara: We leave now.\n\nI followed her into the rain.",
+                "text/plain",
+            )
+        },
+        data={"rightsAcknowledged": "true"},
+    ).json()
+    assert _wait_for_job(client, source["id"])["status"] == "succeeded"
+    structure = client.post(
+        f"/api/v1/projects/{project_id}/structure/extract",
+        json={"maxSegmentChars": 120},
+    ).json()
+    assert _wait_for_job(client, structure["id"])["status"] == "succeeded"
+
+    settings = client.get(f"/api/v1/projects/{project_id}/production-settings").json()
+    assert settings["narratorVoiceProfileId"]
+    assert settings["narratorCastingDecisionId"]
+    project = container.projects.get(project_id)
+    assert project is not None
+    manifest_path = Path(project.artifact_path) / "manifests" / "casting_manifest.json"
+    assert manifest_path.is_file()
+    assert json.loads(manifest_path.read_text())["projectId"] == project_id

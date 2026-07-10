@@ -348,7 +348,7 @@ W5.4 (voice identity records) exists — or W4.1 lands its own minimal catalog t
   narrator; record `catalogVersion` per decision. Ship behind `auto_cast_enabled` (default
   `true` for new projects). Verify: `uv run pytest`, migration check, `uv run ruff check .`,
   `uv run mypy ...`. Size: **L**.
-- [ ] **W4.4 — Auto-chain + override model + backward compat.** Branch `feat/casting-autochain`.
+- [x] **W4.4 — Auto-chain + override model + backward compat.** Branch `feat/casting-autochain`.
   Auto-chain `casting.auto-run` after Character Bible + attribution stabilize (mirroring cast
   discovery's existing auto-chain); treat any `character_voice_assignments` row with no
   `casting_decision_id` as `user_locked = true` on first auto-cast (existing hand-cast projects

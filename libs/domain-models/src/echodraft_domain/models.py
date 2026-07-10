@@ -540,6 +540,8 @@ class VoiceSuggestion(ApiModel):
 
 class AssignVoice(ApiModel):
     voice_profile_id: str = Field(alias="voiceProfileId")
+    lock_assignment: bool = Field(default=False, alias="lockAssignment")
+    allow_narrator_reuse: bool = Field(default=False, alias="allowNarratorReuse")
 
 
 class PronunciationEntry(ApiModel):

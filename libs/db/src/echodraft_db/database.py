@@ -98,6 +98,44 @@ class Database:
                         "ALTER TABLE project_production_settings "
                         f"ADD COLUMN {column_name} {column_type}"
                     )
+        if "character_voice_assignments" in tables:
+            columns = {
+                column["name"]
+                for column in inspector.get_columns("character_voice_assignments")
+            }
+            assignment_columns = {
+                "user_locked": "BOOLEAN NOT NULL DEFAULT 0",
+                "locked_reason": "TEXT",
+                "casting_decision_id": "VARCHAR(64)",
+            }
+            repaired_assignment_columns = False
+            for column_name, column_type in assignment_columns.items():
+                if column_name not in columns:
+                    repaired_assignment_columns = True
+                    repairs.append(
+                        "ALTER TABLE character_voice_assignments "
+                        f"ADD COLUMN {column_name} {column_type}"
+                    )
+            if repaired_assignment_columns:
+                repairs.extend(
+                    [
+                        "UPDATE character_voice_assignments SET casting_decision_id = ("
+                        "SELECT casting_decisions.id FROM casting_decisions "
+                        "WHERE casting_decisions.character_id = "
+                        "character_voice_assignments.character_id "
+                        "AND casting_decisions.role = 'character' "
+                        "AND casting_decisions.superseded_by_id IS NULL LIMIT 1) "
+                        "WHERE EXISTS (SELECT 1 FROM casting_decisions "
+                        "WHERE casting_decisions.character_id = "
+                        "character_voice_assignments.character_id "
+                        "AND casting_decisions.role = 'character' "
+                        "AND casting_decisions.superseded_by_id IS NULL)",
+                        "UPDATE character_voice_assignments "
+                        "SET user_locked = 1, locked_reason = "
+                        "'Legacy hand assignment preserved during v2 migration' "
+                        "WHERE casting_decision_id IS NULL",
+                    ]
+                )
         if "export_packages" in tables:
             columns = {column["name"] for column in inspector.get_columns("export_packages")}
             if "archive_path" not in columns:
