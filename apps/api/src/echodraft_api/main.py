@@ -155,8 +155,8 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         try:
             yield
         finally:
-            container.orchestrator_pools.shutdown()
             container.tts_worker_manager.stop_all()
+            container.orchestrator_pools.shutdown()
 
     app = FastAPI(title="echodraft API", version="0.1.0", lifespan=lifespan)
     app.state.container = container

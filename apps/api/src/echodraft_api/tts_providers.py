@@ -396,11 +396,13 @@ class XttsV2Adapter(TtsProvider):
         reference_voice_path: Path | None,
         reference_voice_consent: bool,
         language: str,
+        device: str = "cpu",
     ) -> None:
         self.python_path = python_path
         self.reference_voice_path = reference_voice_path
         self.reference_voice_consent = reference_voice_consent
         self.language = language or "en"
+        self.device = device
 
     def readiness(self) -> str | None:
         if not self.reference_voice_consent:
@@ -436,7 +438,10 @@ class XttsV2Adapter(TtsProvider):
         script = (
             "import sys\n"
             "from TTS.api import TTS\n"
+            f"device = {self.device!r}\n"
             "tts = TTS('tts_models/multilingual/multi-dataset/xtts_v2', progress_bar=False, gpu=False)\n"
+            "if device != 'cpu':\n"
+            "    tts = tts.to(device)\n"
             "tts.tts_to_file(text=sys.argv[1], speaker_wav=sys.argv[2], "
             "language=sys.argv[3], file_path=sys.argv[4], split_sentences=True)\n"
         )
@@ -457,6 +462,7 @@ class XttsV2Adapter(TtsProvider):
             "sampleRate": sample_rate,
             "referenceVoicePath": str(self.reference_voice_path),
             "language": self.language,
+            "device": self.device,
             # tts_to_file has no style/pace hook; the engine honors no direction.
             "effectiveDirection": {},
             "unsupportedDirection": _unsupported_direction(self.direction_support),

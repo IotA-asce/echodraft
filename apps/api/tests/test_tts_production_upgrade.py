@@ -1,5 +1,7 @@
 import json
+import sys
 import time
+import wave
 from pathlib import Path
 
 
@@ -82,6 +84,45 @@ def test_provider_direction_capability_is_truthful(client) -> None:
         "pauseAfterMs",
         "pauseBeforeMs",
     ]
+
+
+def test_xtts_uses_hardware_selected_device(tmp_path: Path, monkeypatch) -> None:
+    from echodraft_api.tts_providers import XttsV2Adapter
+    from echodraft_domain import DirectionProfile
+
+    reference = tmp_path / "reference.wav"
+    reference.write_bytes(b"reference")
+    output = tmp_path / "xtts.wav"
+    captured: list[str] = []
+
+    def fake_run(command, _provider, *, timeout, stdin=None):  # type: ignore[no-untyped-def]
+        del timeout, stdin
+        captured.append(command[2])
+        with wave.open(str(output), "wb") as audio:
+            audio.setnchannels(1)
+            audio.setsampwidth(2)
+            audio.setframerate(24000)
+            audio.writeframes(b"\x00\x00" * 1000)
+
+    monkeypatch.setattr("echodraft_api.tts_providers._run_tts_command", fake_run)
+    adapter = XttsV2Adapter(
+        Path(sys.executable),
+        reference,
+        True,
+        "en",
+        device="cuda",
+    )
+
+    provenance = adapter.preview(
+        "Hardware-aware local speech.",
+        "reference",
+        output,
+        DirectionProfile(scopeType="segment", scopeId="seg_xtts"),
+    )
+
+    assert "device = 'cuda'" in captured[0]
+    assert "tts = tts.to(device)" in captured[0]
+    assert provenance["device"] == "cuda"
 
 
 def test_character_voice_suggestions_rank_by_traits(client) -> None:

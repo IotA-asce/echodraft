@@ -7,7 +7,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TypeVar
 
-from .hardware import HardwareProbe, HardwareSnapshot, recommended_llm_workers
+from .hardware import (
+    HardwareProbe,
+    HardwareSnapshot,
+    recommended_llm_workers,
+    recommended_tts_workers,
+)
 
 T = TypeVar("T")
 
@@ -160,7 +165,7 @@ class OrchestratorPools:
                 subprocess_workers_override,
                 max(1, min(4, hardware.cpu_count)),
             ),
-            tts_workers=_override_or_default(tts_workers_override, 1),
+            tts_workers=recommended_tts_workers(hardware, tts_workers_override),
             audiogen_workers=_override_or_default(audiogen_workers_override, 1),
             model_vram_budget_gib=model_vram_budget_gib or default_vram_budget,
         )

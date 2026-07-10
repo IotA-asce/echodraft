@@ -5,14 +5,82 @@ from __future__ import annotations
 import json
 import subprocess
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
 
 from echodraft_domain import TtsWorkerStatus
+
+if TYPE_CHECKING:
+    from .orchestrator import AdaptiveWorkerPool
+
+W = TypeVar("W", bound="HostedWorker")
+T = TypeVar("T")
 
 
 class WorkerProcessError(ValueError):
     """Raised when the resident worker process or JSON protocol breaks."""
+
+
+class HostedWorker(Protocol):
+    def stop(self) -> None: ...
+
+    def status(self) -> TtsWorkerStatus: ...
+
+
+class EngineHost(Generic[W]):
+    """Own a bounded set of resident workers for one engine/device pair."""
+
+    def __init__(
+        self,
+        *,
+        engine_id: str,
+        setup_mode: str,
+        device: str,
+        max_workers: int,
+        worker_factory: Callable[[], W],
+        execution_pool: AdaptiveWorkerPool | None = None,
+    ) -> None:
+        self.engine_id = engine_id
+        self.setup_mode = setup_mode
+        self.device = device
+        self.execution_pool = execution_pool
+        self._workers = [worker_factory() for _ in range(max(1, max_workers))]
+        self._lock = threading.Lock()
+        self._next_worker = 0
+
+    def run(self, operation: Callable[[W], T]) -> T:
+        with self._lock:
+            worker = self._workers[self._next_worker]
+            self._next_worker = (self._next_worker + 1) % len(self._workers)
+        def invoke() -> T:
+            return operation(worker)
+
+        return self.execution_pool.run(invoke) if self.execution_pool else invoke()
+
+    def stop(self) -> None:
+        for worker in self._workers:
+            worker.stop()
+
+    def status(self) -> TtsWorkerStatus:
+        statuses = [worker.status() for worker in self._workers]
+        running = [status for status in statuses if status.state == "running"]
+        stopped = [status for status in statuses if status.state == "stopped"]
+        state = "running" if running else "stopped" if stopped else "idle"
+        pids = [status.pid for status in [*running, *stopped] if status.pid is not None]
+        errors = [status.last_error for status in statuses if status.last_error]
+        return TtsWorkerStatus(
+            provider=self.engine_id,
+            setupMode=self.setup_mode,
+            workerMode="resident",
+            state=state,
+            pid=pids[0] if pids else None,
+            requestCount=sum(status.request_count for status in statuses),
+            lastError=errors[-1] if errors else None,
+            device=self.device,
+            workerCount=len(self._workers),
+        )
 
 
 @dataclass(frozen=True)
@@ -152,9 +220,16 @@ class ManagedKokoroWorker:
 
 
 class TtsWorkerManager:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        execution_pool: AdaptiveWorkerPool | None = None,
+        device: str = "cpu",
+    ) -> None:
         self._lock = threading.Lock()
-        self._managed_kokoro: ManagedKokoroWorker | None = None
+        self._execution_pool = execution_pool
+        self.device = device
+        self._managed_kokoro: EngineHost[ManagedKokoroWorker] | None = None
         self._managed_kokoro_key: ManagedKokoroWorkerKey | None = None
 
     def synthesize_managed_kokoro(
@@ -177,8 +252,10 @@ class TtsWorkerManager:
             voices_data_path=voices_data_path,
             voice_registry_path=voice_registry_path,
         )
-        worker = self._worker_for_key(key)
-        return worker.synthesize(text, voice_id, output, speed)
+        host = self._host_for_key(key)
+        return host.run(
+            lambda worker: worker.synthesize(text, voice_id, output, speed)
+        )
 
     def stop_all(self) -> None:
         with self._lock:
@@ -198,6 +275,8 @@ class TtsWorkerManager:
                 pid=None,
                 requestCount=0,
                 lastError=None,
+                device=self.device,
+                workerCount=0,
             )
         with self._lock:
             worker = self._managed_kokoro
@@ -210,18 +289,31 @@ class TtsWorkerManager:
                 pid=None,
                 requestCount=0,
                 lastError=None,
+                device=self.device,
+                workerCount=(
+                    self._execution_pool.max_workers if self._execution_pool else 1
+                ),
             )
         return worker.status()
 
-    def _worker_for_key(self, key: ManagedKokoroWorkerKey) -> ManagedKokoroWorker:
-        old_worker: ManagedKokoroWorker | None = None
+    def _host_for_key(self, key: ManagedKokoroWorkerKey) -> EngineHost[ManagedKokoroWorker]:
+        old_worker: EngineHost[ManagedKokoroWorker] | None = None
         with self._lock:
             if self._managed_kokoro and self._managed_kokoro_key == key:
                 return self._managed_kokoro
             old_worker = self._managed_kokoro
-            self._managed_kokoro = ManagedKokoroWorker(key)
+            self._managed_kokoro = EngineHost(
+                engine_id="kokoro",
+                setup_mode="managed_onnx",
+                device=self.device,
+                max_workers=(
+                    self._execution_pool.max_workers if self._execution_pool else 1
+                ),
+                worker_factory=lambda: ManagedKokoroWorker(key),
+                execution_pool=self._execution_pool,
+            )
             self._managed_kokoro_key = key
-            worker = self._managed_kokoro
+            host = self._managed_kokoro
         if old_worker:
             old_worker.stop()
-        return worker
+        return host

@@ -43,6 +43,22 @@ def recommended_llm_workers(snapshot: HardwareSnapshot, override: int | None = N
     return cpu_cap
 
 
+def recommended_tts_workers(snapshot: HardwareSnapshot, override: int | None = None) -> int:
+    if override is not None:
+        return max(1, override)
+    if snapshot.gpu_vram_gib:
+        return 1
+    if (snapshot.total_ram_gib or 0) >= 16 and snapshot.cpu_count >= 4:
+        return 2
+    return 1
+
+
+def tts_device(snapshot: HardwareSnapshot) -> str:
+    if not snapshot.gpu_vram_gib:
+        return "cpu"
+    return "mps" if snapshot.platform == "darwin" else "cuda"
+
+
 def _total_ram_gib() -> float | None:
     if platform.system() == "Darwin":
         return _mac_total_ram_gib()
