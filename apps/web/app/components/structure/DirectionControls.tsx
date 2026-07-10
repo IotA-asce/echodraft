@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Direction, Segment, SegmentDirection } from "../../api";
+import { Range, Select } from "../../design-system";
 
 const directionFor = (scopeType: string, scopeId: string): Direction => ({
   scopeType,
@@ -46,30 +47,9 @@ export function DirectionControls({
         <span>{saved ? `${saved.source}${saved.userLocked ? " · locked" : ""}` : "default"}</span>
       </div>
       <div className="direction-controls">
-        <label className={unsupported("emotion") ? "direction-unsupported" : undefined}>
-          Emotion{hint("emotion")}
-          <select value={draft.emotion} onChange={(event) => update({ emotion: event.currentTarget.value, tone: event.currentTarget.value })}>
-            <option value="neutral">Neutral</option>
-            <option value="warm">Warm</option>
-            <option value="tense">Tense</option>
-            <option value="quiet">Quiet</option>
-            <option value="urgent">Urgent</option>
-            <option value="somber">Somber</option>
-            <option value="bright">Bright</option>
-            <option value="fearful">Fearful</option>
-            <option value="angry">Angry</option>
-          </select>
-        </label>
-        <label className={unsupported("pace") ? "direction-unsupported" : undefined}>
-          Pace{hint("pace")}
-          <input type="range" min="0.5" max="2" step="0.05" value={draft.pace} onChange={(event) => update({ pace: Number(event.currentTarget.value) })} />
-          <small>{draft.pace.toFixed(2)}x</small>
-        </label>
-        <label className={unsupported("intensity") ? "direction-unsupported" : undefined}>
-          Intensity{hint("intensity")}
-          <input type="range" min="0" max="1" step="0.05" value={draft.intensity} onChange={(event) => update({ intensity: Number(event.currentTarget.value) })} />
-          <small>{Math.round(draft.intensity * 100)}%</small>
-        </label>
+        <Select className={unsupported("emotion") ? "direction-unsupported" : undefined} label={`Emotion${unsupported("emotion") ? ` · ${NOT_HONORED_HINT}` : ""}`} value={draft.emotion} onValueChange={(value) => update({ emotion: value, tone: value })} options={["neutral", "warm", "tense", "quiet", "urgent", "somber", "bright", "fearful", "angry"].map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }))} />
+        <Range className={unsupported("pace") ? "direction-unsupported" : undefined} label={`Pace${unsupported("pace") ? ` · ${NOT_HONORED_HINT}` : ""}`} min={0.5} max={2} step={0.05} value={draft.pace} onValueChange={(value) => update({ pace: value })} formatValue={(value) => `${value.toFixed(2)}x`} />
+        <Range className={unsupported("intensity") ? "direction-unsupported" : undefined} label={`Intensity${unsupported("intensity") ? ` · ${NOT_HONORED_HINT}` : ""}`} min={0} max={1} step={0.05} value={draft.intensity} onValueChange={(value) => update({ intensity: value })} formatValue={(value) => `${Math.round(value * 100)}%`} />
         <label className={!pausesHonored ? "direction-unsupported" : undefined}>
           Pause before{pauseHint}
           <input type="number" min="0" max="5000" value={draft.pauseBeforeMs} onChange={(event) => update({ pauseBeforeMs: Number(event.currentTarget.value) })} />

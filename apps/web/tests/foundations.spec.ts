@@ -28,6 +28,11 @@ async function addVoiceProfile(page: Page, name: string, providerVoiceId: string
   await expect(panel.locator(".voice-list .voice-card").filter({ hasText: name })).toBeVisible();
 }
 
+async function chooseOption(page: Page, label: string, option: string) {
+  await page.getByRole("combobox", { name: label }).click();
+  await page.getByRole("option", { name: option }).click();
+}
+
 test("creates a local project from the dashboard", async ({ page }) => {
   const artifactRoot = path.resolve(__dirname, "../../../.tmp/playwright/artifacts");
   const before = existsSync(artifactRoot) ? new Set(readdirSync(artifactRoot)) : new Set<string>();
@@ -50,7 +55,7 @@ test("creates a local project from the dashboard", async ({ page }) => {
   });
   await expect(page.getByText("A browser-imported manuscript.")).toBeVisible();
   await page.getByRole("button", { name: "Extract structure", exact: true }).click();
-  await expect(page.getByText("Story Map")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Story Map", exact: true })).toBeVisible();
 
   const structureColumns = page.locator(".structure-columns");
   await structureColumns.locator(":scope > div").nth(0).getByRole("button").first().click();
@@ -168,8 +173,8 @@ test("keeps manuscript intake polling until a slow import finishes", async ({ pa
 
   await page.getByRole("button", { name: "Extract structure", exact: true }).click();
 
-  await expect(page.getByText("Story Map")).toBeVisible();
-  await expect(page.getByText("Extracting observed cast candidates with local Ollama.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Story Map", exact: true })).toBeVisible();
+  await expect(page.getByText("Extracting observed cast candidates with local Ollama.", { exact: true })).toBeVisible();
   await expect(page.getByText(/llm cast discovery · 7\/584|llm cast discovery · 8\/584/)).toBeVisible();
   await expect(page.getByRole("progressbar", { name: "Structure and cast draft progress" })).toBeVisible();
 });
@@ -197,7 +202,7 @@ test("produces and exports a chapter entirely from the dashboard", async ({ page
   await page.getByLabel("Title").fill(title);
   await page.getByLabel(/I confirm I have the rights/).check();
   await page.getByRole("button", { name: "Create project" }).click();
-  await page.getByRole("combobox", { name: "Voice engine" }).selectOption("mock");
+  await chooseOption(page, "Voice engine", "Mock (silent workflow audio)");
   await page.getByRole("button", { name: "Start with mock voice engine" }).click();
   await expect(page.getByText("Local voice engine settings saved and validated.")).toBeVisible();
   await openWorkflow(page, "Manuscript");
@@ -205,7 +210,7 @@ test("produces and exports a chapter entirely from the dashboard", async ({ page
     name: "chapter.txt", mimeType: "text/plain", buffer: Buffer.from("Chapter 1: Arrival\n\nA complete local production test sentence.")
   });
   await page.getByRole("button", { name: "Extract structure", exact: true }).click();
-  await expect(page.getByText("Story Map")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("heading", { name: "Story Map", exact: true })).toBeVisible({ timeout: 10_000 });
   const structure = page.locator(".structure-columns");
   await expect(structure.locator(":scope > div").first().getByRole("button").first()).toBeVisible();
   await structure.locator(":scope > div").first().getByRole("button").first().click();
@@ -244,7 +249,7 @@ test("drafts cast from upload and produces with an assigned character voice", as
   await page.getByLabel("Title").fill(title);
   await page.getByLabel(/I confirm I have the rights/).check();
   await page.getByRole("button", { name: "Create project" }).click();
-  await page.getByRole("combobox", { name: "Voice engine" }).selectOption("mock");
+  await chooseOption(page, "Voice engine", "Mock (silent workflow audio)");
   await page.getByRole("button", { name: "Start with mock voice engine" }).click();
   await openWorkflow(page, "Manuscript");
   await page.getByLabel("Manuscript file").setInputFiles({
@@ -254,7 +259,8 @@ test("drafts cast from upload and produces with an assigned character voice", as
   });
 
   await page.getByRole("button", { name: "Extract structure", exact: true }).click();
-  await expect(page.getByText("Story Map")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("heading", { name: "Story Map", exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".structure-columns")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("03 / Structure & Cast Draft")).toBeVisible();
   await openWorkflow(page, "Voices & Cast");
   const maraCard = page.locator(".character-card").filter({ hasText: "Mara" });
@@ -632,7 +638,7 @@ test("guides managed Kokoro setup and narrator selection", async ({ page }) => {
   await page.getByLabel(/I confirm I have the rights/).check();
   await page.getByRole("button", { name: "Create project" }).click();
 
-  await page.getByRole("combobox", { name: "Voice engine" }).selectOption("kokoro");
+  await chooseOption(page, "Voice engine", "Kokoro managed preset voice system");
   await expect(page.getByText("Set up Kokoro preset voices", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Download and install Kokoro locally" }).click();
   await expect(page.getByText(/Installing Kokoro ONNX/)).toBeVisible();
@@ -702,11 +708,11 @@ test("keeps Kokoro selected when managed repair fails", async ({ page }) => {
   await page.getByLabel(/I confirm I have the rights/).check();
   await page.getByRole("button", { name: "Create project" }).click();
 
-  await page.getByRole("combobox", { name: "Voice engine" }).selectOption("kokoro");
+  await chooseOption(page, "Voice engine", "Kokoro managed preset voice system");
   await expect(page.getByText("Kokoro model is missing. Run Repair setup from Voice setup.")).toBeVisible();
   await page.getByRole("button", { name: "Repair setup" }).click();
   await expect(page.locator(".notice.error").getByText("Kokoro setup failed while validating the preview.")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole("combobox", { name: "Voice engine" })).toHaveValue("kokoro");
+  await expect(page.getByRole("combobox", { name: "Voice engine" })).toContainText("Kokoro managed preset voice system");
   await expect(page.getByText("Set up Kokoro preset voices", { exact: true })).toBeVisible();
   await expect(page.getByText("Start with mock voice engine")).toBeHidden();
 });
