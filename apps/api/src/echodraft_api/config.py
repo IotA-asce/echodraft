@@ -33,6 +33,8 @@ class AppSettings:
     cast_v2_enabled: bool = False
     attribution_v2_enabled: bool = False
     confidence_v2_enabled: bool = False
+    direction_v2_enabled: bool = False
+    progressive_delivery_enabled: bool = False
 
     @classmethod
     def from_environment(cls) -> "AppSettings":
@@ -118,6 +120,12 @@ class AppSettings:
             or _env_truthy("ECHODRAFT_ATTRIBUTION_V2"),
             confidence_v2_enabled=_env_truthy("ECHODRAFT_CONFIDENCE_V2_ENABLED")
             or _env_truthy("ECHODRAFT_CONFIDENCE_V2"),
+            direction_v2_enabled=_env_truthy("ECHODRAFT_DIRECTION_V2_ENABLED")
+            or _env_truthy("ECHODRAFT_DIRECTION_V2"),
+            progressive_delivery_enabled=_env_truthy(
+                "ECHODRAFT_PROGRESSIVE_DELIVERY_ENABLED"
+            )
+            or _env_truthy("ECHODRAFT_PROGRESSIVE_DELIVERY"),
         )
 
 

@@ -551,6 +551,15 @@ class StructureService:
             SpeakerAttributionService(self.container).generate(
                 project_id, use_local_llm=ready, model=DEFAULT_REFINEMENT_MODEL, job_id=job_id
             )
+            if self.container.settings.direction_v2_enabled:
+                from .direction import DirectionService
+
+                DirectionService(self.container).infer_segment_directions(
+                    project_id,
+                    job_id,
+                    use_local_llm=ready,
+                    model=DEFAULT_REFINEMENT_MODEL,
+                )
         except ValueError as error:
             self.container.review.create_issue(
                 project_id=project_id,
