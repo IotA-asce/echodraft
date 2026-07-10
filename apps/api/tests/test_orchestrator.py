@@ -12,6 +12,8 @@ from echodraft_api.orchestrator import (
     VramBudgetModelLoader,
     WorkQueue,
     recommended_llm_workers,
+    recommended_tts_workers,
+    tts_device,
 )
 
 
@@ -246,6 +248,29 @@ def test_orchestrator_pools_register_independent_execution_pools() -> None:
         "tts": 1,
         "audiogen": 1,
     }
+
+
+def test_tts_worker_count_and_device_follow_hardware() -> None:
+    cpu = HardwareSnapshot(cpu_count=8, total_ram_gib=32, platform="linux")
+    gpu = HardwareSnapshot(
+        cpu_count=8,
+        total_ram_gib=32,
+        gpu_vram_gib=12,
+        platform="linux",
+    )
+    apple_gpu = HardwareSnapshot(
+        cpu_count=8,
+        total_ram_gib=32,
+        gpu_vram_gib=12,
+        platform="darwin",
+    )
+
+    assert recommended_tts_workers(cpu) == 2
+    assert recommended_tts_workers(gpu) == 1
+    assert recommended_tts_workers(gpu, 3) == 3
+    assert tts_device(cpu) == "cpu"
+    assert tts_device(gpu) == "cuda"
+    assert tts_device(apple_gpu) == "mps"
 
 
 def test_vram_budget_model_loader_evicts_lru_models() -> None:

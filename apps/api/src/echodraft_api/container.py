@@ -25,7 +25,7 @@ from echodraft_db import (
 from .artifacts import ArtifactStore
 from .config import AppSettings
 from .jobs import InProcessJobRunner
-from .orchestrator import HardwareProbe, OrchestratorPools
+from .orchestrator import HardwareProbe, OrchestratorPools, tts_device
 from .tts_settings import TtsSettingsStore
 from .tts_worker import TtsWorkerManager
 
@@ -68,8 +68,6 @@ def build_container(settings: AppSettings) -> AppContainer:
     jobs_repository = JobRepository(database)
     jobs_repository.reconcile_interrupted()
     tts_settings = TtsSettingsStore(settings)
-    tts_worker_manager = TtsWorkerManager()
-    adapter = tts_settings.adapter(worker_manager=tts_worker_manager)
     orchestrator_pools = OrchestratorPools.from_probe(
         HardwareProbe(),
         llm_workers_override=settings.llm_worker_override,
@@ -78,6 +76,11 @@ def build_container(settings: AppSettings) -> AppContainer:
         audiogen_workers_override=settings.audiogen_worker_override,
         model_vram_budget_gib=settings.model_vram_budget_gib,
     )
+    tts_worker_manager = TtsWorkerManager(
+        execution_pool=orchestrator_pools.tts,
+        device=tts_device(orchestrator_pools.hardware),
+    )
+    adapter = tts_settings.adapter(worker_manager=tts_worker_manager)
     return AppContainer(
         settings=settings,
         artifacts=artifacts,

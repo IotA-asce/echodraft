@@ -375,7 +375,7 @@ produced (W3.7) before the emotion mappings can be validated end-to-end.
 
 **Tasks.**
 
-- [ ] **W5.1 — Engine host (generalize the resident worker).** Branch `feat/tts-engine-host`.
+- [x] **W5.1 — Engine host (generalize the resident worker).** Branch `feat/tts-engine-host`.
   Generalize `tts_worker.py`'s single-lock resident worker into a device-aware `EngineHost`
   supporting N workers on the `tts` pool; existing Kokoro/Piper/XTTS/Mock adapters keep working
   unchanged as Tier-A providers; fix the XTTS `gpu=False` hardcode behind the hardware probe.
