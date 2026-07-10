@@ -15,6 +15,7 @@ class HardwareSnapshot:
     total_ram_gib: float | None
     gpu_vram_gib: float | None = None
     platform: str = ""
+    machine: str = ""
     source: str = "auto"
 
 
@@ -25,6 +26,7 @@ class HardwareProbe:
             total_ram_gib=_total_ram_gib(),
             gpu_vram_gib=_gpu_vram_gib_from_env(),
             platform=platform.system().lower(),
+            machine=platform.machine().lower(),
         )
 
 
@@ -54,6 +56,8 @@ def recommended_tts_workers(snapshot: HardwareSnapshot, override: int | None = N
 
 
 def tts_device(snapshot: HardwareSnapshot) -> str:
+    if snapshot.platform == "darwin" and snapshot.machine in {"arm64", "aarch64"}:
+        return "mps"
     if not snapshot.gpu_vram_gib:
         return "cpu"
     return "mps" if snapshot.platform == "darwin" else "cuda"
