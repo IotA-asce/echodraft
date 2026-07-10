@@ -454,6 +454,27 @@ class CharacterRejectMergeRequest(ApiModel):
     reason: str | None = None
 
 
+class VoiceCatalogEntry(ApiModel):
+    id: str
+    engine: str
+    engine_version: str = Field(alias="engineVersion")
+    engine_voice_id: str = Field(alias="engineVoiceId")
+    synthesis_kind: str = Field(alias="synthesisKind")
+    gender: str
+    age_range: str = Field(alias="ageRange")
+    accent: str
+    locale: str
+    timbre: list[str] = Field(default_factory=list)
+    energy_default: str = Field(alias="energyDefault")
+    acoustics: dict[str, object] = Field(default_factory=dict)
+    sample_paths: dict[str, object] = Field(default_factory=dict, alias="samplePaths")
+    license: dict[str, object] = Field(default_factory=dict)
+    labeled_by: dict[str, object] = Field(default_factory=dict, alias="labeledBy")
+    catalog_version: str = Field(alias="catalogVersion")
+    facets: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(alias="createdAt")
+
+
 class VoiceProfile(ApiModel):
     id: str
     project_id: str = Field(alias="projectId")
@@ -462,6 +483,7 @@ class VoiceProfile(ApiModel):
     provider_voice_id: str = Field(alias="providerVoiceId")
     style_prompt: str | None = Field(default=None, alias="stylePrompt")
     facets: list[str] = Field(default_factory=list)
+    voice_catalog_entry_id: str | None = Field(default=None, alias="voiceCatalogEntryId")
 
 
 class VoiceProfileCreate(ApiModel):
