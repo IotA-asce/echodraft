@@ -5,7 +5,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from .database import Database
-from .models import CommentRecord, IssueRecord, PatchAttemptRecord
+from .models import CommentRecord, IssueRecord, PatchAttemptRecord, ReviewTaskRecord
 
 
 class ReviewRepository:
@@ -22,6 +22,97 @@ class ReviewRepository:
             if segment_id:
                 query = query.where(IssueRecord.segment_id == segment_id)
             return list(session.scalars(query.order_by(IssueRecord.created_at.desc())))
+
+    def review_tasks(
+        self, project_id: str, status: str | None = None
+    ) -> list[ReviewTaskRecord]:
+        with self.database.session() as session:
+            query = select(ReviewTaskRecord).where(
+                ReviewTaskRecord.project_id == project_id
+            )
+            if status:
+                query = query.where(ReviewTaskRecord.status == status)
+            return list(
+                session.scalars(query.order_by(ReviewTaskRecord.updated_at.desc()))
+            )
+
+    def fold_review_task(
+        self,
+        *,
+        project_id: str,
+        cause_key: str,
+        category: str,
+        scope_type: str,
+        scope_id: str | None,
+        title: str,
+        members: list[dict[str, object]],
+        evidence: dict[str, object] | None = None,
+    ) -> ReviewTaskRecord:
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            record = session.scalar(
+                select(ReviewTaskRecord).where(
+                    ReviewTaskRecord.project_id == project_id,
+                    ReviewTaskRecord.cause_key == cause_key,
+                    ReviewTaskRecord.status == "open",
+                )
+            )
+            if not record:
+                record = ReviewTaskRecord(
+                    id=f"reviewtask_{uuid4().hex[:16]}",
+                    project_id=project_id,
+                    cause_key=cause_key,
+                    category=category,
+                    scope_type=scope_type,
+                    scope_id=scope_id,
+                    title=title,
+                    member_count=0,
+                    member_refs_json="[]",
+                    evidence_json="{}",
+                    status="open",
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(record)
+            existing = json.loads(record.member_refs_json or "[]")
+            if not isinstance(existing, list):
+                existing = []
+            merged: dict[str, dict[str, object]] = {}
+            for member in [*existing, *members]:
+                if not isinstance(member, dict):
+                    continue
+                key = str(member.get("ref") or member.get("id") or "")
+                if key:
+                    merged[key] = member
+            merged_members = list(merged.values())
+            current_evidence = json.loads(record.evidence_json or "{}")
+            if not isinstance(current_evidence, dict):
+                current_evidence = {}
+            current_evidence.update(evidence or {})
+            record.category = category
+            record.scope_type = scope_type
+            record.scope_id = scope_id
+            record.title = title
+            record.member_refs_json = json.dumps(merged_members, sort_keys=True)
+            record.member_count = len(merged_members)
+            record.evidence_json = json.dumps(current_evidence, sort_keys=True)
+            record.updated_at = now
+            session.commit()
+            return record
+
+    def update_review_task(
+        self, task_id: str, status: str
+    ) -> ReviewTaskRecord | None:
+        if status not in {"open", "resolved", "dismissed"}:
+            raise ValueError("Review task status must be open, resolved, or dismissed.")
+        with self.database.session() as session:
+            record = session.get(ReviewTaskRecord, task_id)
+            if not record:
+                return None
+            record.status = status
+            record.updated_at = datetime.now(UTC)
+            session.commit()
+            return record
 
     def create_issue(
         self,

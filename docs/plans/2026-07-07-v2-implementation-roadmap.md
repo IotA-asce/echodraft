@@ -302,7 +302,7 @@ field rather than breaking readers.
   **Gate:** ≥ 98% line attribution accuracy on the corpus and every line attributed to *some*
   explicit speaker. Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy ...`, eval vs
   baseline. Size: **L**.
-- [ ] **W3.6 — Confidence & flag model.** Branch `feat/extraction-flag-model`. Ship the three-tier
+- [x] **W3.6 — Confidence & flag model.** Branch `feat/extraction-flag-model`. Ship the three-tier
   confidence policy + grouped review tasks; retire the per-segment `structure_parser_warnings`
   firehose (2,453 + 731 in a real run) in favor of aggregated `issues`; calibrate thresholds on
   the harness. **Gate:** < 20 optional flags/book, 0 required steps.

@@ -169,6 +169,9 @@ class Database:
                 "confidence": "FLOAT NOT NULL DEFAULT 0",
                 "status": "VARCHAR(32) NOT NULL DEFAULT 'needs_review'",
                 "user_locked": "BOOLEAN NOT NULL DEFAULT 0",
+                "auto_accepted": "BOOLEAN NOT NULL DEFAULT 0",
+                "decision_tier": "VARCHAR(16)",
+                "review_task_id": "VARCHAR(64)",
                 "created_at": "DATETIME",
                 "updated_at": "DATETIME",
             }
@@ -209,6 +212,24 @@ class Database:
                     )
                 if "lock_reason" not in columns:
                     repairs.append(f"ALTER TABLE {table_name} ADD COLUMN lock_reason TEXT")
+                if "auto_accepted" not in columns:
+                    repairs.append(
+                        f"ALTER TABLE {table_name} "
+                        "ADD COLUMN auto_accepted BOOLEAN NOT NULL DEFAULT 0"
+                    )
+                if "decision_tier" not in columns:
+                    repairs.append(
+                        f"ALTER TABLE {table_name} ADD COLUMN decision_tier VARCHAR(16)"
+                    )
+                if table_name == "segments" and "confidence" not in columns:
+                    repairs.append(
+                        "ALTER TABLE segments "
+                        "ADD COLUMN confidence FLOAT NOT NULL DEFAULT 0.9"
+                    )
+        if "issues" in tables:
+            columns = {column["name"] for column in inspector.get_columns("issues")}
+            if "review_task_id" not in columns:
+                repairs.append("ALTER TABLE issues ADD COLUMN review_task_id VARCHAR(64)")
         if not repairs:
             return
         with self.engine.begin() as connection:
