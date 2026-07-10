@@ -288,7 +288,7 @@ field rather than breaking readers.
   keep `structure_parsing.StructureCompiler` as the deterministic evidence provider and fallback.
   **Gate:** flip the flag only when the harness shows chapter/scene/segment fidelity ≥ baseline.
   Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy ...`, eval vs baseline. Size: **L**.
-- [ ] **W3.4 — Cast v2 (embed clustering, not per-candidate LLM).** Branch `feat/cast-v2-clustering`.
+- [x] **W3.4 — Cast v2 (embed clustering, not per-candidate LLM).** Branch `feat/cast-v2-clustering`.
   Replace `_llm_merge_decision` per-candidate adjudication (601 candidates → hundreds of
   sequential calls) with embedding-based clustering + per-cluster reconcile + profile synthesis.
   Keep the durable mention ledger, merge/split history, and prior-ruling gates unchanged.

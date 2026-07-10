@@ -30,6 +30,7 @@ class AppSettings:
     audiogen_worker_override: int | None = None
     model_vram_budget_gib: float | None = None
     structure_v2_enabled: bool = False
+    cast_v2_enabled: bool = False
 
     @classmethod
     def from_environment(cls) -> "AppSettings":
@@ -109,6 +110,8 @@ class AppSettings:
             ),
             structure_v2_enabled=_env_truthy("ECHODRAFT_STRUCTURE_V2_ENABLED")
             or _env_truthy("ECHODRAFT_STRUCTURE_V2"),
+            cast_v2_enabled=_env_truthy("ECHODRAFT_CAST_V2_ENABLED")
+            or _env_truthy("ECHODRAFT_CAST_V2"),
         )
 
 
