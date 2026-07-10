@@ -279,7 +279,11 @@ It is separate from the completed G1-G20 alpha gap tracker above.
     - Evidence: `feat/sound-tier0`; deterministic tagged ambience/SFX recipes materialize quiet,
       loop-prepared PCM into the shared content-addressed cache, persist CC0 provenance through the
       existing project asset path, and appear as an always-installed Model Center capability.
-  - [ ] W6.2 - Optional atmosphere-profile extraction.
+  - [x] W6.2 - Optional atmosphere-profile extraction.
+    - Evidence: `feat/atmosphere-profiles`; migration `0036` adds additive scene profiles. Explicit
+      deterministic evidence is refined by independent parallel local-LLM calls behind a flag,
+      target/confidence guarded, mirrored into the structure manifest, and degraded to `{}` plus a
+      warning without blocking extraction.
   - [ ] W6.3 - Deterministic planner and automatic cue placement.
   - [ ] W6.4 - Consent-gated Tier-1 generation.
 

@@ -314,6 +314,9 @@ class Scene(ApiModel):
     start_offset: int = Field(alias="startOffset")
     end_offset: int = Field(alias="endOffset")
     parser_evidence: dict[str, object] = Field(default_factory=dict, alias="parserEvidence")
+    atmosphere_profile: dict[str, object] = Field(
+        default_factory=dict, alias="atmosphereProfile"
+    )
     user_locked: bool = Field(default=False, alias="userLocked")
     lock_reason: str | None = Field(default=None, alias="lockReason")
     auto_accepted: bool = Field(default=False, alias="autoAccepted")
