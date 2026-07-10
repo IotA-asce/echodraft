@@ -58,11 +58,18 @@ class ProductionService:
             profile = self.container.casting.voice(narrator_voice_profile_id)
             if not profile or profile.project_id != project_id:
                 raise ValueError("Narrator voice profile does not belong to this project.")
+        previous = self.container.production.get(project_id)
         record = self.container.production.update(
             project_id,
             narrator_voice_profile_id,
             json.dumps(direction.model_dump(by_alias=True)) if direction else None,
         )
+        if previous.narrator_voice_profile_id != narrator_voice_profile_id:
+            record = self.container.production.configure_casting(
+                project_id,
+                narrator_casting_decision_id=None,
+                update_narrator_decision=True,
+            )
         if casting_style_preset is not None or auto_cast_enabled is not None:
             record = self.container.production.configure_casting(
                 project_id,

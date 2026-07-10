@@ -128,13 +128,33 @@ class AutomaticCastingService:
         if not settings.auto_cast_enabled:
             raise ValueError("Automatic casting is disabled for this project.")
         self.container.production.configure_casting(project_id, style_preset=style_preset)
-        selection = self.select_narrator(project_id, style_preset)
         catalog = VoiceCatalogService(self.container).entries()
+        if not catalog:
+            catalog = VoiceCatalogService(self.container).audition_backfill()
         eligible = [entry for entry in catalog if _catalog_entry_is_eligible(entry)]
         if not eligible:
             raise ValueError("No commercially usable voice catalog entry is available.")
         catalog_by_id = {entry.id: entry for entry in eligible}
         catalog_version = _catalog_snapshot_version(eligible)
+        existing_narrator_decision = self._decision_record(
+            settings.narrator_casting_decision_id
+        )
+        preserve_narrator = bool(
+            settings.narrator_voice_profile_id
+            and (
+                not settings.narrator_casting_decision_id
+                or (existing_narrator_decision and existing_narrator_decision.user_locked)
+            )
+        )
+        if preserve_narrator:
+            selection = self._existing_narrator_selection(
+                project_id,
+                cast(str, settings.narrator_voice_profile_id),
+                style_preset,
+                eligible,
+            )
+        else:
+            selection = self.select_narrator(project_id, style_preset)
         narrator_catalog_id = cast(str, selection["voiceCatalogEntryId"])
         narrator_candidates = [
             {
@@ -150,21 +170,32 @@ class AutomaticCastingService:
                 key=lambda item: (-_narrator_score(item.facets, style_preset), item.id),
             )[:3]
         ]
-        narrator_decision = self._save_decision(
-            project_id=project_id,
-            character_id=None,
-            role="narrator",
-            voice_catalog_entry_id=narrator_catalog_id,
-            prominence_class=None,
-            score=_float_value(selection["score"]),
-            candidate_scores=narrator_candidates,
-            evidence={
-                **cast(dict[str, object], selection["evidence"]),
-                "pointOfView": selection["pointOfView"],
-                "firstPersonPronounRatio": selection["firstPersonPronounRatio"],
-                "stylePreset": style_preset,
-            },
-            catalog_version=catalog_version,
+        narrator_decision = (
+            _decision_model(existing_narrator_decision)
+            if preserve_narrator and existing_narrator_decision
+            else self._save_decision(
+                project_id=project_id,
+                character_id=None,
+                role="narrator",
+                voice_catalog_entry_id=narrator_catalog_id,
+                prominence_class=None,
+                score=_float_value(selection["score"]),
+                candidate_scores=narrator_candidates,
+                evidence={
+                    **cast(dict[str, object], selection["evidence"]),
+                    "pointOfView": selection["pointOfView"],
+                    "firstPersonPronounRatio": selection["firstPersonPronounRatio"],
+                    "stylePreset": style_preset,
+                    "legacyAssignmentPreserved": preserve_narrator,
+                },
+                catalog_version=catalog_version,
+                user_locked=preserve_narrator,
+                locked_reason=(
+                    "Legacy hand narrator preserved during automatic casting."
+                    if preserve_narrator
+                    else None
+                ),
+            )
         )
         self.container.production.configure_casting(
             project_id,
@@ -172,8 +203,27 @@ class AutomaticCastingService:
             update_narrator_decision=True,
         )
 
-        specs = self.derive_casting_specs(project_id)
-        assignable = [entry for entry in eligible if entry.id != narrator_catalog_id]
+        assignment_rows = self.container.casting.prepare_automatic_casting_assignments(
+            project_id
+        )
+        locked_character_ids = {row.character_id for row in assignment_rows if row.user_locked}
+        locked_catalog_ids = {
+            profile.voice_catalog_entry_id
+            for row in assignment_rows
+            if row.user_locked
+            and (profile := self.container.casting.voice(row.voice_profile_id))
+            and profile.voice_catalog_entry_id
+        }
+        specs = [
+            spec
+            for spec in self.derive_casting_specs(project_id)
+            if spec.character_id not in locked_character_ids
+        ]
+        assignable = [
+            entry
+            for entry in eligible
+            if entry.id != narrator_catalog_id and entry.id not in locked_catalog_ids
+        ]
         narrator_profile_id = cast(str, selection["voiceProfileId"])
         assigned: dict[str, VoiceCatalogEntry] = {}
         used_by_major: set[str] = set()
@@ -209,8 +259,6 @@ class AutomaticCastingService:
                 )
                 if spec.prominence_class == "major":
                     used_by_major.add(chosen.id)
-            self.container.casting.assign(spec.character_id, voice_profile_id)
-            assigned[spec.character_id] = chosen
             decision = self._save_decision(
                 project_id=project_id,
                 character_id=spec.character_id,
@@ -232,6 +280,13 @@ class AutomaticCastingService:
                 },
                 catalog_version=catalog_version,
             )
+            self.container.casting.assign(
+                spec.character_id,
+                voice_profile_id,
+                user_locked=False,
+                casting_decision_id=decision.id,
+            )
+            assigned[spec.character_id] = chosen
             decisions.append(decision)
             if job_id:
                 self.container.jobs_repository.set_progress(
@@ -243,7 +298,70 @@ class AutomaticCastingService:
                         "characterId": spec.character_id,
                     },
                 )
+        self._write_manifest(
+            project_id,
+            decisions,
+            locked_character_ids=sorted(locked_character_ids),
+            catalog_version=catalog_version,
+        )
         return decisions
+
+    def override_character_voice(
+        self,
+        character_id: str,
+        voice_profile_id: str,
+        *,
+        lock_assignment: bool,
+        allow_narrator_reuse: bool,
+    ) -> CastingDecision | None:
+        character = self.container.casting.character(character_id)
+        if not character:
+            raise KeyError(character_id)
+        voice = self.container.casting.voice(voice_profile_id)
+        if not voice or voice.project_id != character.project_id:
+            raise ValueError("Voice profile must belong to the same project.")
+        settings = self.container.production.get(character.project_id)
+        if (
+            settings.narrator_voice_profile_id == voice_profile_id
+            and not allow_narrator_reuse
+        ):
+            raise ValueError(
+                "Narrator voice reuse is blocked unless allowNarratorReuse is true."
+            )
+        if not voice.voice_catalog_entry_id:
+            self.container.casting.assign(
+                character_id,
+                voice_profile_id,
+                user_locked=True,
+                locked_reason="Manual custom-voice override preserved outside the catalog.",
+            )
+            return None
+        entry = VoiceCatalogService(self.container).entry(voice.voice_catalog_entry_id)
+        if not entry:
+            raise ValueError("The selected voice catalog entry was not found.")
+        decision = self._save_decision(
+            project_id=character.project_id,
+            character_id=character_id,
+            role="character",
+            voice_catalog_entry_id=entry.id,
+            prominence_class=None,
+            score=0.0,
+            candidate_scores=[{"voiceId": entry.id, "score": 0.0, "source": "user_override"}],
+            evidence={"source": "user_override", "voiceProfileId": voice_profile_id},
+            catalog_version=_catalog_snapshot_version(
+                VoiceCatalogService(self.container).entries()
+            ),
+            user_locked=lock_assignment,
+            locked_reason="Manual voice override." if lock_assignment else None,
+        )
+        self.container.casting.assign(
+            character_id,
+            voice_profile_id,
+            user_locked=lock_assignment,
+            locked_reason=decision.locked_reason,
+            casting_decision_id=decision.id,
+        )
+        return decision
 
     def derive_casting_specs(self, project_id: str) -> list[CastingSpec]:
         with self.container.structure.database.session() as session:
@@ -327,6 +445,62 @@ class AutomaticCastingService:
             )
         return _decision_model(record) if record else None
 
+    def _decision_record(self, decision_id: str | None) -> CastingDecisionRecord | None:
+        if not decision_id:
+            return None
+        with self.container.structure.database.session() as session:
+            return session.get(CastingDecisionRecord, decision_id)
+
+    def _existing_narrator_selection(
+        self,
+        project_id: str,
+        voice_profile_id: str,
+        style_preset: str,
+        catalog: list[VoiceCatalogEntry],
+    ) -> dict[str, object]:
+        voice = self.container.casting.voice(voice_profile_id)
+        if not voice or voice.project_id != project_id:
+            raise ValueError("The preserved narrator voice is not available in this project.")
+        entry = next(
+            (
+                item
+                for item in catalog
+                if item.id == voice.voice_catalog_entry_id
+                or (
+                    item.engine == voice.backend
+                    and item.engine_voice_id == voice.provider_voice_id
+                )
+            ),
+            None,
+        )
+        if not entry:
+            raise ValueError(
+                "The preserved narrator has no commercially eligible catalog identity."
+            )
+        if voice.voice_catalog_entry_id != entry.id:
+            with self.container.structure.database.session() as session:
+                record = session.get(VoiceProfileRecord, voice.id)
+                assert record is not None
+                record.voice_catalog_entry_id = entry.id
+                session.commit()
+        pov = detect_point_of_view(self._narration(project_id))
+        return asdict(
+            NarratorSelection(
+                projectId=project_id,
+                voiceProfileId=voice.id,
+                voiceCatalogEntryId=entry.id,
+                pointOfView=pov.classification,
+                firstPersonPronounRatio=pov.first_person_pronoun_ratio,
+                stylePreset=style_preset,
+                score=_narrator_score(entry.facets, style_preset),
+                evidence={
+                    "narrationWordCount": pov.narration_word_count,
+                    "catalogVersion": entry.catalog_version,
+                    "facets": entry.facets,
+                },
+            )
+        )
+
     def _rank_candidates(
         self,
         spec: CastingSpec,
@@ -358,6 +532,8 @@ class AutomaticCastingService:
         candidate_scores: list[dict[str, object]],
         evidence: dict[str, object],
         catalog_version: str,
+        user_locked: bool = False,
+        locked_reason: str | None = None,
     ) -> CastingDecision:
         new_id = f"castdecision_{uuid4().hex[:16]}"
         with self.container.structure.database.session() as session:
@@ -384,8 +560,8 @@ class AutomaticCastingService:
                 evidence_json=json.dumps(evidence, sort_keys=True),
                 algorithm_version=CASTING_ALGORITHM_VERSION,
                 catalog_version=catalog_version,
-                user_locked=False,
-                locked_reason=None,
+                user_locked=user_locked,
+                locked_reason=locked_reason,
                 superseded_by_id=new_id if previous else None,
                 created_at=datetime.now(UTC),
             )
@@ -441,6 +617,34 @@ class AutomaticCastingService:
             record.voice_catalog_entry_id = catalog_id
             session.commit()
             return record.id
+
+    def _write_manifest(
+        self,
+        project_id: str,
+        decisions: list[CastingDecision],
+        *,
+        locked_character_ids: list[str],
+        catalog_version: str,
+    ) -> None:
+        project = self.container.projects.get(project_id)
+        if not project:
+            raise ValueError("Project not found.")
+        root = self.container.settings.artifact_root / project_id / "manifests"
+        root.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "manifestType": "casting_manifest",
+            "schemaVersion": "0.2.0",
+            "projectId": project_id,
+            "generatedAt": datetime.now(UTC).isoformat(),
+            "algorithmVersion": CASTING_ALGORITHM_VERSION,
+            "catalogVersion": catalog_version,
+            "lockedCharacterIds": locked_character_ids,
+            "decisions": [decision.model_dump(by_alias=True, mode="json") for decision in decisions],
+        }
+        versioned = root / f"casting_manifest.{uuid4().hex[:12]}.json"
+        serialized = json.dumps(payload, indent=2, sort_keys=True)
+        versioned.write_text(serialized, encoding="utf-8")
+        (root / "casting_manifest.json").write_text(serialized, encoding="utf-8")
 
 
 def detect_point_of_view(narration: str) -> PointOfViewEvidence:

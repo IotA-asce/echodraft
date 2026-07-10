@@ -715,6 +715,11 @@ class CharacterVoiceAssignmentRecord(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     character_id: Mapped[str] = mapped_column(ForeignKey("characters.id"), unique=True)
     voice_profile_id: Mapped[str] = mapped_column(ForeignKey("voice_profiles.id"))
+    user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
+    locked_reason: Mapped[str | None] = mapped_column(Text)
+    casting_decision_id: Mapped[str | None] = mapped_column(
+        ForeignKey("casting_decisions.id"), index=True
+    )
 
 
 class SpeakerAttributionRecord(Base):

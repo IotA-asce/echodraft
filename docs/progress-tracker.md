@@ -236,7 +236,7 @@ It is separate from the completed G1-G20 alpha gap tracker above.
     - Gate: the committed fixture emitted its first chapter-ready event in 0.029 s with 1 optional
       grouped task and 0 required tasks; the 500-page hardware milestone remains a separate M1/M2
       acceptance run. See `docs/analysis/eval-baselines/2026-07-10-direction-v2-gate.md`.
-- [ ] W4 - Automatic casting.
+- [x] W4 - Automatic casting.
   - [x] W4.1 - Voice catalog and one-time audition backfill.
     - Evidence: `feat/voice-catalog`; migration `0033` adds versioned global catalog entries and
       voice-profile links, while the idempotent audition job stores WAVs on disk and persists local
@@ -250,7 +250,11 @@ It is separate from the completed G1-G20 alpha gap tracker above.
       automatic-casting settings. The deterministic solver derives dialogue prominence and scene
       co-occurrence, reserves the narrator, enforces required facets and major uniqueness, scores
       timbre/reuse/distinctiveness, and routes sub-floor walk-ons intentionally to the narrator.
-  - [ ] W4.4 - Auto-chain, override model, and backward compatibility.
+  - [x] W4.4 - Auto-chain, override model, and backward compatibility.
+    - Evidence: `feat/casting-autochain`; migration `0035` links automatic assignments to their
+      decisions and locks legacy hand-cast rows. The v2 extraction chain casts after attribution,
+      preserves locked narrator/character choices, blocks accidental narrator reuse, and writes a
+      versioned casting manifest while keeping ranked decision alternatives inspectable.
 
 ### v2 Remaining Phases
 

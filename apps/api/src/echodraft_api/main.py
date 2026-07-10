@@ -1462,12 +1462,22 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     @app.post("/api/v1/characters/{character_id}/assign-voice", status_code=200)
     def assign_voice(character_id: str, payload: AssignVoice, request: Request) -> dict[str, str]:
         try:
-            request.app.state.container.casting.assign(character_id, payload.voice_profile_id)
+            decision = AutomaticCastingService(
+                request.app.state.container
+            ).override_character_voice(
+                character_id,
+                payload.voice_profile_id,
+                lock_assignment=payload.lock_assignment,
+                allow_narrator_reuse=payload.allow_narrator_reuse,
+            )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
-        return {"status": "assigned"}
+        response = {"status": "assigned"}
+        if decision:
+            response["castingDecisionId"] = decision.id
+        return response
 
     @app.get(
         "/api/v1/projects/{project_id}/pronunciations", response_model=list[PronunciationEntry]
