@@ -1985,7 +1985,12 @@ class ProductionSettingsRepository:
             if record:
                 return record
             record = ProjectProductionSettingsRecord(
-                project_id=project_id, narrator_voice_profile_id=None, default_direction_json=None
+                project_id=project_id,
+                narrator_voice_profile_id=None,
+                narrator_casting_decision_id=None,
+                casting_style_preset="warm_neutral",
+                auto_cast_enabled=True,
+                default_direction_json=None,
             )
             session.add(record)
             session.commit()
@@ -1997,10 +2002,41 @@ class ProductionSettingsRepository:
         with self.database.session() as session:
             record = session.get(ProjectProductionSettingsRecord, project_id)
             if not record:
-                record = ProjectProductionSettingsRecord(project_id=project_id)
+                record = ProjectProductionSettingsRecord(
+                    project_id=project_id,
+                    casting_style_preset="warm_neutral",
+                    auto_cast_enabled=True,
+                )
                 session.add(record)
             record.narrator_voice_profile_id = narrator_voice_profile_id
             record.default_direction_json = default_direction_json
+            session.commit()
+            return record
+
+    def configure_casting(
+        self,
+        project_id: str,
+        *,
+        style_preset: str | None = None,
+        auto_cast_enabled: bool | None = None,
+        narrator_casting_decision_id: str | None = None,
+        update_narrator_decision: bool = False,
+    ) -> ProjectProductionSettingsRecord:
+        with self.database.session() as session:
+            record = session.get(ProjectProductionSettingsRecord, project_id)
+            if not record:
+                record = ProjectProductionSettingsRecord(
+                    project_id=project_id,
+                    casting_style_preset="warm_neutral",
+                    auto_cast_enabled=True,
+                )
+                session.add(record)
+            if style_preset is not None:
+                record.casting_style_preset = style_preset
+            if auto_cast_enabled is not None:
+                record.auto_cast_enabled = auto_cast_enabled
+            if update_narrator_decision:
+                record.narrator_casting_decision_id = narrator_casting_decision_id
             session.commit()
             return record
 

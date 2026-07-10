@@ -342,7 +342,7 @@ W5.4 (voice identity records) exists — or W4.1 lands its own minimal catalog t
 - [x] **W4.2 — Narrator selection (runs first, always).** Branch `feat/casting-narrator-selection`.
   Implement Step 0 narrator selection from POV detection + the pronoun-ratio sanity check.
   Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy ...`. Size: **S–M**.
-- [ ] **W4.3 — Scoring + constraint-solving assignment.** Branch `feat/casting-solver`. Add
+- [x] **W4.3 — Scoring + constraint-solving assignment.** Branch `feat/casting-solver`. Add
   `casting_decisions` (+ migration + repair entry) and the `derive_casting_spec` → `score` →
   constraint-solving assign services; walk-on/min-dialogue floor defaults a character to the
   narrator; record `catalogVersion` per decision. Ship behind `auto_cast_enabled` (default
