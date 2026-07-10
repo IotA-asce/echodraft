@@ -92,7 +92,7 @@ Expected: pass.
 ### Task 4: Verification and roadmap completion
 
 **Files:**
-- Modify: `docs/plans/2026-07-07-v2-implementation-roadmap.md`
+- Modify: `docs/plans/v2-implementation-roadmap.md`
 - Modify: `docs/progress-tracker.md`
 
 **Step 1: Run backend validation**

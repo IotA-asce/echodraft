@@ -13,7 +13,7 @@ silence at the head/tail, so we lay down a faint pink-ish noise bed at roughly
 ``-70 dBFS`` RMS instead.
 
 The mastering targets are the plan's named constants (see
-``docs/plans/2026-07-04-phase-2-publishable-audio.md``):
+``docs/history/briefs/2026-07-04-phase-2-publishable-audio.md``):
 
 * integrated loudness ``I = -19 LUFS``
 * true peak ceiling ``TP = -3 dBTP``

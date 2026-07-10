@@ -31,7 +31,7 @@ CLIPPING_SAMPLE_THRESHOLD = 8
 EXCESSIVE_SILENCE_RATIO = 0.20
 EXCESSIVE_SILENCE_SINGLE_RANGE_MS = 5000
 # Rough segment-level RMS bounds; exact LUFS gating arrives with mastering (Phase 2 task
-# B1 per docs/plans/2026-07-04-phase-2-publishable-audio.md).
+# B1 per docs/history/briefs/2026-07-04-phase-2-publishable-audio.md).
 LOW_LOUDNESS_DBFS = -30.0
 HIGH_LOUDNESS_DBFS = -14.0
 # 30 chars/sec is fast speech; audio much shorter than that floor for its text length is

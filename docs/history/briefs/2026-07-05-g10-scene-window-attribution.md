@@ -85,8 +85,8 @@ This gives review/debug context without changing the public schema.
 **Files:**
 - Modify: `docs/pipeline/casting/speaker-attribution.md`
 - Modify: `docs/progress-tracker.md`
-- Modify: `docs/analysis/gap-analysis.md`
-- Modify: `docs/analysis/product-vision-analysis.md`
+- Modify: `docs/history/analysis/gap-analysis.md`
+- Modify: `docs/history/analysis/product-vision-analysis.md`
 
 **Step 1: Mark the G10 subitem**
 

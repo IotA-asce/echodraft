@@ -134,7 +134,7 @@ Expected: PASS; existing manual upload/cue/mix paths remain green.
 ### Task 5: Document, verify, and deliver
 
 **Files:**
-- Modify: `docs/plans/2026-07-07-v2-implementation-roadmap.md`
+- Modify: `docs/plans/v2-implementation-roadmap.md`
 - Modify: `docs/progress-tracker.md`
 
 **Step 1: Record implementation evidence**

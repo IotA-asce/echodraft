@@ -37,7 +37,7 @@ from .audio_analysis import AudioAnalysis, analyze_wav
 from .container import AppContainer
 from .production import ProductionService
 
-# Mastering headroom target: -3 dBTP ceiling (see docs/plans/2026-07-04-phase-2-publishable-
+# Mastering headroom target: -3 dBTP ceiling (see docs/history/briefs/2026-07-04-phase-2-publishable-
 # audio.md). Peaks hotter than this leave no room for the loudness-normalization/limiting
 # pass that Phase 2 task B1 adds.
 CHAPTER_PEAK_CEILING_DBFS = -3.0

@@ -202,7 +202,7 @@ metrics per [`product-vision-v2.md` §5.3, §9](../product/product-vision-v2.md)
 - [x] **W1.3 — Baseline report harness + recorded baseline.** Branch `feat/eval-baseline-report`.
   Add a harness (`apps/api/scripts/run_eval.py`) that runs the *current* `StructureService.extract`
   path over the corpus and writes a versioned JSON report (accuracy, flag counts, wall-clock) to
-  `docs/analysis/eval-baselines/2026-07-07-baseline.json`, plus a short markdown summary. This
+  `docs/evals/2026-07-07-baseline.json`, plus a short markdown summary. This
   frozen baseline is the comparison gate for every W3 stage. Verify: harness runs end-to-end on
   at least one corpus book; `uv run ruff check .`;
   `uv run mypy apps/api/src libs/db/src libs/domain-models/src`. Size: **M**.
@@ -388,11 +388,11 @@ produced (W3.7) before the emotion mappings can be validated end-to-end.
 - [ ] **W5.3 — Tier-S bake-off execution + selection.** Branch `feat/tts-bakeoff`. Run the §10
   bake-off (candidates incl. Orpheus-3B / Chatterbox / Zonos) against R10 (expressiveness) + R13
   (license) hard gates on our hardware; record results in
-  `docs/pipeline/tts/bakeoff-results.md`. This task *selects*; it does not integrate.
+  `docs/evals/2026-07-10-tts-bakeoff-results.md`. This task *selects*; it does not integrate.
   Verify: bake-off harness runs; `uv run ruff check .`. Size: **L**.
   - Harness/preflight landed 2026-07-10. Current Apple M4/16 GiB run found no candidate runtime
     installed, so selection remains fail-closed pending explicit Model Center download/license
-    consent and the required blind ratings; see `docs/pipeline/tts/bakeoff-results.md`.
+    consent and the required blind ratings; see `docs/evals/2026-07-10-tts-bakeoff-results.md`.
 - [ ] **W5.4 — Tier-S integration + voice identity records.** Branch `feat/tts-tier-s`. Add the
   selected engine's Model Center catalog entry + adapter; extend `VoiceProfileRecord` with
   metadata columns + on-disk artifact paths (migration + repair entry) — the seam W4.1 reads;

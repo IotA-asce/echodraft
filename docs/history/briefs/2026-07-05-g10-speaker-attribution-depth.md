@@ -48,8 +48,8 @@
 **Files:**
 - Modify: `docs/progress-tracker.md`
 - Modify: `docs/pipeline/casting/speaker-attribution.md`
-- Modify: `docs/analysis/gap-analysis.md`
-- Modify: `docs/analysis/product-vision-analysis.md`
+- Modify: `docs/history/analysis/gap-analysis.md`
+- Modify: `docs/history/analysis/product-vision-analysis.md`
 
 **Step 1:** Mark G10 subitems for turn-taking, broader pronoun/coreference, and cast proposal as complete only after tests pass.
 

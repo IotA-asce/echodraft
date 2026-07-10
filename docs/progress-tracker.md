@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-07
 
-This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.md`.
+This tracker follows `docs/product/roadmap.md` and `docs/history/analysis/gap-analysis.md`.
 
 ## Maintenance Rule
 
@@ -191,7 +191,7 @@ This tracker follows `docs/product/roadmap.md` and `docs/analysis/gap-analysis.m
 ## v2 Program Tracker
 
 This section tracks the v2 roadmap in
-[`docs/plans/2026-07-07-v2-implementation-roadmap.md`](plans/2026-07-07-v2-implementation-roadmap.md).
+[`docs/plans/v2-implementation-roadmap.md`](plans/v2-implementation-roadmap.md).
 It is separate from the completed G1-G20 alpha gap tracker above.
 
 ### Phase A - Fast Automatic Pipeline
@@ -216,26 +216,26 @@ It is separate from the completed G1-G20 alpha gap tracker above.
       cluster, synthesizes W4-ready profiles, and records additive manifest diagnostics.
     - Gate: cast precision/recall/F1 and alias purity remained 1.0, merge/split error rates
       remained 0, and flags fell from 3 to 2 on `modern-format-synthetic`; see
-      `docs/analysis/eval-baselines/2026-07-10-cast-v2-gate.md`.
+      `docs/evals/2026-07-10-cast-v2-gate.md`.
   - [x] W3.5 - Attribution v2.
     - Evidence: `feat/attribution-v2-llm-primary`; feature-flagged scene-window MAP treats the
       deterministic cascade as candidate evidence, carries conversation state, votes three times
       on low-confidence targets, and performs a bounded alternation reduce without touching locks.
     - Gate: attribution accuracy, auto-accept precision, attributable-dialogue recall, and explicit
       speaker coverage remained 1.0; see
-      `docs/analysis/eval-baselines/2026-07-10-attribution-v2-gate.md`.
+      `docs/evals/2026-07-10-attribution-v2-gate.md`.
   - [x] W3.6 - Confidence and flag model.
     - Evidence: `feat/extraction-flag-model`; migration `0032` adds auditable decision tiers and
       durable grouped review tasks, with open-cause deduplication and typed list/status APIs.
     - Gate: the committed fixture produces 2 optional grouped tasks, 0 required tasks, and retains
       1.0 attribution accuracy/precision/recall; see
-      `docs/analysis/eval-baselines/2026-07-10-confidence-v2-gate.md`.
+      `docs/evals/2026-07-10-confidence-v2-gate.md`.
   - [x] W3.7 - Direction v2 and progressive delivery.
     - Evidence: `feat/direction-v2-progressive`; profile-aware scene windows refine in parallel,
       while chapter-priority checkpoints/events publish provisional directions during the first pass.
     - Gate: the committed fixture emitted its first chapter-ready event in 0.029 s with 1 optional
       grouped task and 0 required tasks; the 500-page hardware milestone remains a separate M1/M2
-      acceptance run. See `docs/analysis/eval-baselines/2026-07-10-direction-v2-gate.md`.
+      acceptance run. See `docs/evals/2026-07-10-direction-v2-gate.md`.
 - [x] W4 - Automatic casting.
   - [x] W4.1 - Voice catalog and one-time audition backfill.
     - Evidence: `feat/voice-catalog`; migration `0033` adds versioned global catalog entries and
@@ -329,7 +329,7 @@ It is separate from the completed G1-G20 alpha gap tracker above.
     implemented (opening + at-most-one peak cue), SFX minimum-match threshold (silence over wrong
     asset), one-shot click fix, computed qa_status with seed retry, room tone reuses
     mastering.room_tone(), direction failures reported under category `direction`.
-- Known honest debt carried to the V3 plan (docs/plans/2026-07-10-v3-plan.md): eval gates have only
+- Known honest debt carried to the V3 plan (docs/plans/v3-plan.md): eval gates have only
   run on the synthetic fixture (real-corpus certification pending), confidence thresholds are
   uncalibrated constants, structure_parser_warnings firehose not yet retired, all v2 flags default
   off pending graduation gates, W5.3+ blocked on GPU hardware.

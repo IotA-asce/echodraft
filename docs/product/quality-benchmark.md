@@ -2,8 +2,8 @@
 
 **Date:** 2026-07-03
 **Purpose:** replace the abstract word "flawless" with a concrete, decomposable reference
-target. When the [vision](../analysis/product-vision-analysis.md) and
-[gap analysis](../analysis/gap-analysis.md) say a capability should reach maturity **5**,
+target. When the [vision](../history/analysis/product-vision-analysis.md) and
+[gap analysis](../history/analysis/gap-analysis.md) say a capability should reach maturity **5**,
 this document is what "5" means.
 
 ---
@@ -34,7 +34,7 @@ local models and which are not (see [§ Reachability](#reachability-what-the-ben
 
 Each dimension below is something Echodraft's pipeline produces, phrased as the
 Sunday-Suspense-grade target (maturity **5**). These map directly onto the capabilities and
-cross-cutting principles in the [gap analysis](../analysis/gap-analysis.md).
+cross-cutting principles in the [gap analysis](../history/analysis/gap-analysis.md).
 
 | # | Dimension | Sunday-Suspense-grade target (= maturity 5) | Maps to |
 |---|---|---|---|
@@ -47,7 +47,7 @@ cross-cutting principles in the [gap analysis](../analysis/gap-analysis.md).
 | B7 | **Adaptation fidelity** | The audio faithfully represents the manuscript — nothing dropped, garbled, or hallucinated; verse/scripts/formatting preserved. | Structure; QA (ASR verification) |
 | B8 | **Listener-grade QA** | What ships has been verified to *sound* right (not merely "no automated flag"); regressions are caught before export. | QA; P1 |
 
-A capability scores **5** on the [gap-analysis rubric](../analysis/gap-analysis.md#1-method--maturity-rubric)
+A capability scores **5** on the [gap-analysis rubric](../history/analysis/gap-analysis.md#1-method--maturity-rubric)
 when its corresponding dimension here would be indistinguishable from a Sunday Suspense
 episode to an ordinary listener.
 
@@ -77,7 +77,7 @@ engines, and that is precisely the trait Sunday Suspense's voice actors supply. 
 patch/review architecture is designed so imperfect renders become a good *deliverable*
 through human-in-the-loop editing — but the raw performance ceiling is a real constraint.
 The product answer is tiering, not pretense: keep local engines for drafting/preview, be
-honest in the UI about what each engine can honor ([P4](../analysis/product-vision-analysis.md)),
+honest in the UI about what each engine can honor ([P4](../history/analysis/product-vision-analysis.md)),
 and offer an **optional** premium/cloud render tier for final output for users who accept
 leaving strict local-first. See the [roadmap](roadmap.md) for where this sequences.
 

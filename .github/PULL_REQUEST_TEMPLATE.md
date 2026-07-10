@@ -4,7 +4,7 @@
 
 ## Linked issue / workstream
 
-<!-- e.g. "Closes #123" or "Implements W3.1, see docs/plans/2026-07-07-v2-implementation-roadmap.md" -->
+<!-- e.g. "Closes #123" or "Implements W3.1, see docs/plans/v2-implementation-roadmap.md" -->
 
 ## Type of change
 

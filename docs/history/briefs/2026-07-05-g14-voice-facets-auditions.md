@@ -49,8 +49,8 @@
 **Files:**
 - Modify: `docs/progress-tracker.md`
 - Modify: `docs/pipeline/casting/character-bible.md`
-- Modify: `docs/analysis/gap-analysis.md`
-- Modify: `docs/analysis/product-vision-analysis.md`
+- Modify: `docs/history/analysis/gap-analysis.md`
+- Modify: `docs/history/analysis/product-vision-analysis.md`
 
 **Step 1:** Mark G14 Kokoro facets and representative-line auditions complete if validation passes.
 
