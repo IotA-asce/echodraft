@@ -1481,3 +1481,266 @@ def test_structure_v2_flag_adds_manifest_trace(client, settings) -> None:
     assert trace["version"] == structure_v2.STRUCTURE_V2_VERSION
     assert trace["coverage"]["segmentCount"] > 0
     assert trace["fallback"] == "deterministic_compiler"
+
+
+def _llm_result(payload: dict) -> SimpleNamespace:
+    return SimpleNamespace(run=SimpleNamespace(id="llm_run_test"), result=payload)
+
+
+def _pipeline_for(client, project: str, *, llm_ready: bool = True):
+    container = client.app.state.container
+    source = container.sources.latest(project)
+    compiler = StructureCompiler(
+        project, source.id, structure_module.STRUCTURE_PARSER_VERSION
+    )
+    pipeline = structure_v2.StructureV2Pipeline(
+        compiler, container=container, job_id=None, llm_ready=llm_ready
+    )
+    return container, compiler, pipeline
+
+
+def _comparable(hierarchy: list[dict]) -> list[dict]:
+    return [
+        {
+            "record": chapter["record"],
+            "scenes": [
+                {"record": scene["record"], "segments": scene["segments"]}
+                for scene in chapter["scenes"]
+            ],
+        }
+        for chapter in hierarchy
+    ]
+
+
+def test_structure_v2_map_fan_out_produces_llm_boundaries(client, monkeypatch) -> None:
+    text = "Alpha opened the door.\n\nBravo waited outside.\n\nCharlie arrived at dusk.\n\n"
+    project = project_with_source(client, text)
+    _container, _compiler, pipeline = _pipeline_for(client, project)
+    charlie = text.index("Charlie")
+    calls: list[str] = []
+
+    def fake_extract(_self, _project_id, request, _job_id=None):
+        calls.append(request.task)
+        if request.task == "structure_map":
+            return _llm_result(
+                {
+                    "boundaries": [
+                        {
+                            "kind": "chapter",
+                            "offset": charlie,
+                            "title": "Charlie",
+                            "confidence": 0.93,
+                            "evidence": "llm split",
+                        }
+                    ],
+                    "warnings": [],
+                }
+            )
+        return _llm_result({"boundaries": [], "warnings": []})
+
+    monkeypatch.setattr(structure_v2.LocalLlmService, "extract", fake_extract)
+    result = pipeline.compile(text, 120)
+
+    assert "structure_map" in calls
+    starts = [chapter["record"]["start_offset"] for chapter in result.hierarchy]
+    assert 0 in starts
+    assert any(
+        abs(start - charlie) <= structure_v2.BOUNDARY_MATCH_CHARS for start in starts
+    )
+    assert len(result.hierarchy) >= 2
+
+
+def test_structure_v2_seam_reconciliation_resolves_disagreement(
+    client, monkeypatch
+) -> None:
+    text = "Para line.\n\n" * 60
+    project = project_with_source(client, text)
+    _container, _compiler, pipeline = _pipeline_for(client, project)
+    chunks = structure_v2.chunk_text(text, chunk_chars=120, overlap_chars=40)
+    assert len(chunks) >= 2
+    seams = structure_v2.seam_windows(chunks)
+    window = seams[0]
+    seam_offset = (window["startOffset"] + window["endOffset"]) // 2
+
+    left_only = structure_v2.ProposedBoundary(
+        "chapter", seam_offset, "Seam", 0.9, "left", chunks[0].index, "llm_map"
+    )
+    map_results = {chunks[0].index: [left_only], chunks[1].index: []}
+    for chunk in chunks[2:]:
+        map_results[chunk.index] = []
+    calls: list[str] = []
+
+    def fake_extract(_self, _project_id, request, _job_id=None):
+        calls.append(request.task)
+        return _llm_result(
+            {
+                "boundaries": [
+                    {
+                        "kind": "chapter",
+                        "offset": seam_offset,
+                        "title": "Reconciled",
+                        "confidence": 0.95,
+                        "evidence": "reduce",
+                    }
+                ],
+                "warnings": [],
+            }
+        )
+
+    monkeypatch.setattr(structure_v2.LocalLlmService, "extract", fake_extract)
+    resolved, decisions = pipeline._reduce_seams(chunks, seams, map_results, [], text)
+
+    # Only the one disagreeing seam consults the reduce model.
+    assert calls == ["structure_seam_reduce"]
+    assert decisions[0]["method"] == "llm"
+    assert any(
+        abs(boundary.offset - seam_offset) <= structure_v2.BOUNDARY_MATCH_CHARS
+        for boundary in resolved
+    )
+
+
+def test_structure_v2_verifier_flags_non_whitespace_gap() -> None:
+    text = "HelloXYZworld"
+    hierarchy = [
+        {
+            "scenes": [
+                {
+                    "segments": [
+                        {"record": {"start_offset": 0, "end_offset": 5, "text_content": "Hello"}},
+                        {"record": {"start_offset": 8, "end_offset": 13, "text_content": "world"}},
+                    ]
+                }
+            ]
+        }
+    ]
+    coverage = structure_v2.verify_structure_coverage(hierarchy, text)
+    assert coverage.ok is False
+    assert coverage.gap_count == 1
+    assert (5, 8) in coverage.gaps
+
+    whitespace_text = "Hello   world"
+    whitespace_coverage = structure_v2.verify_structure_coverage(hierarchy, whitespace_text)
+    assert whitespace_coverage.ok is True
+
+
+def test_structure_v2_repair_falls_back_to_deterministic(client, monkeypatch) -> None:
+    text = "Alpha opened the door.\n\nBravo waited outside.\n\nCharlie arrived.\n\n"
+    project = project_with_source(client, text)
+    _container, compiler, pipeline = _pipeline_for(client, project)
+    v1_result = compiler.compile(text, 120)
+    assert structure_v2.verify_structure_coverage(v1_result.hierarchy, text).ok is True
+
+    gapped = [
+        {
+            "record": {
+                "id": "chap_gap",
+                "project_id": project,
+                "order_index": 0,
+                "title": "Gap",
+                "start_offset": 0,
+                "end_offset": len(text),
+                "confidence": 0.5,
+                "status": "structured",
+                "parser_evidence_json": "{}",
+            },
+            "scenes": [
+                {
+                    "record": {
+                        "id": "scene_gap",
+                        "chapter_id": "chap_gap",
+                        "order_index": 0,
+                        "start_offset": 0,
+                        "end_offset": len(text),
+                        "confidence": 0.5,
+                        "status": "structured",
+                        "parser_evidence_json": "{}",
+                    },
+                    "segments": [
+                        {
+                            "id": "seg_gap",
+                            "scene_id": "scene_gap",
+                            "order_index": 0,
+                            "text_content": "Alpha",
+                            "start_offset": 0,
+                            "end_offset": 5,
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
+    # Repair can never close the gap: the builder keeps returning the gapped tree.
+    monkeypatch.setattr(pipeline, "_build_hierarchy", lambda *a, **k: gapped)
+
+    def failing_extract(_self, _project_id, _request, _job_id=None):
+        raise ValueError("llm unavailable")
+
+    monkeypatch.setattr(structure_v2.LocalLlmService, "extract", failing_extract)
+
+    warnings: list[dict] = []
+    hierarchy, coverage, attempts, outcome = pipeline._verify_and_repair(
+        hierarchy=gapped,
+        text=text,
+        max_chars=120,
+        chapter_offsets=[0],
+        scene_offsets=[],
+        boundary_titles={},
+        det_boundaries=[],
+        v1_result=v1_result,
+        warnings=warnings,
+    )
+
+    assert outcome == "deterministic_v1_region"
+    assert attempts == structure_v2.MAX_REPAIR_ATTEMPTS
+    assert hierarchy == v1_result.hierarchy
+    assert coverage.ok is True
+    assert any(
+        "structure_v2.coverage_fallback" in str(warning["evidence_json"])
+        for warning in warnings
+    )
+
+
+def test_structure_v2_full_coverage_invariant_end_to_end(client, monkeypatch) -> None:
+    text = (
+        "Chapter One\n\nMara opened the door slowly.\n\n"
+        "Chapter Two\n\nMara closed it behind her.\n\n"
+        "Chapter Three\n\nThe night settled in quietly.\n\n"
+    )
+    project = project_with_source(client, text)
+    _container, _compiler, pipeline = _pipeline_for(client, project)
+    chapter_two = text.index("Chapter Two")
+    chapter_three = text.index("Chapter Three")
+
+    def fake_extract(_self, _project_id, request, _job_id=None):
+        if request.task == "structure_map":
+            return _llm_result(
+                {
+                    "boundaries": [
+                        {"kind": "chapter", "offset": chapter_two, "title": "Chapter Two", "confidence": 0.9, "evidence": "llm"},
+                        {"kind": "chapter", "offset": chapter_three, "title": "Chapter Three", "confidence": 0.9, "evidence": "llm"},
+                    ],
+                    "warnings": [],
+                }
+            )
+        return _llm_result({"boundaries": [], "warnings": []})
+
+    monkeypatch.setattr(structure_v2.LocalLlmService, "extract", fake_extract)
+    result = pipeline.compile(text, 120)
+
+    assert structure_v2.verify_structure_coverage(result.hierarchy, text).ok is True
+    trace = structure_v2.structure_v2_manifest_payload(result.warnings)
+    assert trace is not None
+    assert trace["coverage"]["ok"] is True
+    assert trace["fallback"] == "none"
+    assert len(result.hierarchy) == 3
+
+
+def test_structure_v2_flag_off_path_is_byte_identical_to_v1(client) -> None:
+    text = "Chapter 1\n\nMara opened the door.\n\nChapter 2\n\nMara closed it.\n\n"
+    project = project_with_source(client, text)
+    _container, compiler, pipeline_off = _pipeline_for(client, project, llm_ready=False)
+
+    v1_result = compiler.compile(text, 120)
+    deterministic = pipeline_off.compile(text, 120)
+
+    assert _comparable(deterministic.hierarchy) == _comparable(v1_result.hierarchy)
