@@ -340,7 +340,7 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
       body: JSON.stringify({
         chapterCount: 1,
         sceneCount: 1,
-        segmentCount: 24,
+        segmentCount: 6000,
         dialogueSegmentCount: 2,
         dialogueAttributionCoverage: 50,
         unresolvedDialogueCount: 1,
@@ -420,7 +420,7 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
     await route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: "scene_progress", status: "unresolved", confidence: 0.4 }]) });
   });
   await page.route(/\/api\/v1\/scenes\/scene_progress\/segments$/, async (route) => {
-    const segments = Array.from({ length: 24 }, (_, index) => ({
+    const segments = Array.from({ length: 6000 }, (_, index) => ({
       id: `seg_${index}`,
       sceneId: "scene_progress",
       textContent: index === 0
@@ -453,7 +453,7 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
     });
   });
   await page.route(/\/api\/v1\/projects\/proj_progress\/chapters\/chap_progress\/production-status$/, async (route) => {
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ chapterId: "chap_progress", ready: true, reason: null, totalSegments: 24, currentSegments: 0, activeRender: null }) });
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ chapterId: "chap_progress", ready: true, reason: null, totalSegments: 6000, currentSegments: 0, activeRender: null }) });
   });
   await page.route(/\/api\/v1\/projects\/proj_progress\/chapters\/chap_progress\/produce\?force=false$/, async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: "job_progress", status: "running", progress: { phase: "rendering", current: 2, total: 5 } }) });
@@ -468,7 +468,7 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   await page.getByRole("button", { name: "Chapter 1" }).click();
   await expect(page.getByRole("button", { name: /Scene 1/ })).toContainText("Needs review · auto-structure confidence 40%");
   await expect(page.locator(".structure-quality")).toContainText("Segments");
-  await expect(page.locator(".structure-quality")).toContainText("24");
+  await expect(page.locator(".structure-quality")).toContainText("6000");
   await expect(page.locator(".structure-quality")).toContainText("LLM");
   await expect(page.locator(".structure-quality")).toContainText("Attribution");
   await expect(page.locator(".structure-quality")).toContainText("50%");
@@ -506,6 +506,7 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   await expect(page.locator(".segment-entry")).toHaveCount(1);
   await expect(page.locator(".segment-entry").first()).toContainText("Long segment");
   await filters.getByRole("button", { name: /All/ }).click();
+  await expect.poll(() => page.locator("[data-testid='virtual-segment-list'] .segment-entry").count()).toBeLessThan(20);
   const structure = page.locator(".structure-columns");
   const structureStyles = await structure.evaluate((element) => {
     const styles = window.getComputedStyle(element);
@@ -515,12 +516,14 @@ test("keeps the chapter map bounded and shows production progress", async ({ pag
   expect(structureStyles.overflowY).toBe("hidden");
   await expect.poll(async () => structure.locator(":scope > div").first().evaluate((element) => window.getComputedStyle(element).overflowY)).toBe("auto");
   await expect.poll(async () => structure.locator(":scope > div").nth(2).evaluate((element) => window.getComputedStyle(element).overflowY)).toBe("auto");
-  const segmentScroll = await structure.locator(":scope > div").nth(2).evaluate((element) => {
-    element.scrollTop = 200;
+  const virtualSegments = page.getByTestId("virtual-segment-list");
+  const segmentScroll = await virtualSegments.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
     return { clientHeight: element.clientHeight, scrollHeight: element.scrollHeight, scrollTop: element.scrollTop };
   });
   expect(segmentScroll.scrollHeight).toBeGreaterThan(segmentScroll.clientHeight);
   expect(segmentScroll.scrollTop).toBeGreaterThan(0);
+  await expect(virtualSegments.getByText("Scrollable segment 6000")).toBeVisible();
   const structureGap = await page.locator(".structure-view").evaluate((section) => {
     const columns = section.querySelector(".structure-columns")?.getBoundingClientRect();
     const production = section.querySelector(".production-bar")?.getBoundingClientRect();

@@ -300,5 +300,9 @@ It is separate from the completed G1-G20 alpha gap tracker above.
       timing, custom Button/Select/Range, focus-contained Modal/Drawer, and an SSR-safe Toast live
       region now back every primary select, slider, destructive confirmation, and evidence/model
       disclosure. The eight-scenario Playwright workflow and static production build remain green.
+  - [x] W7.2 - Virtualized segment, chapter-timeline, and transcript lists.
+    - Evidence: `feat/ui-virtualization`; TanStack Virtual uses stable domain keys, dynamic row
+      measurement, bounded overscan, and React 19-compatible scheduling. The smoke fixture loads
+      6,000 segments while mounting fewer than 20 editor rows and reaches the final row by scroll.
 - [ ] Phase D - Desktop packaging.
 - [ ] Phase E - Mobile.
