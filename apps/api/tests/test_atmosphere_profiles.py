@@ -9,6 +9,7 @@ import pytest
 
 from echodraft_api.atmosphere import AtmosphereProfileService, deterministic_profile
 from echodraft_api.config import AppSettings
+from echodraft_db.models import SceneRecord
 
 
 def _wait_for_job(client, job_id: str) -> dict:
@@ -156,3 +157,50 @@ def test_low_confidence_or_failed_profile_degrades_to_empty(client, monkeypatch)
     assert list(profiles.values()) == [{}]
     issues = client.get(f"/api/v1/projects/{project_id}/issues").json()
     assert any(issue["category"] == "sound_design" for issue in issues)
+
+
+def test_generate_scopes_to_scene_ids_and_never_overwrites_existing_profile(client) -> None:
+    project_id = _structured_project(
+        client,
+        "Chapter 1\n\nRain crossed the forest at night.\n\n***\n\n"
+        "The quiet tavern room waited until evening.",
+    )
+    container = client.app.state.container
+    chapters = client.get(f"/api/v1/projects/{project_id}/chapters").json()
+    scenes = client.get(f"/api/v1/chapters/{chapters[0]['id']}/scenes").json()
+    assert len(scenes) == 2
+    scene_a, scene_b = scenes[0]["id"], scenes[1]["id"]
+
+    good_profile_json = json.dumps(
+        {
+            **deterministic_profile(scene_a, "Rain crossed the forest at night."),
+            "mood": "joyful",
+        },
+        sort_keys=True,
+    )
+    with container.structure.database.session() as session:
+        record = session.get(SceneRecord, scene_a)
+        assert record is not None
+        record.atmosphere_profile_json = good_profile_json
+        session.commit()
+
+    service = AtmosphereProfileService(container)
+    result = service.generate(project_id, use_local_llm=False, model="", scene_ids=[scene_b])
+
+    # Scoped to scene_b only: scene_a is never touched, and its already-accepted profile
+    # is never overwritten with a lower-confidence fallback.
+    assert list(result.keys()) == [scene_b]
+    with container.structure.database.session() as session:
+        after = session.get(SceneRecord, scene_a)
+        assert after is not None
+        assert after.atmosphere_profile_json == good_profile_json
+
+    # Even an unscoped call must not clobber scene_a's existing profile unless forced.
+    service.generate(project_id, use_local_llm=False, model="")
+    with container.structure.database.session() as session:
+        still = session.get(SceneRecord, scene_a)
+        assert still is not None
+        assert still.atmosphere_profile_json == good_profile_json
+
+    forced = service.generate(project_id, use_local_llm=False, model="", force=True)
+    assert scene_a in forced

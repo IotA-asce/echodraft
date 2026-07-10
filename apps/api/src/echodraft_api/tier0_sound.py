@@ -8,11 +8,42 @@ from pathlib import Path
 
 import numpy as np
 
+from . import mastering
+
 SAMPLE_RATE = 16_000
 SCHEMA_VERSION = "tier0-sound-1.0.0"
 LICENSE_NOTE = (
     "CC0-1.0: project-authored procedural synthesis recipe dedicated to the public domain."
 )
+
+# Below this Jaccard overlap, an SFX request is treated as unsupported by the bank rather
+# than substituted with the nearest (but wrong) entry: silence is a safe fallback for an
+# explicit textual event like "gunshot" the bank has no asset for, a mismatched sound
+# effect is not. Ambience/music lookups keep the existing "best available match" fallback
+# (a miss there degrades to a generic bed, per the design doc), since a slightly-off
+# ambience texture is far less jarring than a wrong one-shot SFX.
+MIN_SFX_MATCH_JACCARD = 0.2
+
+# Recipes that are stationary/periodic-enough to loop: seam-forcing (matching the last
+# sample to the first) is safe and desirable for these. One-shot SFX recipes must never be
+# seam-forced -- snapping a percussive tail back to the (near-zero) head sample injects an
+# audible click, so they get a short fade-out tail instead (see `_finalize`).
+LOOPABLE_RECIPES = frozenset(
+    {
+        "room",
+        "wind",
+        "rain",
+        "fire",
+        "ocean",
+        "forest",
+        "urban",
+        "crowd",
+        "pad_somber",
+        "pad_bright",
+        "pad_tense",
+    }
+)
+ONE_SHOT_FADE_MS = 20.0
 
 
 @dataclass(frozen=True)
@@ -46,7 +77,42 @@ BANK = (
     BankEntry("knock", "Knock", "sfx", frozenset({"knock", "door", "interior"}), "knock"),
     BankEntry("footsteps", "Sparse footsteps", "sfx", frozenset({"footsteps", "walking", "running"}), "footsteps"),
     BankEntry("glass_break", "Glass break", "sfx", frozenset({"glass", "glass_break"}), "glass"),
+    BankEntry(
+        "music_pad_somber",
+        "Somber pad",
+        "music",
+        frozenset({"somber", "music", "pad", "minor"}),
+        "pad_somber",
+    ),
+    BankEntry(
+        "music_pad_bright",
+        "Bright pad",
+        "music",
+        frozenset({"bright", "music", "pad", "major"}),
+        "pad_bright",
+    ),
+    BankEntry(
+        "music_pad_tense",
+        "Tense pad",
+        "music",
+        frozenset({"tense", "music", "pad", "cluster"}),
+        "pad_tense",
+    ),
 )
+
+# root/third/fifth/octave partials (Hz) per pad mood. Somber sits in a low minor register,
+# bright sits an octave up in a major register, and tense is a sustained low minor-second
+# cluster (root + b2 + 5th) kept deliberately dissonant and quiet.
+_PAD_CHORDS: dict[str, tuple[float, ...]] = {
+    "pad_somber": (110.00, 130.81, 164.81, 220.00),
+    "pad_bright": (220.00, 277.18, 329.63, 440.00),
+    "pad_tense": (110.00, 116.54, 164.81),
+}
+_PAD_GAIN: dict[str, float] = {
+    "pad_somber": 0.05,
+    "pad_bright": 0.05,
+    "pad_tense": 0.03,
+}
 
 
 class TierZeroSoundBank:
@@ -59,28 +125,38 @@ class TierZeroSoundBank:
         *,
         asset_type: str,
         duration_ms: int,
+        retry: int = 0,
     ) -> ResolvedTierZeroAsset:
         normalized = {tag.strip().casefold().replace("-", "_") for tag in tags if tag.strip()}
         candidates = [entry for entry in BANK if entry.asset_type == asset_type]
         if not candidates:
             raise ValueError(f"Unsupported Tier-0 asset type: {asset_type}.")
-        entry = sorted(
+        ranked = sorted(
             candidates,
             key=lambda item: (-_jaccard(normalized, set(item.tags)), item.id),
-        )[0]
+        )
+        entry = ranked[0]
+        if asset_type == "sfx" and _jaccard(normalized, set(entry.tags)) < MIN_SFX_MATCH_JACCARD:
+            # No bank entry is actually a plausible match for this event (e.g. "gunshot",
+            # which the bundled bank does not cover): degrade to no cue rather than
+            # substitute a confidently-wrong sound effect.
+            raise ValueError(
+                f"No Tier-0 SFX bank entry matches tags {sorted(normalized)!r}."
+            )
         bounded_duration = max(250, min(60_000, duration_ms))
         payload = {
             "schemaVersion": SCHEMA_VERSION,
             "entryId": entry.id,
             "durationMs": bounded_duration,
+            "retry": retry,
         }
         cache_key = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
         root = self.cache_root / cache_key[:2] / cache_key
         path = root / "asset.wav"
         if not path.is_file():
             root.mkdir(parents=True, exist_ok=True)
-            samples = _synthesize(entry.recipe, bounded_duration, seed=int(cache_key[:16], 16))
-            _write_wav(path, samples)
+            samples, rate = _synthesize(entry.recipe, bounded_duration, seed=int(cache_key[:16], 16))
+            _write_wav(path, samples, rate)
             (root / "manifest.json").write_text(
                 json.dumps(
                     {
@@ -104,14 +180,17 @@ def _jaccard(left: set[str], right: set[str]) -> float:
     return len(left & right) / len(left | right) if left or right else 0.0
 
 
-def _synthesize(recipe: str, duration_ms: int, *, seed: int) -> np.ndarray:
+def _synthesize(recipe: str, duration_ms: int, *, seed: int) -> tuple[np.ndarray, int]:
+    if recipe == "room":
+        # Reuse the mastering module's own room-tone generator (44.1 kHz, ~-70 dBFS pink-
+        # ish noise) instead of reimplementing a fixed-rate room bed here.
+        samples = mastering.room_tone(duration_ms, mastering.SAMPLE_RATE)
+        return samples, mastering.SAMPLE_RATE
     count = max(1, int(SAMPLE_RATE * duration_ms / 1000))
     rng = np.random.default_rng(seed)
     noise = rng.standard_normal(count)
     time = np.arange(count, dtype=np.float64) / SAMPLE_RATE
-    if recipe == "room":
-        signal = 0.012 * _moving_average(noise, 9)
-    elif recipe == "wind":
+    if recipe == "wind":
         gust = 0.45 + 0.35 * np.sin(2 * np.pi * 0.11 * time + 0.7)
         signal = 0.035 * _moving_average(noise, 120) * gust
     elif recipe == "rain":
@@ -130,12 +209,64 @@ def _synthesize(recipe: str, duration_ms: int, *, seed: int) -> np.ndarray:
         murmur = _moving_average(noise, 24 if recipe == "crowd" else 45)
         hum = np.sin(2 * np.pi * (80 if recipe == "crowd" else 55) * time)
         signal = 0.018 * murmur + 0.006 * hum
+    elif recipe in _PAD_CHORDS:
+        signal = _music_pad(recipe, time)
     else:
         signal = _one_shot(recipe, count, time, rng, noise)
     signal = np.clip(signal, -0.35, 0.35)
-    if count > 1:
+    signal = _finalize(signal, recipe)
+    return np.asarray(signal * 32767, dtype="<i2"), SAMPLE_RATE
+
+
+def _music_pad(recipe: str, time: np.ndarray) -> np.ndarray:
+    """A sustained, soft chord pad: root/third(ish)/fifth/octave partials under a slow
+    attack/release envelope plus a gentle amplitude LFO (tremolo) for organic movement.
+    Mood-parameterized per ``_PAD_CHORDS``/``_PAD_GAIN``: somber sits in a low minor
+    register, bright an octave up in a major register, tense is a quiet, sustained
+    minor-second cluster.
+    """
+    partials = _PAD_CHORDS[recipe]
+    chord = sum(np.sin(2 * np.pi * frequency * time) for frequency in partials) / len(partials)
+    duration_ms = time.size / SAMPLE_RATE * 1000
+    attack_ms = min(1500.0, duration_ms * 0.3)
+    release_ms = min(1500.0, duration_ms * 0.3)
+    envelope = _attack_release_envelope(time.size, attack_ms, release_ms)
+    tremolo = 1.0 + 0.08 * np.sin(2 * np.pi * 0.15 * time)
+    pad = _PAD_GAIN[recipe] * np.asarray(chord, dtype=np.float64) * envelope * tremolo
+    return np.asarray(pad, dtype=np.float64)
+
+
+def _attack_release_envelope(count: int, attack_ms: float, release_ms: float) -> np.ndarray:
+    envelope = np.ones(count, dtype=np.float64)
+    attack = min(count, max(1, int(SAMPLE_RATE * attack_ms / 1000)))
+    release = min(count, max(1, int(SAMPLE_RATE * release_ms / 1000)))
+    if attack > 0:
+        envelope[:attack] = np.linspace(0.0, 1.0, attack, endpoint=False)
+    if release > 0:
+        envelope[count - release :] = np.minimum(
+            envelope[count - release :], np.linspace(1.0, 0.0, release)
+        )
+    return envelope
+
+
+def _finalize(signal: np.ndarray, recipe: str) -> np.ndarray:
+    """Bound a loop's seam or a one-shot's tail so neither clicks.
+
+    Loopable beds (ambience + music pads) get their last sample forced to match the
+    first, which is inaudible for these stationary/periodic textures and lets the mixer's
+    crossfade-loop splice cleanly. One-shot SFX (thunder, door, glass, ...) must never be
+    seam-forced this way -- snapping a percussive decay's tail back up to the (loud) head
+    sample injects an audible click -- so they get a short linear fade-out tail instead.
+    """
+    if signal.size <= 1:
+        return signal
+    signal = signal.copy()
+    if recipe in LOOPABLE_RECIPES:
         signal[-1] = signal[0]
-    return np.asarray(signal * 32767, dtype="<i2")
+        return signal
+    tail = min(signal.size, max(1, int(SAMPLE_RATE * ONE_SHOT_FADE_MS / 1000)))
+    signal[-tail:] *= np.linspace(1.0, 0.0, tail)
+    return signal
 
 
 def _one_shot(
@@ -178,9 +309,9 @@ def _moving_average(values: np.ndarray, width: int) -> np.ndarray:
     )
 
 
-def _write_wav(path: Path, samples: np.ndarray) -> None:
+def _write_wav(path: Path, samples: np.ndarray, rate: int = SAMPLE_RATE) -> None:
     with wave.open(str(path), "wb") as target:
         target.setnchannels(1)
         target.setsampwidth(2)
-        target.setframerate(SAMPLE_RATE)
+        target.setframerate(rate)
         target.writeframes(samples.tobytes())
