@@ -43,18 +43,27 @@ def main() -> int:
         action="store_true",
         help="Enable the feature-flagged cast-v2 clustering path for comparison.",
     )
+    parser.add_argument(
+        "--attribution-v2",
+        action="store_true",
+        help="Enable the feature-flagged attribution-v2 path for comparison.",
+    )
     args = parser.parse_args()
 
     books = args.books or ["modern-format-synthetic"]
     report = {
         "schemaVersion": "1.0.0",
         "generatedAt": datetime.now(UTC).isoformat(),
-        "pipeline": "cast-v2-clustering" if args.cast_v2 else "current-structure-service",
+        "pipeline": _pipeline_name(
+            cast_v2=args.cast_v2,
+            attribution_v2=args.attribution_v2,
+        ),
         "books": [
             evaluate_book(
                 book,
                 max_segment_chars=args.max_segment_chars,
                 cast_v2_enabled=args.cast_v2,
+                attribution_v2_enabled=args.attribution_v2,
             )
             for book in books
         ],
@@ -72,11 +81,24 @@ def _display_path(path: Path) -> Path:
     return path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
 
 
+def _pipeline_name(*, cast_v2: bool, attribution_v2: bool) -> str:
+    enabled = [
+        name
+        for active, name in (
+            (cast_v2, "cast-v2-clustering"),
+            (attribution_v2, "attribution-v2"),
+        )
+        if active
+    ]
+    return "+".join(enabled) if enabled else "current-structure-service"
+
+
 def evaluate_book(
     book_slug: str,
     *,
     max_segment_chars: int,
     cast_v2_enabled: bool = False,
+    attribution_v2_enabled: bool = False,
 ) -> dict[str, Any]:
     text = load_book_text(book_slug)
     labels = load_labels(book_slug)
@@ -90,6 +112,7 @@ def evaluate_book(
                 tts_settings_path=tmp_path / "tts-settings.json",
                 kokoro_runtime_root=tmp_path / "kokoro" / "managed-onnx-v1",
                 cast_v2_enabled=cast_v2_enabled,
+                attribution_v2_enabled=attribution_v2_enabled,
             )
         )
         with TestClient(app) as client:

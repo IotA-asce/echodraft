@@ -4,7 +4,10 @@ import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import cast
+from uuid import uuid4
 
 from echodraft_db.models import ChapterRecord, CharacterRecord, SceneRecord, SegmentRecord
 from echodraft_domain import (
@@ -15,6 +18,17 @@ from echodraft_domain import (
 )
 from sqlalchemy import select
 
+from .attribution_v2 import (
+    ATTRIBUTION_MID_CONFIDENCE,
+    ATTRIBUTION_V2_VERSION,
+    ATTRIBUTION_VOTE_SAMPLES,
+    AttributionDecision,
+    AttributionVote,
+    ConversationState,
+    ResolvedTurn,
+    alternation_repairs,
+    majority_vote,
+)
 from .container import AppContainer
 from .cast_discovery import CastDiscoveryService
 from .local_llm import LocalLlmService
@@ -34,6 +48,33 @@ SPEAKER_ATTRIBUTION_SCHEMA: dict[str, object] = {
                     "evidence": {"type": "string"},
                 },
                 "required": ["segmentId", "speakerName", "confidence"],
+            },
+        },
+        "warnings": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["attributions", "warnings"],
+}
+SPEAKER_ATTRIBUTION_V2_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "attributions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "segmentId": {"type": "string"},
+                    "characterId": {"type": "string"},
+                    "speakerName": {"type": "string"},
+                    "confidence": {"type": "number"},
+                    "evidence": {"type": "string"},
+                },
+                "required": [
+                    "segmentId",
+                    "characterId",
+                    "speakerName",
+                    "confidence",
+                    "evidence",
+                ],
             },
         },
         "warnings": {"type": "array", "items": {"type": "string"}},
@@ -112,7 +153,12 @@ class SpeakerAttributionService:
                     },
                 )
         if use_local_llm:
-            self._apply_local_llm(project_id, model, segments, character_index, job_id)
+            if self.container.settings.attribution_v2_enabled:
+                self._apply_local_llm_v2(
+                    project_id, model, segments, character_index, job_id
+                )
+            else:
+                self._apply_local_llm(project_id, model, segments, character_index, job_id)
         if job_id:
             self.container.jobs_repository.set_progress(
                 job_id,
@@ -369,6 +415,399 @@ class SpeakerAttributionService:
                     status="approved" if character and confidence >= 0.8 else "needs_review",
                 )
 
+    def _apply_local_llm_v2(
+        self,
+        project_id: str,
+        model: str,
+        segments: list[SegmentRecord],
+        character_index: CharacterIndex,
+        job_id: str | None,
+    ) -> None:
+        prepass = {
+            row.segment_id: row for row in self.list_attributions(project_id)
+        }
+        targets: list[SegmentRecord] = []
+        for segment in segments:
+            row = prepass.get(segment.id)
+            if not row or row.user_locked:
+                continue
+            explicit_shortcircuit = bool(
+                segment.segment_type == "dialogue"
+                and segment.speaker_candidate
+                and segment.speaker_confidence >= 0.8
+                and row.character_id
+            )
+            narration_shortcircuit = bool(
+                segment.segment_type != "dialogue"
+                and not _looks_like_dialogue(segment.text_content)
+            )
+            if explicit_shortcircuit or narration_shortcircuit:
+                self.container.speaker_attributions.upsert(
+                    project_id,
+                    segment.id,
+                    character_id=row.character_id,
+                    speaker_name=row.speaker_name,
+                    method="det_shortcircuit",
+                    evidence={
+                        **row.evidence,
+                        "attributionV2": ATTRIBUTION_V2_VERSION,
+                        "reason": row.evidence.get("reason") or "deterministic_shortcircuit",
+                    },
+                    confidence=row.confidence,
+                    status=row.status,
+                )
+                continue
+            targets.append(segment)
+        if not targets:
+            self._write_attribution_manifest(project_id, [])
+            return
+
+        prepass = {
+            row.segment_id: row for row in self.list_attributions(project_id)
+        }
+        windows = _scene_context_windows(segments, targets)
+        exemplars = self.container.speaker_attributions.locked_exemplars(
+            project_id, limit=5
+        )
+        llm = LocalLlmService(self.container)
+        max_workers = min(len(windows), self.container.orchestrator_pools.llm.max_workers)
+
+        def attribute_window(
+            window_index: int,
+            window: SpeakerAttributionWindow,
+        ) -> tuple[
+            int,
+            SpeakerAttributionWindow,
+            list[AttributionDecision],
+            list[str],
+            ValueError | None,
+        ]:
+            state = _incoming_conversation_state(window, segments, prepass)
+            prompt = self._llm_prompt_v2(
+                window,
+                character_index,
+                prepass,
+                exemplars,
+                state,
+            )
+            request = LlmExtractionRequest(
+                model=model,
+                task="speaker_attribution_v2_map",
+                schema=SPEAKER_ATTRIBUTION_V2_SCHEMA,
+                prompt=prompt,
+            )
+            try:
+                base_result = llm.extract(project_id, request, job_id)
+            except ValueError as error:
+                return window_index, window, [], [], error
+            run_ids = [base_result.run.id]
+            base_votes = self._attribution_votes(
+                base_result,
+                window.target_segment_ids,
+                character_index,
+            )
+            votes_by_segment: dict[str, list[AttributionVote]] = {
+                segment_id: [vote]
+                for segment_id, vote in base_votes.items()
+            }
+            low_segment_ids = {
+                segment_id
+                for segment_id in window.target_segment_ids
+                if segment_id not in base_votes
+                or base_votes[segment_id].confidence < ATTRIBUTION_MID_CONFIDENCE
+            }
+            if low_segment_ids:
+                for sample_index in range(1, ATTRIBUTION_VOTE_SAMPLES + 1):
+                    vote_request = LlmExtractionRequest(
+                        model=model,
+                        task="speaker_attribution_v2_vote",
+                        schema=SPEAKER_ATTRIBUTION_V2_SCHEMA,
+                        prompt=(
+                            f"{prompt}\n\nSelf-consistency vote sample {sample_index}. "
+                            "Re-evaluate independently and return every TARGET."
+                        ),
+                    )
+                    try:
+                        sample = llm.extract(project_id, vote_request, job_id)
+                    except ValueError:
+                        continue
+                    run_ids.append(sample.run.id)
+                    sample_votes = self._attribution_votes(
+                        sample,
+                        low_segment_ids,
+                        character_index,
+                    )
+                    for segment_id, vote in sample_votes.items():
+                        votes_by_segment.setdefault(segment_id, []).append(vote)
+            decisions = [
+                majority_vote(segment_id, votes_by_segment.get(segment_id, []))
+                for segment_id in sorted(window.target_segment_ids)
+            ]
+            return window_index, window, decisions, run_ids, None
+
+        results: list[
+            tuple[
+                int,
+                SpeakerAttributionWindow,
+                list[AttributionDecision],
+                list[str],
+                ValueError | None,
+            ]
+        ] = []
+        with ThreadPoolExecutor(
+            max_workers=max(1, max_workers),
+            thread_name_prefix="echodraft-attribution-v2",
+        ) as executor:
+            futures = [
+                executor.submit(attribute_window, window_index, window)
+                for window_index, window in enumerate(windows, 1)
+            ]
+            for future in futures:
+                results.append(future.result())
+
+        segment_map = {segment.id: segment for segment in segments}
+        manifest_windows: list[dict[str, object]] = []
+        for window_index, window, decisions, run_ids, error in sorted(
+            results, key=lambda item: item[0]
+        ):
+            window_id = _attribution_window_id(window, window_index)
+            if error is not None:
+                self.container.review.create_issue(
+                    project_id=project_id,
+                    category="cast_discovery",
+                    severity="warning",
+                    title="Attribution v2 kept deterministic window results",
+                    description=(
+                        "Local attribution MAP failed; the deterministic pre-pass rows were kept."
+                    ),
+                    metadata={
+                        "error": str(error)[:500],
+                        "windowId": window_id,
+                        "segmentIds": sorted(window.target_segment_ids),
+                    },
+                    dedupe_key=f"speaker-v2:{project_id}:{window_id}",
+                )
+                continue
+            state = _incoming_conversation_state(window, segments, prepass)
+            for decision in decisions:
+                resolved_segment = segment_map.get(decision.segment_id)
+                if not resolved_segment:
+                    continue
+                character = _character_by_reference(
+                    decision.character_key, character_index
+                )
+                narrator = decision.character_key == "narrator"
+                unknown = decision.character_key == "unknown"
+                tally_winner_count = max((decision.tally or {"": 0}).values())
+                vote_consensus = decision.method == "vote" and tally_winner_count >= 3
+                approved = narrator or bool(
+                    character
+                    and (
+                        decision.confidence >= ATTRIBUTION_MID_CONFIDENCE
+                        or vote_consensus
+                    )
+                )
+                self.container.speaker_attributions.upsert(
+                    project_id,
+                    decision.segment_id,
+                    character_id=character.id if character else None,
+                    speaker_name=(
+                        "Narrator"
+                        if narrator
+                        else "Unknown"
+                        if unknown
+                        else character.display_name
+                        if character
+                        else decision.speaker_name or None
+                    ),
+                    method=decision.method,
+                    evidence={
+                        "reason": decision.rationale,
+                        "attributionV2": ATTRIBUTION_V2_VERSION,
+                        "windowId": window_id,
+                        "llmRunIds": run_ids,
+                        "candidateSet": _candidate_evidence(
+                            decision.segment_id, prepass, window.active_speakers
+                        ),
+                        "conversationState": state.as_prompt_payload(),
+                        "voteTally": decision.tally or {},
+                        "targetSegmentIds": sorted(window.target_segment_ids),
+                        "sceneWindowSegmentIds": [item.id for item in window.segments],
+                    },
+                    confidence=decision.confidence,
+                    status="approved" if approved else "needs_review",
+                )
+            manifest_windows.append(
+                {
+                    "id": window_id,
+                    "targetSegmentIds": sorted(window.target_segment_ids),
+                    "runIds": run_ids,
+                    "conversationState": state.as_prompt_payload(),
+                }
+            )
+            if job_id:
+                self.container.jobs_repository.set_progress(
+                    job_id,
+                    {
+                        "phase": "llm_speaker_attribution_v2",
+                        "current": window_index,
+                        "total": len(windows),
+                    },
+                )
+        repairs = self._reduce_attributions(project_id, segments, character_index)
+        self._write_attribution_manifest(project_id, manifest_windows, repairs=repairs)
+
+    @staticmethod
+    def _attribution_votes(
+        result: LlmExtractionResult,
+        target_segment_ids: set[str],
+        character_index: CharacterIndex,
+    ) -> dict[str, AttributionVote]:
+        payload = result.result.get("attributions")
+        if not isinstance(payload, list):
+            return {}
+        votes: dict[str, AttributionVote] = {}
+        for raw in payload:
+            if not isinstance(raw, dict):
+                continue
+            item = cast(dict[str, object], raw)
+            segment_id = str(item.get("segmentId") or "")
+            if segment_id not in target_segment_ids:
+                continue
+            reference = str(
+                item.get("characterId") or item.get("speakerName") or "unknown"
+            ).strip()
+            normalized = _name_key(reference)
+            if normalized in {"narrator", "unknown"}:
+                character_key = normalized
+                speaker_name = normalized.title()
+            else:
+                character = _character_by_reference(reference, character_index)
+                character_key = character.id if character else "unknown"
+                speaker_name = character.display_name if character else "Unknown"
+            votes[segment_id] = AttributionVote(
+                segment_id=segment_id,
+                character_key=character_key,
+                speaker_name=speaker_name,
+                confidence=_confidence(item.get("confidence")),
+                rationale=str(item.get("evidence") or "LLM scene-window attribution."),
+            )
+        return votes
+
+    def _reduce_attributions(
+        self,
+        project_id: str,
+        segments: list[SegmentRecord],
+        character_index: CharacterIndex,
+    ) -> list[dict[str, object]]:
+        rows = {row.segment_id: row for row in self.list_attributions(project_id)}
+        scene_rosters: dict[str, tuple[str, str]] = {}
+        scene_speakers: dict[str, list[str]] = {}
+        turns: list[ResolvedTurn] = []
+        for segment in segments:
+            if segment.segment_type != "dialogue":
+                continue
+            row = rows.get(segment.id)
+            if not row or not row.speaker_name or _name_key(row.speaker_name) in {
+                "narrator",
+                "unknown",
+            }:
+                continue
+            speakers = scene_speakers.setdefault(segment.scene_id, [])
+            if row.speaker_name not in speakers:
+                speakers.append(row.speaker_name)
+            turns.append(
+                ResolvedTurn(
+                    segment_id=segment.id,
+                    scene_id=segment.scene_id,
+                    speaker_name=row.speaker_name,
+                    confidence=row.confidence,
+                    user_locked=row.user_locked,
+                    character_key=row.character_id,
+                    method=row.method,
+                )
+            )
+        for scene_id, speakers in scene_speakers.items():
+            if len(speakers) == 2:
+                scene_rosters[scene_id] = (speakers[0], speakers[1])
+        repairs = alternation_repairs(turns, scene_rosters)
+        output: list[dict[str, object]] = []
+        for repair in repairs:
+            character = _character_by_reference(repair.speaker_name, character_index)
+            if not character:
+                continue
+            current = rows.get(repair.segment_id)
+            self.container.speaker_attributions.upsert(
+                project_id,
+                repair.segment_id,
+                character_id=character.id,
+                speaker_name=character.display_name,
+                method="reduce_repair",
+                evidence={
+                    **(current.evidence if current else {}),
+                    "reason": "book_level_two_speaker_alternation_repair",
+                    "previousMethod": current.method if current else None,
+                    "attributionV2": ATTRIBUTION_V2_VERSION,
+                },
+                confidence=repair.confidence,
+                status="approved",
+            )
+            output.append(
+                {
+                    "segmentId": repair.segment_id,
+                    "speakerName": character.display_name,
+                    "method": "reduce_repair",
+                }
+            )
+        return output
+
+    def _write_attribution_manifest(
+        self,
+        project_id: str,
+        windows: list[dict[str, object]],
+        *,
+        repairs: list[dict[str, object]] | None = None,
+    ) -> None:
+        project = self.container.projects.get(project_id)
+        if not project:
+            return
+        rows = self.list_attributions(project_id)
+        manifest = {
+            "manifestType": "attribution_manifest",
+            "schemaVersion": "0.2.0",
+            "manifestVersion": "attribution-v2",
+            "generatedAt": datetime.now(UTC).isoformat(),
+            "projectId": project_id,
+            "payload": {
+                "version": ATTRIBUTION_V2_VERSION,
+                "windows": windows,
+                "repairs": repairs or [],
+                "rowCount": len(rows),
+                "rows": [
+                    {
+                        "id": row.id,
+                        "segmentId": row.segment_id,
+                        "characterId": row.character_id,
+                        "speakerName": row.speaker_name,
+                        "method": row.method,
+                        "confidence": row.confidence,
+                        "status": row.status,
+                        "userLocked": row.user_locked,
+                        "windowId": row.evidence.get("windowId"),
+                        "candidateSet": row.evidence.get("candidateSet") or [],
+                        "voteTally": row.evidence.get("voteTally") or {},
+                    }
+                    for row in rows
+                ],
+            },
+        }
+        root = Path(project.artifact_path) / "manifests"
+        root.mkdir(parents=True, exist_ok=True)
+        versioned = root / f"attribution_manifest.{uuid4().hex[:12]}.json"
+        payload = json.dumps(manifest, indent=2)
+        versioned.write_text(payload, encoding="utf-8")
+        (root / "attribution_manifest.json").write_text(payload, encoding="utf-8")
+
     def _segments(self, project_id: str) -> list[SegmentRecord]:
         with self.container.structure.database.session() as session:
             rows = session.scalars(
@@ -453,6 +892,143 @@ class SpeakerAttributionService:
             f"Active speakers in this scene: {active_speaker_line}\n\n"
             f"Segments:\n{segment_lines}"
         )
+
+    @staticmethod
+    def _llm_prompt_v2(
+        window: SpeakerAttributionWindow,
+        character_index: CharacterIndex,
+        prepass: dict[str, SpeakerAttribution],
+        exemplars: list[tuple[str, str]],
+        state: ConversationState,
+    ) -> str:
+        characters = sorted(
+            {character.id: character for character in character_index.by_name.values()}.values(),
+            key=lambda item: item.display_name,
+        )
+        roster_lines = []
+        for character in characters:
+            roster_lines.append(
+                json.dumps(
+                    {
+                        "characterId": character.id,
+                        "displayName": character.display_name,
+                        "aliases": _aliases(character),
+                        "traits": _json_list(character.traits_json),
+                        "speakingStyle": _json_list(character.speaking_style_json),
+                    },
+                    sort_keys=True,
+                )
+            )
+        candidate_lines = []
+        for segment_id in sorted(window.target_segment_ids):
+            row = prepass.get(segment_id)
+            candidate_lines.append(
+                json.dumps(
+                    {
+                        "segmentId": segment_id,
+                        "speakerName": row.speaker_name if row else None,
+                        "characterId": row.character_id if row else None,
+                        "confidence": row.confidence if row else 0.0,
+                        "reason": row.evidence.get("reason") if row else None,
+                    },
+                    sort_keys=True,
+                )
+            )
+        segment_lines = "\n".join(
+            f"- {'TARGET' if segment.id in window.target_segment_ids else 'CONTEXT'} "
+            f"{segment.id}: {segment.text_content[:500].replace(chr(10), ' ')}"
+            for segment in window.segments
+        )
+        exemplar_lines = "\n".join(
+            f'- "{text[:120].replace(chr(10), " ")}" => {speaker}'
+            for speaker, text in exemplars[:5]
+        )
+        return (
+            "Attribute every TARGET segment using the known Character Bible. The deterministic "
+            "candidates are evidence, not final answers. Return an actual characterId from the "
+            "roster, or exactly 'narrator'/'unknown'. CONTEXT rows are read-only. Return only JSON "
+            "matching the schema.\n\n"
+            f"Conversation state: {json.dumps(state.as_prompt_payload(), sort_keys=True)}\n\n"
+            f"Active roster profiles:\n{chr(10).join(roster_lines) or '[]'}\n\n"
+            f"Deterministic candidates:\n{chr(10).join(candidate_lines)}\n\n"
+            f"Reviewer-confirmed examples:\n{exemplar_lines or 'None'}\n\n"
+            f"Segments:\n{segment_lines}"
+        )
+
+
+def _incoming_conversation_state(
+    window: SpeakerAttributionWindow,
+    all_segments: list[SegmentRecord],
+    prepass: dict[str, SpeakerAttribution],
+) -> ConversationState:
+    window_ids = {segment.id for segment in window.segments}
+    first_position = next(
+        (index for index, segment in enumerate(all_segments) if segment.id in window_ids),
+        len(all_segments),
+    )
+    state = ConversationState(active_roster=tuple(window.active_speakers))
+    for segment in all_segments[:first_position]:
+        if not window.segments or segment.scene_id != window.segments[0].scene_id:
+            continue
+        row = prepass.get(segment.id)
+        if not row or not row.speaker_name:
+            continue
+        if _name_key(row.speaker_name) in {"narrator", "unknown"}:
+            continue
+        addressee = row.evidence.get("addressedSpeaker")
+        state = state.advance(
+            row.speaker_name,
+            open_addressee=str(addressee) if addressee else None,
+        )
+    return state
+
+
+def _attribution_window_id(window: SpeakerAttributionWindow, index: int) -> str:
+    scene_id = window.segments[0].scene_id if window.segments else "scene"
+    return f"attrwin_{scene_id}_{index:03d}"
+
+
+def _character_by_reference(
+    reference: str | None, character_index: CharacterIndex
+) -> CharacterRecord | None:
+    key = _name_key(reference)
+    if not key:
+        return None
+    unique = {character.id: character for character in character_index.by_name.values()}
+    if reference in unique:
+        return unique[reference]
+    return character_index.by_name.get(key)
+
+
+def _candidate_evidence(
+    segment_id: str,
+    prepass: dict[str, SpeakerAttribution],
+    active_speakers: list[str],
+) -> list[dict[str, object]]:
+    row = prepass.get(segment_id)
+    candidates: list[dict[str, object]] = []
+    if row and row.speaker_name:
+        candidates.append(
+            {
+                "speakerName": row.speaker_name,
+                "characterId": row.character_id,
+                "confidence": row.confidence,
+                "reason": row.evidence.get("reason"),
+            }
+        )
+    seen = {_name_key(str(item.get("speakerName") or "")) for item in candidates}
+    for speaker in active_speakers:
+        if _name_key(speaker) not in seen:
+            candidates.append({"speakerName": speaker, "reason": "active_scene_roster"})
+    return candidates
+
+
+def _json_list(payload: str | None) -> list[object]:
+    try:
+        value = json.loads(payload or "[]")
+    except json.JSONDecodeError:
+        return []
+    return cast(list[object], value if isinstance(value, list) else [])
 
 
 def _name_key(value: str | None) -> str:
