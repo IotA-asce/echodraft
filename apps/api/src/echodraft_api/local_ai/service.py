@@ -80,7 +80,13 @@ class LocalAiService:
                     licenseSummary=entry.license_summary,
                     licenseNote=entry.license_note,
                     description=entry.description,
-                    status=installation.status if installation else "not_installed",
+                    status=(
+                        installation.status
+                        if installation
+                        else "installed"
+                        if entry.install_type == "bundled_asset"
+                        else "not_installed"
+                    ),
                     health=health.status,
                     installPath=installation.install_path if installation else health.install_path,
                     lastVerifiedAt=installation.last_verified_at if installation else None,
@@ -102,6 +108,16 @@ class LocalAiService:
             return self._ollama_model_health(entry)
         if entry.install_type == "kokoro_managed":
             return self._kokoro_health(entry)
+        if entry.install_type == "bundled_asset":
+            return LocalAiHealth(
+                modelKey=entry.model_key,
+                status="ready",
+                ready=True,
+                message="Bundled with Echodraft; no installation is required.",
+                version="tier0-sound-1.0.0",
+                installPath=str(Path(__file__).parents[1] / "tier0_sound.py"),
+                checkedAt=datetime.now(UTC),
+            )
         return LocalAiHealth(
             modelKey=entry.model_key,
             status="unsupported",

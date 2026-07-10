@@ -108,3 +108,13 @@ models:
     size_mb: 350
     license_summary: Model and package licenses are third-party; review before commercial distribution.
     description: Managed local TTS runtime already used by the alpha voice setup.
+
+  procedural_sound_bank:
+    display_name: Procedural Ambience & CC0 Sound Bank
+    capability: ambience_bank
+    provider: bundled
+    install_type: bundled_asset
+    required: true
+    size_mb: 0
+    license_summary: CC0-1.0 recipes and project-authored DSP synthesis; no restrictions.
+    description: Always-available ambience and sparse SFX fallback; no network required.
