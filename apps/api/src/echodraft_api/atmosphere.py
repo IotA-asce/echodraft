@@ -79,6 +79,7 @@ class SceneText:
     id: str
     chapter_id: str
     text: str
+    existing_profile_json: str = "{}"
 
 
 class AtmosphereProfileService:
@@ -92,8 +93,25 @@ class AtmosphereProfileService:
         use_local_llm: bool,
         model: str,
         job_id: str | None = None,
+        scene_ids: list[str] | None = None,
+        force: bool = False,
     ) -> dict[str, dict[str, object]]:
-        scenes = self._scene_texts(project_id)
+        """Generate atmosphere profiles, scoped and non-destructive by default.
+
+        ``scene_ids`` restricts generation to exactly those scenes (e.g. only the
+        scenes of the chapter currently being planned) instead of every scene in the
+        project -- calling this without a scope regenerates the whole project, which
+        previously clobbered good LLM-derived profiles in other chapters whenever any
+        single chapter had a missing scene. Unless ``force`` is set, a scene that
+        already carries an accepted profile (LLM-derived or deterministic) is left
+        untouched: this call must never overwrite an existing profile with a lower-
+        confidence fallback.
+        """
+        scenes = self._scene_texts(project_id, scene_ids=scene_ids)
+        if not force:
+            scenes = [
+                scene for scene in scenes if not _json_object(scene.existing_profile_json)
+            ]
         deterministic = {scene.id: deterministic_profile(scene.id, scene.text) for scene in scenes}
         errors: list[str] = []
         refined: dict[str, dict[str, object]] = {}
@@ -169,29 +187,34 @@ class AtmosphereProfileService:
             )
             return {row.id: _json_object(row.atmosphere_profile_json) for row in rows}
 
-    def _scene_texts(self, project_id: str) -> list[SceneText]:
+    def _scene_texts(
+        self, project_id: str, *, scene_ids: list[str] | None = None
+    ) -> list[SceneText]:
         with self.container.structure.database.session() as session:
-            rows = list(
-                session.execute(
-                    select(SceneRecord, SegmentRecord)
-                    .join(ChapterRecord, SceneRecord.chapter_id == ChapterRecord.id)
-                    .join(SegmentRecord, SegmentRecord.scene_id == SceneRecord.id)
-                    .where(ChapterRecord.project_id == project_id)
-                    .order_by(
-                        ChapterRecord.order_index,
-                        SceneRecord.order_index,
-                        SegmentRecord.order_index,
-                    )
-                )
+            statement = (
+                select(SceneRecord, SegmentRecord)
+                .join(ChapterRecord, SceneRecord.chapter_id == ChapterRecord.id)
+                .join(SegmentRecord, SegmentRecord.scene_id == SceneRecord.id)
+                .where(ChapterRecord.project_id == project_id)
             )
-        grouped: dict[str, tuple[str, list[str]]] = {}
+            if scene_ids is not None:
+                statement = statement.where(SceneRecord.id.in_(scene_ids))
+            statement = statement.order_by(
+                ChapterRecord.order_index,
+                SceneRecord.order_index,
+                SegmentRecord.order_index,
+            )
+            rows = list(session.execute(statement))
+        grouped: dict[str, tuple[str, list[str], str]] = {}
         for scene, segment in rows:
-            chapter_id, text = grouped.setdefault(scene.id, (scene.chapter_id, []))
+            chapter_id, text, profile_json = grouped.setdefault(
+                scene.id, (scene.chapter_id, [], scene.atmosphere_profile_json)
+            )
             text.append(segment.text_content)
-            grouped[scene.id] = (chapter_id, text)
+            grouped[scene.id] = (chapter_id, text, profile_json)
         return [
-            SceneText(scene_id, chapter_id, " ".join(text)[:6000])
-            for scene_id, (chapter_id, text) in grouped.items()
+            SceneText(scene_id, chapter_id, " ".join(text)[:6000], profile_json)
+            for scene_id, (chapter_id, text, profile_json) in grouped.items()
         ]
 
 

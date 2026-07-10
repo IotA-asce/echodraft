@@ -331,3 +331,28 @@ def test_direction_v2_prompt_uses_character_profiles_and_writes_manifest(
     )
     assert manifest["manifestVersion"] == "direction-v2"
     assert len(manifest["payload"]["rows"]) == len(segments)
+
+
+def test_direction_inference_failure_reports_direction_category_not_cast_discovery(
+    client, monkeypatch
+) -> None:
+    container = client.app.state.container
+    container.settings = replace(container.settings, direction_v2_enabled=True)
+
+    def fail_infer(
+        self, project_id, job_id=None, *, use_local_llm=False, model="qwen3:4b"
+    ):  # type: ignore[no-untyped-def]
+        raise ValueError("forced direction failure")
+
+    monkeypatch.setattr(direction_module.DirectionService, "infer_segment_directions", fail_infer)
+
+    project, _chapter, _scene, _segments = project_with_segments(
+        client,
+        b'Chapter 1\n\nMara said hello. "Wait," she said.',
+    )
+
+    issues = client.get(f"/api/v1/projects/{project}/issues").json()
+    direction_issues = [issue for issue in issues if issue["category"] == "direction"]
+    assert direction_issues
+    assert "direction" in direction_issues[0]["title"].lower()
+    assert not any(issue["category"] == "cast_discovery" for issue in issues)

@@ -541,9 +541,13 @@ class ChapterAssembler:
     ) -> np.ndarray:
         if max_frames <= 0:
             return asset[:0]
-        if cue.asset_type in {"ambience", "music"} or cue.cue_type in {"ambience", "music"}:
+        if cue.asset_type == "ambience" or cue.cue_type == "ambience":
+            # Ambience beds tile/loop through their scene run with a crossfaded seam.
             xfade_frames = int(self.sample_rate * AMBIENCE_CROSSFADE_MS / 1000)
             return self._tile_with_crossfade(asset, max_frames, xfade_frames)
+        # Music and SFX are bounded one-shot clips: the asset is generated/rendered at
+        # exactly its planned placement duration and must never loop through the rest of
+        # the chapter, per generative-sound-design.md's music-placement rules.
         return asset[:max_frames]
 
     @staticmethod

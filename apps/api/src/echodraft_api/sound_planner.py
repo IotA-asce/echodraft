@@ -19,12 +19,34 @@ from echodraft_domain import SoundPlanResult
 from sqlalchemy import delete, select
 
 from .atmosphere import AtmosphereProfileService
+from .audio_analysis import analyze_wav
 from .container import AppContainer
-from .tier0_sound import LICENSE_NOTE, TierZeroSoundBank
+from .tier0_sound import LICENSE_NOTE, ResolvedTierZeroAsset, TierZeroSoundBank
 
 MIN_SCENE_CONFIDENCE = 0.65
 MIN_SFX_CONFIDENCE = 0.8
 MIN_ANCHOR_JACCARD = 0.35
+
+# Music entry/exit rules (generative-sound-design.md "Music entry/exit rules"): a chapter-
+# opening cue fades in over the first paragraph (capped) and always fades out before the
+# scene's first dialogue line; an emotional-peak cue follows the same shape at its own scene.
+MAX_MUSIC_FADE_IN_MS = 6000
+DEFAULT_MUSIC_FADE_OUT_MS = 1500
+PEAK_TENSION_LEVEL = 0.8
+PEAK_TENSION_DELTA = 0.3
+
+# Tier-0 QA gate for a materialized bank asset: clipping, non-silence, and duration
+# sanity. A near-silent floor sits well below the intentionally-faint ~-70 dBFS room-tone
+# recipe (mastering.ROOM_TONE_RMS_DBFS) but well above true digital silence, so a
+# legitimately quiet room-tone bed is never mistaken for a degenerate/failed generation.
+MIN_QA_RMS_DBFS = -90.0
+QA_DURATION_TOLERANCE_MS = 150
+
+# Mood vocabulary (shared with direction-v2's scene mood enum) bucketed onto the three
+# procedural music-pad moods the Tier-0 bank actually ships.
+_SOMBER_MOODS = frozenset({"somber", "quiet", "fearful", "eerie", "grief", "neutral"})
+_BRIGHT_MOODS = frozenset({"bright", "warm", "joyful", "romantic", "calm"})
+_TENSE_MOODS = frozenset({"tense", "urgent", "angry", "action"})
 
 
 @dataclass(frozen=True)
@@ -34,6 +56,7 @@ class SegmentPlanInput:
     start_ms: int | None
     end_ms: int | None
     no_sfx: bool = False
+    segment_type: str = "narration"
 
 
 @dataclass(frozen=True)
@@ -57,6 +80,13 @@ class PlannedSoundCue:
     start_ms: int = 0
     sentence_evidence: str | None = None
     profile_evidence: dict[str, object] = field(default_factory=dict)
+    # Music-only placement fields (None for ambience/sfx, which use the materializer's
+    # fixed defaults). Duration is the cue's own bounded clip length -- music is never
+    # tiled/looped through the rest of the chapter, per the design's "target the actual
+    # placement duration directly ... rather than being looped."
+    duration_ms: int | None = None
+    fade_in_ms: int | None = None
+    fade_out_ms: int | None = None
 
 
 @dataclass(frozen=True)
@@ -110,6 +140,7 @@ def plan_chapter_sound(
             previous_bed_index = None
             continue
 
+        scene_segments = segments.get(scene_id, ())
         signature = tuple(
             _normalized(profile.get(key), fallback)
             for key, fallback in (
@@ -152,16 +183,31 @@ def plan_chapter_sound(
         previous_signature = signature
 
         tension = _number(profile.get("tensionLevel"))
+        music_window: tuple[int, int] | None = None
         if index == 0 and resolved_settings.allow_opening_music:
-            skipped.append(SkippedSound(scene_id, "tier0_music_unavailable"))
+            placement = _plan_music_cue(
+                chapter_id, render_mode, scene_id, profile, scene_segments, "chapter_opening_music"
+            )
+            if placement is not None:
+                cues.append(placement)
+                music_window = (placement.start_ms, placement.start_ms + (placement.duration_ms or 0))
+            else:
+                skipped.append(SkippedSound(scene_id, "no_timeline_for_music_cue"))
         elif (
             render_mode == "dramatized"
             and resolved_settings.allow_peak_music
             and not peak_logged
-            and tension >= 0.8
-            and tension - running_max_tension >= 0.3
+            and tension >= PEAK_TENSION_LEVEL
+            and tension - running_max_tension >= PEAK_TENSION_DELTA
         ):
-            skipped.append(SkippedSound(scene_id, "tier0_music_unavailable"))
+            placement = _plan_music_cue(
+                chapter_id, render_mode, scene_id, profile, scene_segments, "emotional_peak_underscore"
+            )
+            if placement is not None:
+                cues.append(placement)
+                music_window = (placement.start_ms, placement.start_ms + (placement.duration_ms or 0))
+            else:
+                skipped.append(SkippedSound(scene_id, "no_timeline_for_music_cue"))
             peak_logged = True
         running_max_tension = max(running_max_tension, tension)
 
@@ -182,13 +228,16 @@ def plan_chapter_sound(
             if _number(event.get("confidence")) < MIN_SFX_CONFIDENCE:
                 skipped.append(SkippedSound(scene_id, "low_event_confidence", event_type, sentence))
                 continue
-            anchor = _locate_anchor(sentence, segments.get(scene_id, ()))
+            anchor = _locate_anchor(sentence, scene_segments)
             if anchor is None:
                 skipped.append(SkippedSound(scene_id, "no_timeline_anchor", event_type, sentence))
                 continue
             segment, start_ms = anchor
             if segment.no_sfx:
                 skipped.append(SkippedSound(scene_id, "segment_no_sfx_flag", event_type, sentence))
+                continue
+            if music_window is not None and music_window[0] <= start_ms < music_window[1]:
+                skipped.append(SkippedSound(scene_id, "overlaps_music_cue", event_type, sentence))
                 continue
             if sfx_used >= limit:
                 skipped.append(
@@ -225,6 +274,68 @@ def plan_chapter_sound(
     return SoundPlan(chapter_id, render_mode, tuple(cues), tuple(skipped), sfx_used, limit)
 
 
+def _plan_music_cue(
+    chapter_id: str,
+    render_mode: str,
+    scene_id: str,
+    profile: dict[str, object],
+    scene_segments: tuple[SegmentPlanInput, ...],
+    rule: str,
+) -> PlannedSoundCue | None:
+    """Place a chapter-opening or emotional-peak music cue for one scene.
+
+    Follows generative-sound-design.md's "Music entry/exit rules": the cue starts at the
+    scene's own start, fades in over the duration of the first paragraph (capped at 6 s),
+    and fades out to end just before the scene's first dialogue line -- or, if the scene has
+    no dialogue, runs to the scene boundary and fades there instead. Requires real segment
+    timing (from a prior chapter render); without it, silence is the safe fallback -- no
+    cue is guessed into place.
+    """
+    timed = [s for s in scene_segments if s.start_ms is not None and s.end_ms is not None]
+    if not timed:
+        return None
+    first = timed[0]
+    assert first.start_ms is not None and first.end_ms is not None
+    dialogue = next((s for s in timed if s.segment_type == "dialogue"), None)
+    scene_end_ms = max(cast(int, s.end_ms) for s in timed)
+    effective_end_ms = dialogue.start_ms if dialogue is not None else scene_end_ms
+    assert effective_end_ms is not None
+    duration_ms = effective_end_ms - first.start_ms
+    if duration_ms <= 0:
+        return None
+    # The mixer's own cue envelope (`ChapterAssembler._cue_envelope`) already clamps each
+    # fade to the clip's actual sample count, so fade_in and fade_out are each capped only
+    # against the spec's own bounds here, not against each other.
+    fade_out_ms = min(DEFAULT_MUSIC_FADE_OUT_MS, duration_ms)
+    first_paragraph_ms = first.end_ms - first.start_ms
+    fade_in_ms = max(0, min(MAX_MUSIC_FADE_IN_MS, first_paragraph_ms))
+    mood_bucket = _music_mood_bucket(profile.get("mood"))
+    tags = (mood_bucket, "music")
+    plan_key = _plan_key(chapter_id, render_mode, rule, scene_id, tags)
+    return PlannedSoundCue(
+        scene_id=scene_id,
+        kind="music",
+        rule=rule,
+        tags=tags,
+        plan_key=plan_key,
+        run_scene_ids=(scene_id,),
+        start_ms=first.start_ms,
+        profile_evidence=_profile_evidence(profile),
+        duration_ms=duration_ms,
+        fade_in_ms=fade_in_ms,
+        fade_out_ms=fade_out_ms,
+    )
+
+
+def _music_mood_bucket(mood: object) -> str:
+    key = _normalized(mood, "neutral")
+    if key in _BRIGHT_MOODS:
+        return "bright"
+    if key in _TENSE_MOODS:
+        return "tense"
+    return "somber"
+
+
 class SoundPlannerService:
     def __init__(self, container: AppContainer) -> None:
         self.container = container
@@ -235,22 +346,17 @@ class SoundPlannerService:
         if not project or not chapter or chapter.project_id != project_id:
             raise ValueError("Chapter or project not found.")
         scenes = self.container.structure.scenes(chapter_id)
-        preserved_profiles = {
-            scene.id: scene.atmosphere_profile_json
-            for scene in scenes
-            if _json_object(scene.atmosphere_profile_json)
-        }
-        if len(preserved_profiles) != len(scenes):
+        # Only ever generate atmosphere profiles for THIS chapter's missing scenes.
+        # AtmosphereProfileService.generate() is project-wide when unscoped, which would
+        # otherwise regenerate (and silently downgrade) every other chapter's already-good
+        # profiles just because this chapter happened to have a gap.
+        missing_scene_ids = [
+            scene.id for scene in scenes if not _json_object(scene.atmosphere_profile_json)
+        ]
+        if missing_scene_ids:
             AtmosphereProfileService(self.container).generate(
-                project_id, use_local_llm=False, model=""
+                project_id, use_local_llm=False, model="", scene_ids=missing_scene_ids
             )
-            if preserved_profiles:
-                with self.container.structure.database.session() as session:
-                    for scene_id, profile_json in preserved_profiles.items():
-                        record = session.get(SceneRecord, scene_id)
-                        if record:
-                            record.atmosphere_profile_json = profile_json
-                    session.commit()
             scenes = self.container.structure.scenes(chapter_id)
         profiles = {scene.id: _json_object(scene.atmosphere_profile_json) for scene in scenes}
         timeline = self._latest_timeline(chapter_id)
@@ -314,6 +420,7 @@ class SoundPlannerService:
                         span[0] - scene_start if span and scene_start is not None else None,
                         span[1] - scene_start if span and scene_start is not None else None,
                         bool(direction_payload.get("noSfx", False)),
+                        segment.segment_type,
                     )
                 )
             result[scene.id] = tuple(inputs)
@@ -371,7 +478,7 @@ class SoundPlannerService:
             if cue.origin == "auto_generated"
         }
         locked_slots = {
-            (cue.scene_id, cue.cue_type)
+            _cue_lock_key(cue)
             for cue in existing_cues
             if cue.origin == "auto_generated" and cue.user_locked
         }
@@ -380,13 +487,16 @@ class SoundPlannerService:
             if existing and existing.user_locked:
                 cue_ids.append(existing.id)
                 continue
-            if not existing and (planned.scene_id, planned.kind) in locked_slots:
+            if not existing and _planned_lock_key(planned) in locked_slots:
                 continue
-            resolved = bank.resolve(
-                list(planned.tags),
-                asset_type=planned.kind,
-                duration_ms=10_000 if planned.kind == "ambience" else 2_000,
+            bank_tags, bank_duration_ms = _bank_query(planned)
+            resolved, qa_status = _resolve_bank_asset_with_qa(
+                bank, bank_tags, planned.kind, bank_duration_ms
             )
+            if resolved is None:
+                # Unsupported event type (no bank match) or QA failed twice in a row:
+                # silence is the safe fallback, a wrong/broken asset is not.
+                continue
             asset = existing_assets.get(resolved.cache_key)
             if not asset:
                 asset = self.container.ambience.create_asset(
@@ -398,9 +508,9 @@ class SoundPlannerService:
                     asset_type=resolved.entry.asset_type,
                     duration_ms=resolved.duration_ms,
                     model="procedural_sound_bank",
-                    prompt=", ".join(planned.tags),
+                    prompt=", ".join(bank_tags),
                     cache_key=resolved.cache_key,
-                    qa_status="passed",
+                    qa_status=qa_status,
                 )
                 existing_assets[resolved.cache_key] = asset
             asset_ids.append(asset.id)
@@ -429,10 +539,10 @@ class SoundPlannerService:
                     asset.id,
                     planned.kind,
                     planned.start_ms,
-                    -24.0 if planned.kind == "ambience" else -20.0,
-                    800 if planned.kind == "ambience" else 0,
-                    800 if planned.kind == "ambience" else 0,
-                    planned.kind == "ambience",
+                    _cue_gain_db(planned),
+                    _cue_fade_in_ms(planned),
+                    _cue_fade_out_ms(planned),
+                    _cue_ducking(planned),
                     plan.render_mode,
                     False,
                     origin="auto_generated",
@@ -489,6 +599,100 @@ class SoundPlannerService:
         return latest
 
 
+def _bank_query(planned: PlannedSoundCue) -> tuple[list[str], int]:
+    """Bank tag query + requested duration per cue kind.
+
+    SFX is looked up by event type alone (matching the design's SFX prompt template,
+    which never includes scene location fields) so a bare, unmatched event type (e.g. a
+    "gunshot" the bundled bank has no asset for) degrades cleanly to no cue instead of a
+    diluted, coincidentally-nonzero match against an unrelated entry. Ambience/music keep
+    the full tag signature for nearest-match lookup.
+    """
+    if planned.kind == "sfx":
+        return [planned.event_type or "unknown"], 2_000
+    if planned.kind == "music":
+        return list(planned.tags), max(250, min(60_000, planned.duration_ms or 6_000))
+    return list(planned.tags), 10_000
+
+
+def _resolve_bank_asset_with_qa(
+    bank: TierZeroSoundBank,
+    tags: list[str],
+    kind: str,
+    duration_ms: int,
+) -> tuple[ResolvedTierZeroAsset | None, str]:
+    """Resolve a Tier-0 asset and gate it on automated QA, retrying once on failure.
+
+    Mirrors the design's "automatic QA and regeneration-on-fail": clipping, non-silence,
+    and duration sanity are checked before an asset is ever accepted; a failure triggers one
+    regeneration with a different seed, and if that also fails the scene is left with no
+    cue (silence is always an acceptable fallback, a broken asset is not).
+    """
+    try:
+        resolved = bank.resolve(tags, asset_type=kind, duration_ms=duration_ms)
+    except ValueError:
+        return None, "failed"
+    if _tier_zero_asset_qa_passes(resolved.path, resolved.duration_ms):
+        return resolved, "passed"
+    try:
+        retried = bank.resolve(tags, asset_type=kind, duration_ms=duration_ms, retry=1)
+    except ValueError:
+        return None, "failed"
+    if _tier_zero_asset_qa_passes(retried.path, retried.duration_ms):
+        return retried, "regenerated"
+    return None, "failed"
+
+
+def _tier_zero_asset_qa_passes(path: Path, requested_duration_ms: int) -> bool:
+    try:
+        analysis = analyze_wav(path)
+    except (OSError, ValueError, EOFError):
+        return False
+    if analysis.clipped_sample_count > 0:
+        return False
+    peak_ratio = 10 ** (analysis.peak_dbfs / 20)
+    if peak_ratio >= 1.0:
+        return False
+    if analysis.rms_dbfs <= MIN_QA_RMS_DBFS:
+        return False
+    if requested_duration_ms > 0 and abs(analysis.duration_ms - requested_duration_ms) > QA_DURATION_TOLERANCE_MS:
+        return False
+    return True
+
+
+def _cue_gain_db(planned: PlannedSoundCue) -> float:
+    return -24.0 if planned.kind == "ambience" else -20.0
+
+
+def _cue_fade_in_ms(planned: PlannedSoundCue) -> int:
+    if planned.kind == "music" and planned.fade_in_ms is not None:
+        return planned.fade_in_ms
+    return 800 if planned.kind == "ambience" else 0
+
+
+def _cue_fade_out_ms(planned: PlannedSoundCue) -> int:
+    if planned.kind == "music" and planned.fade_out_ms is not None:
+        return planned.fade_out_ms
+    return 800 if planned.kind == "ambience" else 0
+
+
+def _cue_ducking(planned: PlannedSoundCue) -> bool:
+    return planned.kind in {"ambience", "music"}
+
+
+def _cue_lock_key(cue: AmbienceCueRecord) -> tuple[object, ...]:
+    if cue.cue_type == "sfx":
+        evidence = _json_object(cue.evidence_json)
+        return (cue.scene_id, cue.cue_type, (evidence.get("segmentId"), cue.start_ms))
+    return (cue.scene_id, cue.cue_type)
+
+
+def _planned_lock_key(planned: PlannedSoundCue) -> tuple[object, ...]:
+    if planned.kind == "sfx":
+        return (planned.scene_id, planned.kind, (planned.segment_id, planned.start_ms))
+    return (planned.scene_id, planned.kind)
+
+
 def _apply_cue(
     record: AmbienceCueRecord,
     planned: PlannedSoundCue,
@@ -499,10 +703,10 @@ def _apply_cue(
     record.asset_id = asset.id
     record.cue_type = planned.kind
     record.start_ms = planned.start_ms
-    record.gain_db = -24.0 if planned.kind == "ambience" else -20.0
-    record.fade_in_ms = 800 if planned.kind == "ambience" else 0
-    record.fade_out_ms = 800 if planned.kind == "ambience" else 0
-    record.ducking = planned.kind == "ambience"
+    record.gain_db = _cue_gain_db(planned)
+    record.fade_in_ms = _cue_fade_in_ms(planned)
+    record.fade_out_ms = _cue_fade_out_ms(planned)
+    record.ducking = _cue_ducking(planned)
     record.render_mode = render_mode
     record.no_sfx = False
     record.origin = "auto_generated"
@@ -586,6 +790,9 @@ def _cue_payload(cue: PlannedSoundCue) -> dict[str, object]:
         "startMs": cue.start_ms,
         "sentenceEvidence": cue.sentence_evidence,
         "profileEvidence": cue.profile_evidence,
+        "durationMs": cue.duration_ms,
+        "fadeInMs": cue.fade_in_ms,
+        "fadeOutMs": cue.fade_out_ms,
     }
 
 

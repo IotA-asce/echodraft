@@ -587,12 +587,34 @@ class StructureService:
             if self.container.settings.direction_v2_enabled:
                 from .direction import DirectionService
 
-                DirectionService(self.container).infer_segment_directions(
-                    project_id,
-                    job_id,
-                    use_local_llm=ready,
-                    model=DEFAULT_REFINEMENT_MODEL,
-                )
+                try:
+                    DirectionService(self.container).infer_segment_directions(
+                        project_id,
+                        job_id,
+                        use_local_llm=ready,
+                        model=DEFAULT_REFINEMENT_MODEL,
+                    )
+                except ValueError as direction_error:
+                    # Direction inference has its own failure surface, distinct from
+                    # speaker attribution's: a failure here must never be mis-attributed
+                    # to cast_discovery (the outer except below), which would misdirect
+                    # review triage toward the wrong stage entirely.
+                    self.container.review.create_issue(
+                        project_id=project_id,
+                        category="direction",
+                        severity="warning",
+                        title="LLM direction inference needs review",
+                        description=(
+                            "Local LLM direction inference failed after speaker "
+                            "attribution stabilized."
+                        ),
+                        metadata={
+                            "sourceDocumentId": source_id,
+                            "model": DEFAULT_REFINEMENT_MODEL,
+                            "error": str(direction_error)[:500],
+                        },
+                        dedupe_key=f"direction-llm:{project_id}:{source_id}",
+                    )
         except ValueError as error:
             self.container.review.create_issue(
                 project_id=project_id,
