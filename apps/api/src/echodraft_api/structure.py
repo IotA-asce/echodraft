@@ -95,7 +95,13 @@ class StructureService:
         compiler = StructureCompiler(project_id, source.id, STRUCTURE_PARSER_VERSION)
         chapter_signals = self._load_chapter_signals(source.structure_signals_path)
         if self.container.settings.structure_v2_enabled:
-            compiled = StructureV2Pipeline(compiler).compile(
+            ready, _reason = self._local_llm_ready()
+            compiled = StructureV2Pipeline(
+                compiler,
+                container=self.container,
+                job_id=job_id,
+                llm_ready=ready,
+            ).compile(
                 text,
                 max_chars,
                 chapter_signals=chapter_signals,
