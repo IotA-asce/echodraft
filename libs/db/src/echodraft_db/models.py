@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func, text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -600,6 +600,41 @@ class VoiceProfileRecord(Base):
     backend: Mapped[str] = mapped_column(String(100), nullable=False)
     provider_voice_id: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     style_prompt: Mapped[str | None] = mapped_column(Text)
+    voice_catalog_entry_id: Mapped[str | None] = mapped_column(
+        ForeignKey("voice_catalog_entries.id"), index=True
+    )
+
+
+class VoiceCatalogEntryRecord(Base):
+    __tablename__ = "voice_catalog_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "engine",
+            "engine_version",
+            "engine_voice_id",
+            name="uq_voice_catalog_engine_voice",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    engine: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    engine_version: Mapped[str] = mapped_column(String(200), nullable=False)
+    engine_voice_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    synthesis_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="fixed")
+    gender: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
+    age_range: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
+    accent: Mapped[str] = mapped_column(String(64), nullable=False, default="unknown")
+    locale: Mapped[str] = mapped_column(String(32), nullable=False, default="und")
+    timbre_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    energy_default: Mapped[str] = mapped_column(String(32), nullable=False, default="medium")
+    acoustics_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    embedding_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    sample_paths_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    license_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    labeled_by_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False, default="0.1.0")
+    catalog_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class ProjectProductionSettingsRecord(Base):
