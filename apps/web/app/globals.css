@@ -197,11 +197,14 @@ button:disabled { background:var(--color-border); color:var(--color-text-disable
 .model-card p { margin:0; }
 .model-badge { flex:0 0 auto; border:1px solid var(--color-border); border-radius:var(--radius-full); padding:4px 7px; font-size:.66rem; text-transform:uppercase; letter-spacing:.08em; color:var(--color-text-secondary); background:var(--color-surface-sunken); }
 .model-badge.ready { border-color:var(--color-bg-inverse); color:var(--color-text-inverse-primary); background:var(--color-bg-inverse); }
+.model-badge.info { border-color:var(--color-border-strong); color:var(--color-text-primary); background:var(--color-surface); }
 .model-badge.missing,.model-badge.unavailable,.model-badge.failed { border-color:var(--color-danger); color:var(--color-danger); background:var(--color-danger-subtle-bg); }
 .model-meta { display:flex; flex-wrap:wrap; gap:6px; }
 .model-meta span { border:1px solid var(--color-border); border-radius:var(--radius-sm); padding:4px 6px; font-size:.68rem; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:.07em; }
 .model-actions { display:flex; gap:8px; flex-wrap:wrap; }
 .model-progress { margin-top:16px; }
+.ai-provider-card { display:grid; gap:10px; }
+.ai-provider-card label { display:grid; gap:6px; color:var(--color-text-secondary); font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.09em; }
 .field-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
 .field-row label,.override-label { display:grid; gap:6px; color:var(--color-text-secondary); font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.09em; }
 .capability { margin:15px 0 0; color:var(--color-danger); font-size:.84rem; line-height:1.5; }

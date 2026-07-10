@@ -126,6 +126,7 @@ import { ManuscriptIntakePanel } from "./components/manuscript/ManuscriptIntakeP
 import { NewProjectPanel } from "./components/project/NewProjectPanel";
 import { ProjectLibraryPanel } from "./components/project/ProjectLibraryPanel";
 import { ReviewPatchPanel } from "./components/review/ReviewPatchPanel";
+import { AiProviderCard } from "./components/setup/AiProviderCard";
 import { ModelCenter } from "./components/setup/ModelCenter";
 import { LocalProviderSetup } from "./components/setup/LocalProviderSetup";
 import { ProviderStatus } from "./components/setup/ProviderStatus";
@@ -2286,6 +2287,7 @@ export function ProjectDashboard() {
                   )}
                   <Button type="button" variant="ghost" onClick={() => setShowModelCenter(true)}>Advanced local capability setup</Button>
                   <Drawer open={showModelCenter} onOpenChange={setShowModelCenter} title="Advanced local capability setup" description="Install and verify optional local models without sending project data off-device." footer={<Button type="button" variant="secondary" onClick={() => setShowModelCenter(false)}>Close</Button>}><ModelCenter catalog={localAiCatalog} job={localAiJob} installJob={localAiInstallJob} busy={busy} onInstall={installLocalAi} onVerify={verifyLocalAi} /></Drawer>
+                  <AiProviderCard />
                 </div>
               </section>
             ) : null}

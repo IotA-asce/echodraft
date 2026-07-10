@@ -182,3 +182,28 @@ export const patchSegment = (projectId: string, segmentId: string, payload: { te
 export const estimateExport = (projectId: string, format: ExportFormat, chapterIds: string[], payload: { audioVariant?: "active" | "clean" | "mixed"; title?: string; author?: string; album?: string; publisher?: string; language?: string; coverImagePath?: string; includeRetailSample?: boolean } = {}) => request<ExportEstimate>(`/api/v1/projects/${projectId}/exports/estimate`, json("POST", { format, chapterIds, ...payload }));
 export const createExport = (projectId: string, format: ExportFormat, chapterIds: string[], payload: { audioVariant?: "active" | "clean" | "mixed"; title?: string; author?: string; album?: string; publisher?: string; language?: string; coverImagePath?: string; includeRetailSample?: boolean } = {}) => request<ExportPackage>(`/api/v1/projects/${projectId}/exports`, json("POST", { format, chapterIds, ...payload }));
 export const listExports = (projectId: string) => request<ExportPackage[]>(`/api/v1/projects/${projectId}/exports`);
+
+export type LlmProviderSettings = {
+  provider: string;
+  baseUrl: string | null;
+  model: string | null;
+  cloudConsent: boolean;
+  hasApiKey: boolean;
+  envOverrides: string[];
+};
+export type LlmConnectionTest = {
+  ok: boolean;
+  models: string[];
+  modelFound: boolean | null;
+  error: string | null;
+};
+export const getLlmSettings = () => request<LlmProviderSettings>(`/api/v1/llm/settings`);
+export const updateLlmSettings = (payload: {
+  provider: string;
+  baseUrl: string | null;
+  model: string | null;
+  apiKey?: string;
+  cloudConsent: boolean;
+}) => request<LlmProviderSettings>(`/api/v1/llm/settings`, json("PUT", payload));
+export const testLlmConnection = (payload: { baseUrl: string; apiKey?: string; model?: string }) =>
+  request<LlmConnectionTest>(`/api/v1/llm/settings/test`, json("POST", payload));
