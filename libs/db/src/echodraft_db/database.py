@@ -91,6 +91,7 @@ class Database:
                     "VARCHAR(32) NOT NULL DEFAULT 'warm_neutral'"
                 ),
                 "auto_cast_enabled": "BOOLEAN NOT NULL DEFAULT 1",
+                "auto_sound_design_json": "TEXT",
             }
             for column_name, column_type in casting_columns.items():
                 if column_name not in columns:
@@ -185,6 +186,24 @@ class Database:
                 )
             if "duration_ms" not in columns:
                 repairs.append("ALTER TABLE ambience_assets ADD COLUMN duration_ms INTEGER")
+            asset_columns = {
+                "model": "TEXT",
+                "prompt": "TEXT",
+                "seed": "INTEGER",
+                "cache_key": "VARCHAR(64)",
+                "qa_status": "VARCHAR(32) NOT NULL DEFAULT 'n/a'",
+            }
+            for column_name, column_type in asset_columns.items():
+                if column_name not in columns:
+                    repairs.append(
+                        f"ALTER TABLE ambience_assets ADD COLUMN {column_name} {column_type}"
+                    )
+            indexes = {index["name"] for index in inspector.get_indexes("ambience_assets")}
+            if "ix_ambience_assets_cache_key" not in indexes:
+                repairs.append(
+                    "CREATE INDEX IF NOT EXISTS ix_ambience_assets_cache_key "
+                    "ON ambience_assets (cache_key)"
+                )
         if "ambience_cues" in tables:
             columns = {column["name"] for column in inspector.get_columns("ambience_cues")}
             cue_columns = {
@@ -192,6 +211,10 @@ class Database:
                 "start_ms": "INTEGER NOT NULL DEFAULT 0",
                 "ducking": "BOOLEAN NOT NULL DEFAULT 1",
                 "render_mode": "VARCHAR(32) NOT NULL DEFAULT 'light'",
+                "origin": "VARCHAR(32) NOT NULL DEFAULT 'user_created'",
+                "evidence_json": "TEXT NOT NULL DEFAULT '{}'",
+                "muted": "BOOLEAN NOT NULL DEFAULT 0",
+                "user_locked": "BOOLEAN NOT NULL DEFAULT 0",
             }
             for column_name, column_type in cue_columns.items():
                 if column_name not in columns:

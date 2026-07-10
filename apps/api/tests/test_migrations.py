@@ -107,8 +107,55 @@ def test_alembic_head_creates_automatic_casting_schema(
         assert "ix_character_voice_assignments_casting_decision_id" in assignment_indexes
         scene_columns = {column["name"] for column in inspector.get_columns("scenes")}
         assert "atmosphere_profile_json" in scene_columns
+        asset_columns = {
+            column["name"] for column in inspector.get_columns("ambience_assets")
+        }
+        assert {"model", "prompt", "seed", "cache_key", "qa_status"} <= asset_columns
+        cue_columns = {
+            column["name"] for column in inspector.get_columns("ambience_cues")
+        }
+        assert {"origin", "evidence_json", "muted", "user_locked"} <= cue_columns
+        assert "auto_sound_design_json" in settings_columns
     finally:
         engine.dispose()
+
+
+def test_sqlite_repair_adds_sound_planner_columns(tmp_path: Path) -> None:
+    database = Database(f"sqlite:///{tmp_path / 'legacy-sound.db'}")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE ambience_assets ("
+                "id VARCHAR(64) PRIMARY KEY, project_id VARCHAR(64), name VARCHAR(200), "
+                "asset_path TEXT, license_note TEXT, provenance TEXT)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE TABLE ambience_cues ("
+                "id VARCHAR(64) PRIMARY KEY, scene_id VARCHAR(64), asset_id VARCHAR(64), "
+                "gain_db FLOAT, fade_in_ms INTEGER, fade_out_ms INTEGER, no_sfx BOOLEAN)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE TABLE project_production_settings ("
+                "project_id VARCHAR(64) PRIMARY KEY, narrator_voice_profile_id VARCHAR(64), "
+                "default_direction_json TEXT)"
+            )
+        )
+    database.create_schema()
+
+    inspector = inspect(database.engine)
+    assert {"model", "prompt", "seed", "cache_key", "qa_status"} <= {
+        column["name"] for column in inspector.get_columns("ambience_assets")
+    }
+    assert {"origin", "evidence_json", "muted", "user_locked"} <= {
+        column["name"] for column in inspector.get_columns("ambience_cues")
+    }
+    assert "auto_sound_design_json" in {
+        column["name"] for column in inspector.get_columns("project_production_settings")
+    }
 
 
 def test_alembic_head_creates_cast_graph_tables_and_character_enrichment_columns(

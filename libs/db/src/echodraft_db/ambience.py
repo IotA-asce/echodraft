@@ -33,6 +33,12 @@ class AmbienceRepository:
         provenance: str,
         asset_type: str = "ambience",
         duration_ms: int | None = None,
+        *,
+        model: str | None = None,
+        prompt: str | None = None,
+        seed: int | None = None,
+        cache_key: str | None = None,
+        qa_status: str = "n/a",
     ) -> AmbienceAssetRecord:
         record = AmbienceAssetRecord(
             id=f"ambasset_{uuid4().hex[:16]}",
@@ -43,6 +49,11 @@ class AmbienceRepository:
             duration_ms=duration_ms,
             license_note=license_note,
             provenance=provenance,
+            model=model,
+            prompt=prompt,
+            seed=seed,
+            cache_key=cache_key,
+            qa_status=qa_status,
         )
         with self.database.session() as session:
             session.add(record)
@@ -101,6 +112,11 @@ class AmbienceRepository:
         ducking: bool,
         render_mode: str,
         no_sfx: bool,
+        *,
+        origin: str = "user_created",
+        evidence_json: str = "{}",
+        muted: bool = False,
+        user_locked: bool = False,
     ) -> AmbienceCueRecord:
         record = AmbienceCueRecord(
             id=f"ambcue_{uuid4().hex[:16]}",
@@ -114,8 +130,23 @@ class AmbienceRepository:
             ducking=ducking,
             render_mode=render_mode,
             no_sfx=no_sfx,
+            origin=origin,
+            evidence_json=evidence_json,
+            muted=muted,
+            user_locked=user_locked,
         )
         with self.database.session() as session:
             session.add(record)
+            session.commit()
+            return record
+
+    def update_cue_control(self, cue_id: str, *, muted: bool) -> AmbienceCueRecord | None:
+        with self.database.session() as session:
+            record = session.get(AmbienceCueRecord, cue_id)
+            if not record:
+                return None
+            record.muted = muted
+            if record.origin == "auto_generated":
+                record.user_locked = True
             session.commit()
             return record

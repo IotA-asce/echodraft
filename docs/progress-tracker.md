@@ -284,7 +284,11 @@ It is separate from the completed G1-G20 alpha gap tracker above.
       deterministic evidence is refined by independent parallel local-LLM calls behind a flag,
       target/confidence guarded, mirrored into the structure manifest, and degraded to `{}` plus a
       warning without blocking extraction.
-  - [ ] W6.3 - Deterministic planner and automatic cue placement.
+  - [x] W6.3 - Deterministic planner and automatic cue placement.
+    - Evidence: `feat/sound-planner`; migration `0037` adds asset/cue provenance and user-control
+      fields. The pure chapter planner confidence-gates ambience, reuses contiguous beds, budgets
+      timeline-anchored SFX, resolves the Tier-0 cache, writes versioned sound-plan manifests, and
+      reconciles only unlocked automatic cues while preserving all manual and locked decisions.
   - [ ] W6.4 - Consent-gated Tier-1 generation.
 
 ### v2 Remaining Phases

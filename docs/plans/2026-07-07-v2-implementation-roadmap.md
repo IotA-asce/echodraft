@@ -435,7 +435,7 @@ shared cache exist. Ships Tier 0 first (no model dependency).
   sub-step behind a flag; a failed/low-confidence call degrades to "no ambience for this scene,"
   never blocks structure extraction (mirrors the existing LLM-failure-creates-warning convention).
   Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy ...`. Size: **M**.
-- [ ] **W6.3 — Deterministic sound planner + automatic cue placement.** Branch `feat/sound-planner`.
+- [x] **W6.3 — Deterministic sound planner + automatic cue placement.** Branch `feat/sound-planner`.
   Add the planner + auto cue placement writing to existing `AmbienceCueRecord`/`AmbienceAssetRecord`
   via new purely-additive columns (migration + repair entry); manual upload/manual-cue paths
   untouched as the override; never overwrite a `user_locked` cue. Verify: `uv run pytest`,
