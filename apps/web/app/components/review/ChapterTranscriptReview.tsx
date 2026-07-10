@@ -1,4 +1,5 @@
 import { useMemo, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { assetUrl, type ChapterReviewTimeline, type Issue, type SegmentReviewInspector, type TtsProvider } from "../../api";
 import { formatDuration } from "../../lib/format";
 
@@ -24,9 +25,13 @@ export function ChapterTranscriptReview({
   onOpenIssue: (issue: Issue) => void;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
   const issueById = useMemo(() => new Map(issues.map((issue) => [issue.id, issue])), [issues]);
   const render = timeline?.chapterRender ?? null;
   const durationMs = Math.max(1, timeline?.durationMs ?? render?.durationMs ?? 0);
+  // TanStack Virtual intentionally owns mutable scroll state; React Compiler skips this component.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const transcriptVirtualizer = useVirtualizer({ count: timeline?.segments.length ?? 0, getScrollElement: () => transcriptRef.current, estimateSize: () => 78, getItemKey: (index) => timeline?.segments[index]?.id ?? index, overscan: 6, useFlushSync: false });
 
   function jumpTo(startMs: number, segmentId?: string | null, issueId?: string | null) {
     if (audioRef.current) audioRef.current.currentTime = Math.max(0, startMs / 1000);
@@ -91,14 +96,15 @@ export function ChapterTranscriptReview({
           />
         ))}
       </div>
-      <div className="transcript-lines">
-        {timeline.segments.map((segment) => {
+      <div ref={transcriptRef} className="transcript-lines" data-testid="virtual-transcript-lines">
+        <div className="virtual-list-canvas" style={{ height: `${transcriptVirtualizer.getTotalSize()}px` }}>{transcriptVirtualizer.getVirtualItems().map((row) => {
+          const segment = timeline.segments[row.index];
+          if (!segment) return null;
           const speaker = segment.speaker || "Narration";
           const hue = speakerHue(speaker);
-          return (
+          return <div key={row.key} data-index={row.index} ref={transcriptVirtualizer.measureElement} className="virtual-list-row" style={{ transform: `translateY(${row.start}px)` }}>
             <button
               className={inspector?.segment.id === segment.id ? "transcript-line active" : "transcript-line"}
-              key={segment.id}
               type="button"
               style={{ borderLeftColor: `hsl(${hue} 48% 42%)` }}
               onClick={() => jumpTo(segment.startMs, segment.id)}
@@ -108,8 +114,8 @@ export function ChapterTranscriptReview({
               <span className="transcript-text">{segment.text}</span>
               {segment.issueMarkers.length ? <span className="transcript-issues">{segment.issueMarkers.length} issue{segment.issueMarkers.length === 1 ? "" : "s"}</span> : null}
             </button>
-          );
-        })}
+          </div>;
+        })}</div>
       </div>
     </div>
   );
