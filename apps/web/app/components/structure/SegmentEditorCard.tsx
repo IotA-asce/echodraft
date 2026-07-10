@@ -1,9 +1,17 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { Direction, Segment, SegmentDirection, VoiceProfile } from "../../api";
 import { DirectionControls } from "./DirectionControls";
 import { Button, Drawer, Select } from "../../design-system";
 
-export function SegmentEditorCard({
+// Memoized: this card is rendered once per visible (virtualized) segment row.
+// Wrapping it means an unrelated top-level state change elsewhere in
+// ProjectDashboard (a job poll tick, an unrelated panel's state) no longer
+// forces every mounted card to re-render and re-diff its evidence/direction
+// sub-tree — see docs/ui/frontend-architecture.md ("Root-Cause Analysis" #3).
+// This only pays off if every prop below has a stable identity across
+// unrelated renders, which is why the ~10 handlers passed in from
+// `project-dashboard.tsx` are now wrapped in `useCallback`.
+export const SegmentEditorCard = memo(function SegmentEditorCard({
   segment,
   nextSegment,
   voices,
@@ -127,7 +135,7 @@ export function SegmentEditorCard({
       <DirectionControls segment={segment} saved={savedDirection} supportedDirection={supportedDirection} onSave={onSaveDirection} />
     </div>
   );
-}
+});
 
 function readableEvidenceText(evidence: Record<string, unknown>) {
   if (typeof evidence.speakerEvidence === "string" && evidence.speakerEvidence.trim()) return evidence.speakerEvidence;

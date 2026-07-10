@@ -1,7 +1,12 @@
+import { memo } from "react";
 import type { Issue } from "../../api";
 import { uiCopy } from "../../lib/copy";
 
-export function IssueCard({
+// Memoized: rendered once per row in the (unbounded) issue list on the
+// Review & Patch panel. Requires stable `onOpen`/`onPatch`/`onResolve`
+// identities from the caller (see project-dashboard.tsx's
+// `handleOpenIssue`/`handlePatchIssue`/`handleResolveIssue`).
+export const IssueCard = memo(function IssueCard({
   issue,
   onOpen,
   onPatch,
@@ -36,4 +41,4 @@ export function IssueCard({
       </span>
     </article>
   );
-}
+});
