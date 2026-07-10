@@ -1,6 +1,5 @@
 import hashlib
 import json
-import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -16,8 +15,24 @@ from echodraft_domain import (
 )
 
 from .container import AppContainer
+from .llm_providers import GenerateResult, parse_llm_json_object
 from .ollama_models import find_ollama_model
 from .orchestrator import CheckpointStore, Stage, Unit
+
+# Backwards-compatible aliases: the dataclass and parser moved to llm_providers.
+OllamaGenerateResult = GenerateResult
+
+__all__ = [
+    "CheckpointContext",
+    "DEFAULT_EXTRACTION_SCHEMA",
+    "LocalLlmService",
+    "OllamaGenerateResult",
+    "OllamaLlmProvider",
+    "OllamaProvider",
+    "SchemaValidationError",
+    "parse_llm_json_object",
+    "validate_json_schema",
+]
 
 DEFAULT_EXTRACTION_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -38,12 +53,6 @@ DEFAULT_EXTRACTION_SCHEMA: dict[str, object] = {
     },
     "required": ["characters", "warnings"],
 }
-
-
-@dataclass(frozen=True)
-class OllamaGenerateResult:
-    response: dict[str, object]
-    raw: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -445,60 +454,3 @@ def _inference_cache_key(
     }
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
     return f"llm.generate:{digest}"
-
-
-def parse_llm_json_object(response: str) -> dict[str, object]:
-    cleaned = _strip_thinking_blocks(response).strip()
-    candidates = [cleaned, *_balanced_json_object_candidates(cleaned)]
-    for candidate in candidates:
-        try:
-            parsed = json.loads(_strip_markdown_json_fence(candidate))
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            return cast(dict[str, object], parsed)
-    raise ValueError("Ollama response was not valid JSON.")
-
-
-def _strip_thinking_blocks(response: str) -> str:
-    return re.sub(r"<think\b[^>]*>.*?</think>", "", response, flags=re.IGNORECASE | re.DOTALL)
-
-
-def _strip_markdown_json_fence(response: str) -> str:
-    stripped = response.strip()
-    match = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", stripped, flags=re.IGNORECASE | re.DOTALL)
-    return match.group(1).strip() if match else stripped
-
-
-def _balanced_json_object_candidates(response: str) -> list[str]:
-    candidates: list[str] = []
-    depth = 0
-    start: int | None = None
-    in_string = False
-    escaped = False
-
-    for index, char in enumerate(response):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
-
-        if char == '"':
-            in_string = True
-            continue
-        if char == "{":
-            if depth == 0:
-                start = index
-            depth += 1
-            continue
-        if char == "}" and depth:
-            depth -= 1
-            if depth == 0 and start is not None:
-                candidates.append(response[start : index + 1])
-                start = None
-
-    return candidates
