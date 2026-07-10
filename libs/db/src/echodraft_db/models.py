@@ -449,6 +449,11 @@ class AmbienceAssetRecord(Base):
     duration_ms: Mapped[int | None] = mapped_column()
     license_note: Mapped[str] = mapped_column(Text, nullable=False)
     provenance: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str | None] = mapped_column(Text)
+    prompt: Mapped[str | None] = mapped_column(Text)
+    seed: Mapped[int | None] = mapped_column()
+    cache_key: Mapped[str | None] = mapped_column(String(64), index=True)
+    qa_status: Mapped[str] = mapped_column(String(32), nullable=False, default="n/a")
 
 
 class AmbienceProfileRecord(Base):
@@ -472,6 +477,10 @@ class AmbienceCueRecord(Base):
     ducking: Mapped[bool] = mapped_column(nullable=False, default=True)
     render_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="light")
     no_sfx: Mapped[bool] = mapped_column(nullable=False, default=False)
+    origin: Mapped[str] = mapped_column(String(32), nullable=False, default="user_created")
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    muted: Mapped[bool] = mapped_column(nullable=False, default=False)
+    user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
 
 
 class ReviewTaskRecord(Base):
@@ -688,6 +697,7 @@ class ProjectProductionSettingsRecord(Base):
     )
     auto_cast_enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
     default_direction_json: Mapped[str | None] = mapped_column(Text)
+    auto_sound_design_json: Mapped[str | None] = mapped_column(Text)
 
 
 class SegmentProductionOverrideRecord(Base):
