@@ -18,9 +18,10 @@ Pipeline manifests make each stage resumable, inspectable, and reproducible. Eve
 3. `casting_manifest.json`
 4. `direction_manifest.json`
 5. `segment_render_manifest.json`
-6. `chapter_assembly_manifest.json`
-7. `qa_manifest.json`
-8. `export_manifest.json`
+6. `sound_plan_manifest.json`
+7. `chapter_assembly_manifest.json`
+8. `qa_manifest.json`
+9. `export_manifest.json`
 
 ## Common envelope
 Every manifest must include:
@@ -138,6 +139,21 @@ Payload fields:
 - inserted pauses
 - ambience asset references
 - output stem and mix paths
+
+### Sound plan manifest
+Purpose: record deterministic, chapter-scoped automatic sound decisions before mixing.
+
+Current `schemaVersion`: `0.1.0`.
+
+Payload fields:
+- render mode and accepted per-scene atmosphere profiles
+- ordered planned ambience/SFX cues with deterministic plan keys and evidence
+- SFX budget limit/usage and explicit skip reasons
+- materialized Tier-0 asset and cue IDs
+
+Every run writes an immutable `sound_plan_manifest.<id>.json` and refreshes the chapter's
+`sound_plan_manifest.json` latest pointer. A clean-narration (`speech_only`) plan is empty and does
+not mutate cinematic cues.
 
 ### QA manifest
 Purpose: summarize automated QA findings.

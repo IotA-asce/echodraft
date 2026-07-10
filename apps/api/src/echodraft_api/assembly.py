@@ -446,6 +446,7 @@ class ChapterAssembler:
             .join(AmbienceAssetRecord, AmbienceAssetRecord.id == AmbienceCueRecord.asset_id)
             .join(SceneRecord, SceneRecord.id == AmbienceCueRecord.scene_id)
             .where(SceneRecord.chapter_id == chapter_id)
+            .where(AmbienceCueRecord.muted.is_(False))
             .order_by(SceneRecord.order_index, AmbienceCueRecord.start_ms)
         )
         resolved: list[SoundCueInput] = []

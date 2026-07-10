@@ -1348,6 +1348,27 @@ paths:
                 items:
                   $ref: "#/components/schemas/SoundCue"
 
+  /api/v1/projects/{projectId}/chapters/{chapterId}/sound-plan:
+    post:
+      tags: [Sound Design]
+      summary: Deterministically plan and materialize automatic Tier-0 sound cues
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/ChapterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SoundPlanRequest"
+      responses:
+        "201":
+          description: Sound plan and append-only manifest created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SoundPlanResult"
+
   /api/v1/scenes/{sceneId}/sound-cues:
     get:
       tags: [Sound Design]
@@ -1379,6 +1400,31 @@ paths:
       responses:
         "201":
           description: Sound cue assigned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SoundCue"
+
+  /api/v1/projects/{projectId}/sound-cues/{cueId}:
+    patch:
+      tags: [Sound Design]
+      summary: Mute or unmute a cue; automatic cues become user-locked
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: cueId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SoundCueUpdate"
+      responses:
+        "200":
+          description: Sound cue updated
           content:
             application/json:
               schema:
@@ -2410,6 +2456,20 @@ components:
           type: string
         provenance:
           type: string
+        model:
+          type: string
+          nullable: true
+        prompt:
+          type: string
+          nullable: true
+        seed:
+          type: integer
+          nullable: true
+        cacheKey:
+          type: string
+          nullable: true
+        qaStatus:
+          type: string
     SoundAssetCreate:
       type: object
       required: [name, assetPath]
@@ -2474,6 +2534,16 @@ components:
           enum: [light, dramatized, all, light_cinematic]
         noSfx:
           type: boolean
+        origin:
+          type: string
+          enum: [user_created, auto_generated]
+        evidence:
+          type: object
+          additionalProperties: true
+        muted:
+          type: boolean
+        userLocked:
+          type: boolean
     SoundCueCreate:
       type: object
       required: [sceneId, assetId]
@@ -2508,6 +2578,48 @@ components:
         noSfx:
           type: boolean
           default: false
+    SoundCueUpdate:
+      type: object
+      required: [muted]
+      properties:
+        muted:
+          type: boolean
+    SoundPlanRequest:
+      type: object
+      properties:
+        renderMode:
+          type: string
+          enum: [speech_only, light_cinematic, dramatized]
+          default: light_cinematic
+    SoundPlanResult:
+      type: object
+      required:
+        [chapterId, renderMode, manifestPath, plannedCues, skipped, materializedAssetIds, materializedCueIds]
+      properties:
+        chapterId:
+          type: string
+        renderMode:
+          type: string
+        manifestPath:
+          type: string
+        plannedCues:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        skipped:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        materializedAssetIds:
+          type: array
+          items:
+            type: string
+        materializedCueIds:
+          type: array
+          items:
+            type: string
     ChapterRender:
       type: object
       required: [id, chapterId, status, speechPath, manifestPath, durationMs]

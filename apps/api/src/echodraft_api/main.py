@@ -21,6 +21,7 @@ from echodraft_domain import (
     AmbienceAssetCreate,
     AmbienceCue,
     AmbienceCueCreate,
+    AmbienceCueUpdate,
     AssignVoice,
     Chapter,
     ChapterAssemblyRequest,
@@ -91,6 +92,8 @@ from echodraft_domain import (
     TextCleanlinessIssue,
     TextCleanlinessIssueUpdate,
     TierZeroSoundRequest,
+    SoundPlanRequest,
+    SoundPlanResult,
     VoicePreview,
     VoicePreviewRequest,
     VoiceProfile,
@@ -144,6 +147,7 @@ from .local_ai import LocalAiService
 from .local_llm import LocalLlmService
 from .speaker_attribution import SpeakerAttributionService
 from .tier0_sound import LICENSE_NOTE as TIER_ZERO_LICENSE_NOTE, TierZeroSoundBank
+from .sound_planner import SoundPlannerService
 
 logger = configure_logging()
 
@@ -203,6 +207,11 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 "durationMs": record.duration_ms,
                 "licenseNote": record.license_note,
                 "provenance": record.provenance,
+                "model": record.model,
+                "prompt": record.prompt,
+                "seed": record.seed,
+                "cacheKey": record.cache_key,
+                "qaStatus": record.qa_status,
             }
         )
 
@@ -220,6 +229,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 "ducking": record.ducking,
                 "renderMode": record.render_mode,
                 "noSfx": record.no_sfx,
+                "origin": record.origin,
+                "evidence": json.loads(record.evidence_json),
+                "muted": record.muted,
+                "userLocked": record.user_locked,
             }
         )
 
@@ -1062,6 +1075,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 payload.default_direction,
                 payload.casting_style_preset,
                 payload.auto_cast_enabled,
+                payload.auto_sound_design,
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -1801,6 +1815,26 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Chapter or project not found.")
         return [ambience_cue_model(item) for item in container.ambience.cues_for_chapter(chapter_id)]
 
+    @app.post(
+        "/api/v1/projects/{project_id}/chapters/{chapter_id}/sound-plan",
+        response_model=SoundPlanResult,
+        status_code=201,
+    )
+    def create_chapter_sound_plan(
+        project_id: str,
+        chapter_id: str,
+        payload: SoundPlanRequest,
+        request: Request,
+    ) -> SoundPlanResult:
+        try:
+            return SoundPlannerService(request.app.state.container).run(
+                project_id, chapter_id, payload.render_mode
+            )
+        except ValueError as error:
+            message = str(error)
+            code = 404 if "not found" in message.casefold() else 422
+            raise HTTPException(status_code=code, detail=message) from error
+
     @app.get(
         "/api/v1/scenes/{scene_id}/sound-cues",
         response_model=list[AmbienceCue],
@@ -1849,6 +1883,32 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             render_mode,
             payload.no_sfx,
         )
+        return ambience_cue_model(record)
+
+    @app.patch(
+        "/api/v1/projects/{project_id}/sound-cues/{cue_id}",
+        response_model=AmbienceCue,
+    )
+    def update_sound_cue_control(
+        project_id: str,
+        cue_id: str,
+        payload: AmbienceCueUpdate,
+        request: Request,
+    ) -> AmbienceCue:
+        container: AppContainer = request.app.state.container
+        cue = next(
+            (
+                item
+                for chapter in container.structure.chapters(project_id)
+                for item in container.ambience.cues_for_chapter(chapter.id)
+                if item.id == cue_id
+            ),
+            None,
+        )
+        if not cue:
+            raise HTTPException(status_code=404, detail="Sound cue or project not found.")
+        record = container.ambience.update_cue_control(cue_id, muted=payload.muted)
+        assert record is not None
         return ambience_cue_model(record)
 
     @app.post(

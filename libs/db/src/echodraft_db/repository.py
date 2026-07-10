@@ -2063,6 +2063,7 @@ class ProductionSettingsRepository:
                 casting_style_preset="warm_neutral",
                 auto_cast_enabled=True,
                 default_direction_json=None,
+                auto_sound_design_json=None,
             )
             session.add(record)
             session.commit()
@@ -2109,6 +2110,22 @@ class ProductionSettingsRepository:
                 record.auto_cast_enabled = auto_cast_enabled
             if update_narrator_decision:
                 record.narrator_casting_decision_id = narrator_casting_decision_id
+            session.commit()
+            return record
+
+    def configure_sound_design(
+        self, project_id: str, auto_sound_design_json: str | None
+    ) -> ProjectProductionSettingsRecord:
+        with self.database.session() as session:
+            record = session.get(ProjectProductionSettingsRecord, project_id)
+            if not record:
+                record = ProjectProductionSettingsRecord(
+                    project_id=project_id,
+                    casting_style_preset="warm_neutral",
+                    auto_cast_enabled=True,
+                )
+                session.add(record)
+            record.auto_sound_design_json = auto_sound_design_json
             session.commit()
             return record
 
