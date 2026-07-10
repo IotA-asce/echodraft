@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import type { Character, VoiceProfile, VoiceSuggestion } from "../../api";
+import { Select } from "../../design-system";
 
 type CharacterUpdatePayload = Partial<
   Pick<
@@ -144,26 +145,8 @@ export function CharacterBible({
                     }}
                   />
                 </label>
-                <label>
-                  Role
-                  <select disabled={merged} value={character.roleType} onChange={(event) => void onSave(character.id, { roleType: event.currentTarget.value })}>
-                    <option value="major">Major</option>
-                    <option value="supporting">Supporting</option>
-                    <option value="minor">Minor</option>
-                    <option value="narrator">Narrator</option>
-                  </select>
-                </label>
-                <label>
-                  Voice
-                  <select disabled={merged} value={character.voiceProfileId ?? ""} onChange={(event) => void onSave(character.id, { voiceProfileId: event.currentTarget.value || null })}>
-                    <option value="">No voice link</option>
-                    {voices.map((voice) => (
-                      <option key={voice.id} value={voice.id}>
-                        {voice.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <Select disabled={merged} label="Role" value={character.roleType} onValueChange={(value) => void onSave(character.id, { roleType: value })} options={[{ value: "major", label: "Major" }, { value: "supporting", label: "Supporting" }, { value: "minor", label: "Minor" }, { value: "narrator", label: "Narrator" }]} />
+                <Select disabled={merged} label="Voice" value={character.voiceProfileId ?? ""} onValueChange={(value) => void onSave(character.id, { voiceProfileId: value || null })} options={[{ value: "", label: "No voice link" }, ...voices.map((voice) => ({ value: voice.id, label: voice.name }))]} />
               </div>
               <div className="character-actions">
                 <button
@@ -182,16 +165,7 @@ export function CharacterBible({
                 <button type="button" className="small-button" disabled={merged} onClick={() => void onSplit(character)}>
                   Split
                 </button>
-                <select disabled={merged} value="" aria-label={`Merge ${character.displayName}`} onChange={(event) => void onMerge(character, event.currentTarget.value)}>
-                  <option value="">Merge into...</option>
-                  {activeCharacters
-                    .filter((target) => target.id !== character.id)
-                    .map((target) => (
-                      <option key={target.id} value={target.id}>
-                        {target.displayName}
-                      </option>
-                    ))}
-                </select>
+                <Select disabled={merged} label={`Merge ${character.displayName}`} value="" onValueChange={(value) => value && void onMerge(character, value)} options={[{ value: "", label: "Merge into…" }, ...activeCharacters.filter((target) => target.id !== character.id).map((target) => ({ value: target.id, label: target.displayName }))]} />
               </div>
               {!merged ? (
                 <div className="voice-suggestion-panel" aria-label={`Suggestions for ${character.displayName}`}>

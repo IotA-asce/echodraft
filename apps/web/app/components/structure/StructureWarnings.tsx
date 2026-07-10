@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Character, Issue, StructureParserWarning } from "../../api";
+import { Select } from "../../design-system";
 
 type WarningFilter = "all" | "speaker" | "scene" | "mixed" | "cast" | "llm" | "errors";
 type ReviewRow = {
@@ -100,18 +101,7 @@ export function StructureWarnings({
                 {row.issue ? (
                   <div className="structure-warning-actions">
                     {row.action === "merge_cast" ? (
-                      <select
-                        value={selectedTarget}
-                        aria-label={`Target character for ${candidateName(row.issue)}`}
-                        onChange={(event) => setTargets((current) => ({ ...current, [row.id]: event.currentTarget.value }))}
-                      >
-                        {targetOptions.length ? null : <option value="">Choose target...</option>}
-                        {targetOptions.map((character) => (
-                          <option key={character.id} value={character.id}>
-                            {character.displayName}
-                          </option>
-                        ))}
-                      </select>
+                      <Select label={`Target character for ${candidateName(row.issue)}`} value={selectedTarget} onValueChange={(value) => setTargets((current) => ({ ...current, [row.id]: value }))} options={[...(targetOptions.length ? [] : [{ value: "", label: "Choose target…" }]), ...targetOptions.map((character) => ({ value: character.id, label: character.displayName }))]} />
                     ) : null}
                     <button
                       type="button"

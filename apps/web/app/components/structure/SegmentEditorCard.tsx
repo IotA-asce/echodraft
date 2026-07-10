@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Direction, Segment, SegmentDirection, VoiceProfile } from "../../api";
 import { DirectionControls } from "./DirectionControls";
+import { Button, Drawer, Select } from "../../design-system";
 
 export function SegmentEditorCard({
   segment,
@@ -43,6 +44,7 @@ export function SegmentEditorCard({
 }) {
   const isEditing = editing?.id === segment.id;
   const [showWhy, setShowWhy] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
   const evidence = segment.parserEvidence ?? {};
   const productionType = String(evidence.productionType ?? segment.segmentType ?? "narration");
   const speakerRule = typeof evidence.speakerRule === "string" ? evidence.speakerRule : null;
@@ -103,10 +105,8 @@ export function SegmentEditorCard({
             <div><dt>Review action</dt><dd>{reviewAction ? formatToken(reviewAction) : "none"}</dd></div>
             <div><dt>Evidence</dt><dd>{readableEvidence}</dd></div>
           </dl>
-          <details>
-            <summary>Raw parser evidence</summary>
-            <pre>{JSON.stringify(evidence, null, 2)}</pre>
-          </details>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setShowRaw(true)}>Raw parser evidence</Button>
+          <Drawer open={showRaw} onOpenChange={setShowRaw} title="Raw parser evidence" description={`Evidence recorded for segment ${segment.id}.`} footer={<Button type="button" variant="secondary" onClick={() => setShowRaw(false)}>Close</Button>}><pre>{JSON.stringify(evidence, null, 2)}</pre></Drawer>
         </div>
       ) : null}
       {isEditing ? (
@@ -123,17 +123,7 @@ export function SegmentEditorCard({
           </div>
         </div>
       ) : null}
-      <label className="override-label">
-        Voice override
-        <select defaultValue="" onChange={(event) => onOverride(segment.id, event.target.value)}>
-          <option value="">Use project narrator</option>
-          {voices.map((voice) => (
-            <option key={voice.id} value={voice.id}>
-              {voice.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="override-label"><Select label="Voice override" value="" onValueChange={(value) => onOverride(segment.id, value)} options={[{ value: "", label: "Use project narrator" }, ...voices.map((voice) => ({ value: voice.id, label: voice.name }))]} /></div>
       <DirectionControls segment={segment} saved={savedDirection} supportedDirection={supportedDirection} onSave={onSaveDirection} />
     </div>
   );
