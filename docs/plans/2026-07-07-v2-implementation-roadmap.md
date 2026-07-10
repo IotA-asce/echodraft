@@ -295,7 +295,7 @@ field rather than breaking readers.
   **This task must emit the character *profiles* W4 consumes.**
   **Gate:** cast precision/recall ≥ baseline; duplicate rate down.
   Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy ...`, eval vs baseline. Size: **L**.
-- [ ] **W3.5 — Attribution v2 (LLM-primary, cascade as pre-pass).** Branch `feat/attribution-v2-llm-primary`.
+- [x] **W3.5 — Attribution v2 (LLM-primary, cascade as pre-pass).** Branch `feat/attribution-v2-llm-primary`.
   Invert `speaker_attribution.py`: cascade becomes the pre-pass, LLM window attribution becomes
   primary; add conversation-state, voting, and the book-level reduce pass. Retain
   one-row-per-segment, sibling propagation, and `userLocked` safety.

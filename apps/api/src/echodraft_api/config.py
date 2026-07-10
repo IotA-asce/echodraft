@@ -31,6 +31,7 @@ class AppSettings:
     model_vram_budget_gib: float | None = None
     structure_v2_enabled: bool = False
     cast_v2_enabled: bool = False
+    attribution_v2_enabled: bool = False
 
     @classmethod
     def from_environment(cls) -> "AppSettings":
@@ -112,6 +113,8 @@ class AppSettings:
             or _env_truthy("ECHODRAFT_STRUCTURE_V2"),
             cast_v2_enabled=_env_truthy("ECHODRAFT_CAST_V2_ENABLED")
             or _env_truthy("ECHODRAFT_CAST_V2"),
+            attribution_v2_enabled=_env_truthy("ECHODRAFT_ATTRIBUTION_V2_ENABLED")
+            or _env_truthy("ECHODRAFT_ATTRIBUTION_V2"),
         )
 
 
