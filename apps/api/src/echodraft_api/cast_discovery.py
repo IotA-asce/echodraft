@@ -11,9 +11,10 @@ from typing import cast
 from uuid import uuid4
 
 from echodraft_db.models import ChapterRecord, CharacterRecord, SceneRecord, SegmentRecord
-from echodraft_domain import LlmExtractionRequest, LlmExtractionResult
+from echodraft_domain import EmbeddingRequest, LlmExtractionRequest, LlmExtractionResult
 from sqlalchemy import select
 
+from .cast_v2 import CAST_V2_VERSION, ClusterMention, ClusterResult, cluster_mentions
 from .container import AppContainer
 from .local_llm import LocalLlmService
 from .structure import DEFAULT_REFINEMENT_MODEL, DEFAULT_REFINEMENT_MODEL_KEY
@@ -22,6 +23,8 @@ CAST_WINDOW_MAX_CHARS = 6000
 CAST_WINDOW_OVERLAP_SEGMENTS = 1
 AUTO_CREATE_CONFIDENCE = 0.72
 SAFE_SHORTLIST_SCORE = 100
+CAST_EMBEDDING_MODEL = "qwen3-embedding"
+CAST_EMBEDDING_MODEL_KEY = "qwen3_embedding_ollama"
 CAST_MENTION_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
@@ -90,6 +93,56 @@ CAST_MERGE_SCHEMA: dict[str, object] = {
         "warnings": {"type": "array", "items": {"type": "string"}},
     },
     "required": ["decisions", "warnings"],
+}
+CAST_PROFILE_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "profile": {
+            "type": "object",
+            "properties": {
+                "displayName": {"type": "string"},
+                "role": {"type": "string"},
+                "gender": {"type": "string"},
+                "ageBand": {"type": "string"},
+                "traits": {"type": "array", "items": {"type": "string"}},
+                "speechStyle": {
+                    "type": "object",
+                    "properties": {
+                        "register": {"type": "string"},
+                        "verbosity": {"type": "string"},
+                        "accentHint": {"type": "string"},
+                        "tics": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["register", "verbosity", "accentHint", "tics"],
+                },
+                "relationships": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "target": {"type": "string"},
+                            "relation": {"type": "string"},
+                            "confidence": {"type": "number"},
+                        },
+                        "required": ["target", "relation", "confidence"],
+                    },
+                },
+                "confidence": {"type": "number"},
+            },
+            "required": [
+                "displayName",
+                "role",
+                "gender",
+                "ageBand",
+                "traits",
+                "speechStyle",
+                "relationships",
+                "confidence",
+            ],
+        },
+        "warnings": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["profile", "warnings"],
 }
 IGNORED_CHARACTER_NAMES = {
     "he",
@@ -389,18 +442,49 @@ class CastDiscoveryService:
             [self._mention_payload(mention) for mention in persisted_mentions],
         )
 
-        candidates = self._candidates_from_mentions(accepted_mentions, segments)
+        cast_v2_enabled = self.container.settings.cast_v2_enabled
+        cluster_result: ClusterResult | None = None
+        if cast_v2_enabled:
+            candidates, cluster_result = self._v2_candidates(
+                project_id, accepted_mentions, segments
+            )
+            diagnostics.extend(cluster_result.diagnostics)
+        else:
+            candidates = self._candidates_from_mentions(accepted_mentions, segments)
         index = self._character_index(project_id)
         decisions: list[MergeDecision] = []
-        for candidate in candidates:
-            decision = self._decision_for_candidate(
-                project_id,
-                candidate,
-                index,
-                use_local_llm=ready,
+        profiles: list[dict[str, object]] = []
+        for candidate_index, candidate in enumerate(candidates):
+            decision = (
+                self._decision_for_cluster(
+                    project_id,
+                    candidate,
+                    index,
+                    use_local_llm=ready,
+                )
+                if cast_v2_enabled
+                else self._decision_for_candidate(
+                    project_id,
+                    candidate,
+                    index,
+                    use_local_llm=ready,
+                )
             )
+            profile: dict[str, object] | None = None
+            if cast_v2_enabled and decision.action in {"merge", "new"}:
+                candidate, profile = self._profile_candidate(
+                    project_id,
+                    candidate,
+                    use_local_llm=ready,
+                )
             decisions.append(decision)
             self._apply_candidate(project_id, source_id, candidate, decision, index)
+            if profile is not None:
+                character = self._resolved_character(candidate, decision, index)
+                profile["characterId"] = character.id if character else None
+                if cluster_result and candidate_index < len(cluster_result.clusters):
+                    profile["clusterId"] = cluster_result.clusters[candidate_index].id
+                profiles.append(profile)
         self.container.cast_graph.replace_decisions(
             project_id,
             [self._decision_payload(decision) for decision in decisions],
@@ -413,6 +497,8 @@ class CastDiscoveryService:
             candidates,
             decisions,
             diagnostics,
+            cluster_result=cluster_result,
+            profiles=profiles,
         )
         return self.container.casting.characters(project_id)
 
@@ -712,6 +798,125 @@ class CastDiscoveryService:
         ]
         return candidates
 
+    def _v2_candidates(
+        self,
+        project_id: str,
+        mentions: list[CharacterMention],
+        segments: list[ObservedSegment],
+    ) -> tuple[list[CharacterCandidate], ClusterResult]:
+        cluster_mentions_input = [
+            ClusterMention(
+                id=mention.id,
+                surface_name=mention.surface_name,
+                canonical_guess=mention.canonical_guess,
+                evidence_text=mention.evidence_text,
+                window_id=mention.window_id,
+                role_in_scene=mention.role_in_scene,
+            )
+            for mention in mentions
+        ]
+        embeddings, embedding_diagnostics = self._cast_embeddings(mentions)
+        confirmed_pairs: set[frozenset[str]] = set()
+        rejected_pairs: set[frozenset[str]] = set()
+        for ruling in self.container.cast_merge_decisions.recent(project_id, limit=10_000):
+            pair = frozenset({ruling.name_a, ruling.name_b})
+            if len(pair) != 2:
+                continue
+            if ruling.decision == "confirmed":
+                confirmed_pairs.add(pair)
+            elif ruling.decision == "rejected":
+                rejected_pairs.add(pair)
+        result = cluster_mentions(
+            cluster_mentions_input,
+            embeddings=embeddings,
+            confirmed_pairs=confirmed_pairs,
+            rejected_pairs=rejected_pairs,
+        )
+        if embedding_diagnostics:
+            result = replace(
+                result,
+                diagnostics=[*result.diagnostics, *embedding_diagnostics],
+            )
+        mention_by_id = {mention.id: mention for mention in mentions}
+        segment_map = {segment.id: segment for segment in segments}
+        by_chapter = {segment.id: segment.chapter_id for segment in segments}
+        candidates: list[CharacterCandidate] = []
+        for cluster in result.clusters:
+            cluster_items = [
+                mention_by_id[mention_id]
+                for mention_id in cluster.mention_ids
+                if mention_id in mention_by_id
+            ]
+            candidate = self._candidate_from_mentions(
+                cluster_items,
+                _first_chapter_id(cluster_items, by_chapter),
+                segment_map,
+            )
+            if candidate:
+                candidate.source = "+".join(
+                    _clean_strings([candidate.source, "cast_v2_cluster"])
+                )
+                candidates.append(candidate)
+        return candidates, result
+
+    def _cast_embeddings(
+        self, mentions: list[CharacterMention]
+    ) -> tuple[dict[str, list[float]], list[dict[str, object]]]:
+        installation = self.container.local_ai.installation(CAST_EMBEDDING_MODEL_KEY)
+        if not installation or installation.status != "installed":
+            return {}, [
+                {
+                    "severity": "info",
+                    "type": "embedding_model_unavailable",
+                    "message": (
+                        "Cast v2 used conservative string clustering because the local "
+                        "embedding model is not installed."
+                    ),
+                    "model": CAST_EMBEDDING_MODEL,
+                }
+            ]
+        contexts: dict[str, list[str]] = {}
+        display_names: dict[str, str] = {}
+        for mention in mentions:
+            key = _name_key(mention.surface_name)
+            if not key:
+                continue
+            display_names.setdefault(key, mention.surface_name)
+            if mention.evidence_text:
+                contexts.setdefault(key, []).append(mention.evidence_text[:240])
+        ordered_keys = sorted(display_names)
+        inputs = [
+            f"{display_names[key]} ‖ {' | '.join(contexts.get(key, [])[:3])}"
+            for key in ordered_keys
+        ]
+        if not inputs:
+            return {}, []
+        try:
+            result = LocalLlmService(self.container).embed(
+                EmbeddingRequest(model=CAST_EMBEDDING_MODEL, input=inputs)
+            )
+        except ValueError as error:
+            return {}, [
+                {
+                    "severity": "warning",
+                    "type": "embedding_request_failed",
+                    "message": "Cast v2 embedding failed; conservative string clustering was kept.",
+                    "model": CAST_EMBEDDING_MODEL,
+                    "error": str(error)[:500],
+                }
+            ]
+        if len(result.embeddings) != len(ordered_keys):
+            return {}, [
+                {
+                    "severity": "warning",
+                    "type": "embedding_count_mismatch",
+                    "message": "Cast v2 embedding count was incomplete; string clustering was kept.",
+                    "expected": len(ordered_keys),
+                    "actual": len(result.embeddings),
+                }
+            ]
+        return dict(zip(ordered_keys, result.embeddings, strict=True)), []
+
     def _candidate_from_mentions(
         self,
         mentions: list[CharacterMention],
@@ -890,11 +1095,62 @@ class CastDiscoveryService:
             ),
         )
 
+    def _decision_for_cluster(
+        self,
+        project_id: str,
+        candidate: CharacterCandidate,
+        index: CharacterIndex,
+        *,
+        use_local_llm: bool,
+    ) -> MergeDecision:
+        deterministic = self._decision_for_candidate(
+            project_id,
+            candidate,
+            index,
+            use_local_llm=False,
+        )
+        if deterministic.action == "merge" or not use_local_llm:
+            return replace(
+                deterministic,
+                metadata={**deterministic.metadata, "reconcileMode": "cluster"},
+            )
+        shortlist = [
+            match
+            for match in index.shortlist(candidate)
+            if not self._pair_rejected(
+                project_id, candidate.display_name, match.character.display_name
+            )
+        ]
+        reconciled = self._llm_merge_decision(
+            project_id,
+            candidate,
+            shortlist,
+            task="cast_cluster_reconcile",
+        )
+        if reconciled is None or (not shortlist and reconciled.action == "unsure"):
+            return replace(
+                deterministic,
+                metadata={
+                    **deterministic.metadata,
+                    "reconcileMode": "cluster",
+                    "reconcileFallback": True,
+                },
+            )
+        return self._annotate_decision(
+            candidate,
+            replace(
+                reconciled,
+                metadata={**reconciled.metadata, "reconcileMode": "cluster"},
+            ),
+        )
+
     def _llm_merge_decision(
         self,
         project_id: str,
         candidate: CharacterCandidate,
         shortlist: list[CharacterMatch],
+        *,
+        task: str = "cast_merge_verification",
     ) -> MergeDecision | None:
         llm = LocalLlmService(self.container)
         try:
@@ -902,9 +1158,13 @@ class CastDiscoveryService:
                 project_id,
                 LlmExtractionRequest(
                     model=DEFAULT_REFINEMENT_MODEL,
-                    task="cast_merge_verification",
+                    task=task,
                     schema=CAST_MERGE_SCHEMA,
-                    prompt=self._merge_prompt(project_id, candidate, shortlist),
+                    prompt=(
+                        self._cluster_reconcile_prompt(project_id, candidate, shortlist)
+                        if task == "cast_cluster_reconcile"
+                        else self._merge_prompt(project_id, candidate, shortlist)
+                    ),
                 ),
             )
         except ValueError as error:
@@ -976,6 +1236,126 @@ class CastDiscoveryService:
             llm_run_id=result.run.id,
             metadata={"shortlist": _shortlist_payload(shortlist)},
         )
+
+    def _profile_candidate(
+        self,
+        project_id: str,
+        candidate: CharacterCandidate,
+        *,
+        use_local_llm: bool,
+    ) -> tuple[CharacterCandidate, dict[str, object]]:
+        profile = self._deterministic_profile(candidate)
+        if use_local_llm:
+            try:
+                result = LocalLlmService(self.container).extract(
+                    project_id,
+                    LlmExtractionRequest(
+                        model=DEFAULT_REFINEMENT_MODEL,
+                        task="cast_profile_synthesis",
+                        schema=CAST_PROFILE_SCHEMA,
+                        prompt=self._profile_prompt(candidate),
+                    ),
+                )
+            except ValueError as error:
+                profile["fallbackReason"] = str(error)[:500]
+            else:
+                raw_profile = result.result.get("profile")
+                if isinstance(raw_profile, dict):
+                    profile = self._normalized_profile(
+                        candidate,
+                        cast(dict[str, object], raw_profile),
+                    )
+                    profile["llmRunId"] = result.run.id
+        gender = str(profile.get("gender") or "unknown")
+        age_band = str(profile.get("ageBand") or "unknown")
+        profile_traits = _clean_strings(profile.get("traits"))
+        traits = _clean_strings(
+            [
+                *candidate.traits,
+                *profile_traits,
+                *([f"gender:{gender}"] if gender != "unknown" else []),
+                *([f"age:{age_band}"] if age_band != "unknown" else []),
+            ]
+        )
+        speech_style = _clean_strings(
+            [*candidate.speaking_style, *_speech_style_strings(profile.get("speechStyle"))]
+        )
+        relationships = _merge_relationships(
+            [*candidate.relationships, *_relationship_rows(profile.get("relationships"))]
+        )
+        updated = replace(
+            candidate,
+            role_guess=str(profile.get("role") or candidate.role_guess),
+            confidence=max(
+                candidate.confidence,
+                _clamp_float(profile.get("confidence"), candidate.confidence, 1.0),
+            ),
+            traits=traits,
+            relationships=relationships,
+            speaking_style=speech_style,
+        )
+        profile["aliases"] = _clean_strings(
+            [*candidate.aliases, *candidate.generated_aliases]
+        )
+        profile["evidenceWindowIds"] = candidate.window_ids
+        return updated, profile
+
+    @staticmethod
+    def _deterministic_profile(candidate: CharacterCandidate) -> dict[str, object]:
+        gender = _trait_value(candidate.traits, "gender") or "unknown"
+        age_band = _trait_value(candidate.traits, "age") or "unknown"
+        return {
+            "displayName": candidate.display_name,
+            "role": candidate.role_guess,
+            "gender": gender,
+            "ageBand": age_band,
+            "traits": candidate.traits,
+            "speechStyle": _speech_style_payload(candidate.speaking_style),
+            "relationships": candidate.relationships,
+            "confidence": candidate.confidence,
+            "source": "deterministic_fallback",
+        }
+
+    @staticmethod
+    def _normalized_profile(
+        candidate: CharacterCandidate, payload: dict[str, object]
+    ) -> dict[str, object]:
+        return {
+            "displayName": str(payload.get("displayName") or candidate.display_name).strip()
+            or candidate.display_name,
+            "role": str(payload.get("role") or candidate.role_guess).strip().casefold()
+            or candidate.role_guess,
+            "gender": str(payload.get("gender") or "unknown").strip().casefold()
+            or "unknown",
+            "ageBand": str(payload.get("ageBand") or "unknown").strip().casefold()
+            or "unknown",
+            "traits": _clean_strings(payload.get("traits")),
+            "speechStyle": _speech_style_object(payload.get("speechStyle")),
+            "relationships": _relationship_rows(payload.get("relationships")),
+            "confidence": _clamp_float(
+                payload.get("confidence"), candidate.confidence, 1.0
+            ),
+            "source": "llm_profile_synthesis",
+        }
+
+    @staticmethod
+    def _resolved_character(
+        candidate: CharacterCandidate,
+        decision: MergeDecision,
+        index: CharacterIndex,
+    ) -> CharacterRecord | None:
+        if decision.target_character_id:
+            return next(
+                (
+                    character
+                    for character in index.characters
+                    if character.id == decision.target_character_id
+                ),
+                None,
+            )
+        matches = index.exact(candidate)
+        active = [match.character for match in matches if not match.character.merged_into_character_id]
+        return active[0] if len({character.id for character in active}) == 1 else None
 
     def _apply_candidate(
         self,
@@ -1319,6 +1699,38 @@ class CastDiscoveryService:
             f"Possible matches:\n{shortlist_lines}"
         )
 
+    def _cluster_reconcile_prompt(
+        self,
+        project_id: str,
+        candidate: CharacterCandidate,
+        shortlist: list[CharacterMatch],
+    ) -> str:
+        base = self._merge_prompt(project_id, candidate, shortlist)
+        return (
+            "Reconcile one already-clustered set of character mentions. Confirm that its aliases "
+            "describe one character, split only when pooled evidence proves distinct people, and "
+            "choose a canonical display name. Prior human rulings are hard constraints. This is one "
+            "decision for the whole cluster, never a pairwise mention adjudication.\n\n"
+            f"Cluster windows: {', '.join(candidate.window_ids)}\n"
+            f"Cluster scenes: {', '.join(candidate.scene_ids)}\n\n"
+            f"{base}"
+        )
+
+    @staticmethod
+    def _profile_prompt(candidate: CharacterCandidate) -> str:
+        return (
+            "Synthesize one conservative audiobook casting profile from pooled evidence for a "
+            "confirmed character cluster. Do not infer protected or demographic traits without "
+            "textual evidence; use 'unknown' when absent. Keep speech style production-useful and "
+            "relationships evidence-bound. Return only JSON matching the schema.\n\n"
+            f"Display name: {candidate.display_name}\n"
+            f"Aliases: {', '.join(_clean_strings([*candidate.aliases, *candidate.generated_aliases]))}\n"
+            f"Observed traits: {', '.join(candidate.traits)}\n"
+            f"Observed speaking style: {', '.join(candidate.speaking_style)}\n"
+            f"Observed relationships: {json.dumps(candidate.relationships, sort_keys=True)}\n"
+            f"Evidence: {' | '.join(candidate.mention_evidence[:8])}"
+        )
+
     def _merge_decision_block(self, project_id: str) -> str:
         decisions = self.container.cast_merge_decisions.recent(project_id, limit=10)
         if not decisions:
@@ -1342,6 +1754,9 @@ class CastDiscoveryService:
         candidates: list[CharacterCandidate],
         decisions: list[MergeDecision],
         diagnostics: list[dict[str, object]],
+        *,
+        cluster_result: ClusterResult | None = None,
+        profiles: list[dict[str, object]] | None = None,
     ) -> None:
         project = self.container.projects.get(project_id)
         if not project:
@@ -1351,7 +1766,8 @@ class CastDiscoveryService:
         ]
         manifest = {
             "manifestType": "casting_manifest",
-            "schemaVersion": "0.1.0",
+            "schemaVersion": "0.2.0" if cluster_result else "0.1.0",
+            "manifestVersion": "cast-v2" if cluster_result else "cast-v1",
             "projectId": project_id,
             "generatedAt": datetime.now(UTC).isoformat(),
             "status": "completed",
@@ -1363,6 +1779,47 @@ class CastDiscoveryService:
                 "filteredMentionCount": len(filtered_mentions),
                 "candidateCount": len(candidates),
                 "decisionCount": len(decisions),
+                "castV2": (
+                    {
+                        "version": CAST_V2_VERSION,
+                        "embeddingModel": CAST_EMBEDDING_MODEL,
+                        "embeddingUsed": cluster_result.embedding_used,
+                        "threshold": cluster_result.threshold,
+                    }
+                    if cluster_result
+                    else None
+                ),
+                "clusters": (
+                    [
+                        {
+                            "id": cluster.id,
+                            "mentionIds": cluster.mention_ids,
+                            "normalizedKeys": cluster.normalized_keys,
+                            "surfaceForms": cluster.surface_forms,
+                            "confidence": cluster.confidence,
+                        }
+                        for cluster in cluster_result.clusters
+                    ]
+                    if cluster_result
+                    else []
+                ),
+                "clusterDiagnostics": (
+                    {
+                        "merges": [
+                            {
+                                "leftKey": merge.left_key,
+                                "rightKey": merge.right_key,
+                                "score": merge.score,
+                                "reason": merge.reason,
+                            }
+                            for merge in cluster_result.merges
+                        ],
+                        "cannotLinkPairs": cluster_result.cannot_link_pairs,
+                    }
+                    if cluster_result
+                    else None
+                ),
+                "profiles": profiles or [],
                 "mentions": [
                     {
                         "id": mention.id,
@@ -1949,6 +2406,66 @@ def _clean_strings(value: object) -> list[str]:
             cleaned.append(text)
             seen.add(key)
     return cleaned
+
+
+def _trait_value(traits: list[str], prefix: str) -> str | None:
+    marker = f"{prefix}:"
+    for trait in traits:
+        if trait.casefold().startswith(marker):
+            value = trait.split(":", 1)[1].strip().casefold()
+            return value or None
+    return None
+
+
+def _speech_style_strings(value: object) -> list[str]:
+    payload = _speech_style_object(value)
+    strings = [
+        f"register:{payload['register']}" if payload["register"] != "unknown" else "",
+        f"verbosity:{payload['verbosity']}" if payload["verbosity"] != "unknown" else "",
+        f"accent:{payload['accentHint']}" if payload["accentHint"] != "none" else "",
+        *cast(list[str], payload["tics"]),
+    ]
+    return _clean_strings(strings)
+
+
+def _speech_style_object(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {
+            "register": "unknown",
+            "verbosity": "unknown",
+            "accentHint": "none",
+            "tics": [],
+        }
+    payload = cast(dict[str, object], value)
+    return {
+        "register": str(payload.get("register") or "unknown").strip().casefold()
+        or "unknown",
+        "verbosity": str(payload.get("verbosity") or "unknown").strip().casefold()
+        or "unknown",
+        "accentHint": str(payload.get("accentHint") or "none").strip().casefold()
+        or "none",
+        "tics": _clean_strings(payload.get("tics")),
+    }
+
+
+def _speech_style_payload(styles: list[str]) -> dict[str, object]:
+    register = _trait_value(styles, "register") or "unknown"
+    verbosity = _trait_value(styles, "verbosity") or "unknown"
+    accent = _trait_value(styles, "accent") or "none"
+    tics = [
+        style
+        for style in styles
+        if not any(
+            style.casefold().startswith(f"{prefix}:")
+            for prefix in ("register", "verbosity", "accent")
+        )
+    ]
+    return {
+        "register": register,
+        "verbosity": verbosity,
+        "accentHint": accent,
+        "tics": _clean_strings(tics),
+    }
 
 
 def _name_key(value: str | None) -> str:
