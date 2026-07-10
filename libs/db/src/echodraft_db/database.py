@@ -76,6 +76,10 @@ class Database:
                     "ALTER TABLE voice_profiles "
                     "ADD COLUMN provider_voice_id VARCHAR(200) NOT NULL DEFAULT ''"
                 )
+            if "voice_catalog_entry_id" not in columns:
+                repairs.append(
+                    "ALTER TABLE voice_profiles ADD COLUMN voice_catalog_entry_id VARCHAR(64)"
+                )
         if "export_packages" in tables:
             columns = {column["name"] for column in inspector.get_columns("export_packages")}
             if "archive_path" not in columns:

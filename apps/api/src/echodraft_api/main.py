@@ -91,6 +91,7 @@ from echodraft_domain import (
     VoicePreview,
     VoicePreviewRequest,
     VoiceProfile,
+    VoiceCatalogEntry,
     VoiceProfileCreate,
     VoiceSuggestion,
     VoiceProfileUpdate,
@@ -120,6 +121,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from .config import AppSettings
 from .confidence import ConfidenceReviewService
+from .voice_catalog import VoiceCatalogService
 from .container import AppContainer, build_container
 from .logging import configure_logging
 from .ingestion import IngestionError, IngestionService, PARSER_VERSION
@@ -277,6 +279,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
 
     def voice_profile_model(record: VoiceProfileRecord) -> VoiceProfile:
         provider_voice_id = record.provider_voice_id
+        catalog_entry = VoiceCatalogService(container).entry(record.voice_catalog_entry_id)
         return VoiceProfile.model_validate(
             {
                 "id": record.id,
@@ -285,7 +288,12 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 "backend": record.backend,
                 "providerVoiceId": provider_voice_id,
                 "stylePrompt": record.style_prompt,
-                "facets": _voice_facets(record.backend, provider_voice_id),
+                "facets": (
+                    catalog_entry.facets
+                    if catalog_entry
+                    else _voice_facets(record.backend, provider_voice_id)
+                ),
+                "voiceCatalogEntryId": record.voice_catalog_entry_id,
             }
         )
 
@@ -1354,6 +1362,28 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             voice_profile_model(x)
             for x in request.app.state.container.casting.voices(project_id)
         ]
+
+    @app.get("/api/v1/voice-catalog", response_model=list[VoiceCatalogEntry])
+    def list_voice_catalog(request: Request) -> list[VoiceCatalogEntry]:
+        return VoiceCatalogService(request.app.state.container).entries()
+
+    @app.post(
+        "/api/v1/voice-catalog/audition-jobs",
+        response_model=Job,
+        status_code=202,
+    )
+    def audition_voice_catalog(request: Request) -> Job:
+        container: AppContainer = request.app.state.container
+        service = VoiceCatalogService(container)
+
+        def run(job_id: str) -> None:
+            service.audition_backfill(job_id)
+
+        return container.jobs.submit_with_job(
+            "voice_catalog.audition",
+            run,
+            project_id=None,
+        )
 
     @app.post("/api/v1/projects/{project_id}/voices", response_model=VoiceProfile, status_code=201)
     def create_voice(

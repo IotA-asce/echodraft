@@ -331,7 +331,7 @@ W5.4 (voice identity records) exists — or W4.1 lands its own minimal catalog t
 
 **Tasks.**
 
-- [ ] **W4.1 — Voice catalog + one-time audition backfill.** Branch `feat/voice-catalog`.
+- [x] **W4.1 — Voice catalog + one-time audition backfill.** Branch `feat/voice-catalog`.
   Add `voice_catalog_entries` (+ migration + repair entry) with real gender/age/register/timbre/
   language metadata; a one-time audition job backfills it against the installed engine (Kokoro
   today), replacing `_voice_facets()`'s guessed output with measured data. Keep

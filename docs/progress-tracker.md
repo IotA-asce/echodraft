@@ -237,7 +237,10 @@ It is separate from the completed G1-G20 alpha gap tracker above.
       grouped task and 0 required tasks; the 500-page hardware milestone remains a separate M1/M2
       acceptance run. See `docs/analysis/eval-baselines/2026-07-10-direction-v2-gate.md`.
 - [ ] W4 - Automatic casting.
-  - [ ] W4.1 - Voice catalog and one-time audition backfill.
+  - [x] W4.1 - Voice catalog and one-time audition backfill.
+    - Evidence: `feat/voice-catalog`; migration `0033` adds versioned global catalog entries and
+      voice-profile links, while the idempotent audition job stores WAVs on disk and persists local
+      acoustic measurements, provenance, license metadata, and measured facets.
   - [ ] W4.2 - Narrator selection.
   - [ ] W4.3 - Scoring and constraint-solving assignment.
   - [ ] W4.4 - Auto-chain, override model, and backward compatibility.
