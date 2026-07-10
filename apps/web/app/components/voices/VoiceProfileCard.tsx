@@ -1,6 +1,11 @@
+import { memo } from "react";
 import type { VoiceProfile } from "../../api";
 
-export function VoiceProfileCard({
+// Memoized: rendered once per voice profile in the (unbounded) voice list on
+// the Voice Bible panel. Requires stable `onPreview`/`onSelectNarrator`/
+// `onRemove` identities from the caller (see project-dashboard.tsx's
+// `handlePreviewVoice`/`handleSelectNarrator`/`handleRemoveVoice`).
+export const VoiceProfileCard = memo(function VoiceProfileCard({
   voice,
   selected,
   onPreview,
@@ -32,4 +37,4 @@ export function VoiceProfileCard({
       </span>
     </article>
   );
-}
+});

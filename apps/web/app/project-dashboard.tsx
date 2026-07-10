@@ -1,6 +1,7 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   addComment,
   applyIssueAction,
@@ -117,6 +118,7 @@ import {
   type VoiceProfile,
 } from "./api";
 import { InlineNotice } from "./components/common/InlineNotice";
+import { createPollBackoff, isActiveJobStatus } from "./lib/poll";
 import { ExportPanel } from "./components/export/ExportPanel";
 import { StudioHero } from "./components/layout/StudioHero";
 import { StudioShell } from "./components/layout/StudioShell";
@@ -354,8 +356,81 @@ export function ProjectDashboard() {
       reviewTimeline,
     ],
   );
-  const setSectionWorking = (section: string, value: boolean) =>
-    setSectionBusy((current) => ({ ...current, [section]: value }));
+  const setSectionWorking = useCallback(
+    (section: string, value: boolean) =>
+      setSectionBusy((current) => ({ ...current, [section]: value })),
+    [],
+  );
+  // Declared ahead of the job-poll effects below (and every other handler
+  // that calls them) because they are `const`s, not hoisted `function`
+  // declarations: referencing them before this point would throw a
+  // temporal-dead-zone error.
+  const refreshProduction = useCallback(
+    async (projectId: string, chapterId: string) => {
+      try {
+        const [nextStatus, nextIssues] = await Promise.all([
+          getProductionStatus(projectId, chapterId),
+          listIssues(projectId),
+        ]);
+        setStatus(nextStatus);
+        setIssues(nextIssues);
+      } catch (cause) {
+        setStatus(null);
+        setError(messageOf(cause));
+      }
+    },
+    [],
+  );
+  const refreshRenderQueue = useCallback(
+    async (projectId: string, chapterId: string) => {
+      try {
+        setRenderQueue(await listRenderQueue(projectId, chapterId));
+      } catch (cause) {
+        setRenderQueue([]);
+        setError(messageOf(cause));
+      }
+    },
+    [],
+  );
+  const refreshSoundDesign = useCallback(
+    async (projectId: string, chapterId?: string) => {
+      try {
+        const [assets, cues] = await Promise.all([
+          listSoundAssets(projectId),
+          chapterId
+            ? listChapterSoundCues(projectId, chapterId)
+            : Promise.resolve([]),
+        ]);
+        setSoundAssets(assets);
+        setSoundCues(cues);
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [],
+  );
+  const refreshReviewTimeline = useCallback(
+    async (projectId: string, chapterId: string) => {
+      try {
+        setReviewTimeline(
+          await getChapterReviewTimeline(projectId, chapterId),
+        );
+      } catch {
+        setReviewTimeline(null);
+      }
+    },
+    [],
+  );
+  const refreshChapterApproval = useCallback(
+    async (projectId: string, chapterId: string) => {
+      try {
+        setChapterApproval(await getChapterApproval(projectId, chapterId));
+      } catch {
+        setChapterApproval(null);
+      }
+    },
+    [],
+  );
   const activeStructureJob =
     structureJob && ["queued", "running"].includes(structureJob.status)
       ? structureJob
@@ -419,147 +494,244 @@ export function ProjectDashboard() {
     exportLanguage,
     exportCoverPath,
   ]);
+  // The five job-poll loops below replace independent recursive
+  // `setTimeout` chains with TanStack Query `useQuery` polling: each keeps
+  // its original base interval and completion cascade, backs off
+  // exponentially (capped at 15s) while the job's status is unchanged, and
+  // stops automatically once the job reaches a terminal status. See
+  // docs/ui/frontend-architecture.md ("Root-Cause Analysis" #2 and
+  // "Fallback polling with backoff") and `app/lib/poll.ts`.
+  const importJobBackoff = useRef(createPollBackoff(750)).current;
+  const importJobPoll = useQuery({
+    queryKey: ["job-poll", "import", importJob?.id ?? null],
+    queryFn: () => getJob(importJob!.id),
+    enabled: Boolean(
+      importJob && selectedProjectId && isActiveJobStatus(importJob.status),
+    ),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (!isActiveJobStatus(status)) return false;
+      return importJobBackoff(status, query.state.dataUpdateCount);
+    },
+  });
   useEffect(() => {
-    if (
-      !importJob ||
-      !selectedProjectId ||
-      !["queued", "running"].includes(importJob.status)
-    )
-      return;
-    const timer = window.setTimeout(() => {
-      void getJob(importJob.id)
-        .then(async (next) => {
-          setImportJob(next);
-          if (next.status === "succeeded") {
-            await refreshImportedSource(selectedProjectId);
-            setNotice(
-              "Manuscript normalized locally. Inspect the preview, then extract structure.",
-            );
-            setActiveSection("manuscript");
-            setBusy(false);
-          }
-          if (next.status === "failed" || next.status === "cancelled") {
-            setError(next.errorMessage ?? "Manuscript import failed.");
-            setBusy(false);
-          }
+    const next = importJobPoll.data;
+    if (!next || !selectedProjectId) return;
+    // Bridging pattern during the TanStack Query migration: this syncs a
+    // query result into the pre-existing `importJob` state so every other
+    // consumer of it (StudioHero, ManuscriptIntakePanel) is untouched. A
+    // later pass can read `importJobPoll.data` directly and retire this
+    // state instead — see docs/ui/frontend-architecture.md ("Eliminating
+    // the God component").
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setImportJob(next);
+    if (next.status === "succeeded") {
+      void refreshImportedSource(selectedProjectId)
+        .then(() => {
+          setNotice(
+            "Manuscript normalized locally. Inspect the preview, then extract structure.",
+          );
+          setActiveSection("manuscript");
+          setBusy(false);
         })
         .catch((cause) => {
           setError(messageOf(cause));
           setBusy(false);
         });
-    }, 750);
-    return () => window.clearTimeout(timer);
-  }, [importJob, selectedProjectId]);
+    }
+    if (next.status === "failed" || next.status === "cancelled") {
+      setError(next.errorMessage ?? "Manuscript import failed.");
+      setBusy(false);
+    }
+  }, [importJobPoll.data, selectedProjectId]);
   useEffect(() => {
-    if (
-      !structureJob ||
-      !selectedProjectId ||
-      !["queued", "running"].includes(structureJob.status)
-    )
-      return;
-    const timer = window.setTimeout(() => {
-      void getJob(structureJob.id)
-        .then(async (next) => {
-          setStructureJob(next);
-          if (next.status === "succeeded") {
-            await refreshStructureDraft(selectedProjectId);
-            setNotice(
-              "Structure and cast draft extracted. Review cast and voices before producing chapters.",
-            );
-            setActiveSection("structure");
-            setBusy(false);
-          }
-          if (next.status === "failed" || next.status === "cancelled") {
-            setError(next.errorMessage ?? "Structure and cast draft failed.");
-            setBusy(false);
-          }
+    if (importJobPoll.error) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setError(messageOf(importJobPoll.error));
+      setBusy(false);
+    }
+  }, [importJobPoll.error]);
+
+  const structureJobBackoff = useRef(createPollBackoff(1000)).current;
+  const structureJobPoll = useQuery({
+    queryKey: ["job-poll", "structure", structureJob?.id ?? null],
+    queryFn: () => getJob(structureJob!.id),
+    enabled: Boolean(
+      structureJob &&
+        selectedProjectId &&
+        isActiveJobStatus(structureJob.status),
+    ),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (!isActiveJobStatus(status)) return false;
+      return structureJobBackoff(status, query.state.dataUpdateCount);
+    },
+  });
+  useEffect(() => {
+    const next = structureJobPoll.data;
+    if (!next || !selectedProjectId) return;
+    // See the import-job effect above for why this setState-in-effect is
+    // intentional during the migration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStructureJob(next);
+    if (next.status === "succeeded") {
+      void refreshStructureDraft(selectedProjectId)
+        .then(() => {
+          setNotice(
+            "Structure and cast draft extracted. Review cast and voices before producing chapters.",
+          );
+          setActiveSection("structure");
+          setBusy(false);
         })
         .catch((cause) => {
           setError(messageOf(cause));
           setBusy(false);
         });
-    }, 1000);
-    return () => window.clearTimeout(timer);
-  }, [structureJob, selectedProjectId]);
+    }
+    if (next.status === "failed" || next.status === "cancelled") {
+      setError(next.errorMessage ?? "Structure and cast draft failed.");
+      setBusy(false);
+    }
+  }, [structureJobPoll.data, selectedProjectId]);
   useEffect(() => {
-    if (!job || !["queued", "running"].includes(job.status)) return;
-    const timer = window.setTimeout(() => {
-      void getJob(job.id)
-        .then((next) => {
-          setJob(next);
-          if (selectedProjectId && selectedChapter)
-            void refreshRenderQueue(selectedProjectId, selectedChapter.id);
-          if (
-            next.status === "succeeded" &&
-            selectedProjectId &&
-            selectedChapter
-          ) {
-            void refreshProduction(selectedProjectId, selectedChapter.id);
-            void refreshReviewTimeline(selectedProjectId, selectedChapter.id);
-            void refreshChapterApproval(selectedProjectId, selectedChapter.id);
-            void refreshRenderQueue(selectedProjectId, selectedChapter.id);
-            setNotice(
-              "Chapter production completed. Review the active render below.",
-            );
-            setActiveSection("review-patch");
-          }
-          if (next.status === "failed")
-            setError(next.errorMessage ?? "Chapter production failed.");
-        })
-        .catch((cause) => setError(messageOf(cause)));
-    }, 500);
-    return () => window.clearTimeout(timer);
-  }, [job, selectedChapter, selectedProjectId]);
+    if (structureJobPoll.error) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setError(messageOf(structureJobPoll.error));
+      setBusy(false);
+    }
+  }, [structureJobPoll.error]);
+
+  const productionJobBackoff = useRef(createPollBackoff(500)).current;
+  const productionJobPoll = useQuery({
+    queryKey: ["job-poll", "production", job?.id ?? null],
+    queryFn: () => getJob(job!.id),
+    enabled: Boolean(job && isActiveJobStatus(job.status)),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (!isActiveJobStatus(status)) return false;
+      return productionJobBackoff(status, query.state.dataUpdateCount);
+    },
+  });
   useEffect(() => {
-    if (!setupJob || !["queued", "running"].includes(setupJob.status)) return;
-    const timer = window.setTimeout(() => {
-      void getJob(setupJob.id)
-        .then((next) => {
-          setSetupJob(next);
-          if (next.status === "succeeded") {
-            void refreshTtsSetup({ syncProvider: true });
-            setNotice(
-              "Kokoro voice system is ready. Choose a voice and set your narrator.",
-            );
-          }
-          if (next.status === "failed") {
-            setError(next.errorMessage ?? "Kokoro setup failed.");
-            void refreshTtsSetup();
-          }
-        })
-        .catch((cause) => setError(messageOf(cause)));
-    }, 750);
-    return () => window.clearTimeout(timer);
-  }, [setupJob]);
+    const next = productionJobPoll.data;
+    if (!next) return;
+    // See the import-job effect above for why this setState-in-effect is
+    // intentional during the migration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setJob(next);
+    if (selectedProjectId && selectedChapter)
+      void refreshRenderQueue(selectedProjectId, selectedChapter.id);
+    if (next.status === "succeeded" && selectedProjectId && selectedChapter) {
+      void refreshProduction(selectedProjectId, selectedChapter.id);
+      void refreshReviewTimeline(selectedProjectId, selectedChapter.id);
+      void refreshChapterApproval(selectedProjectId, selectedChapter.id);
+      void refreshRenderQueue(selectedProjectId, selectedChapter.id);
+      setNotice(
+        "Chapter production completed. Review the active render below.",
+      );
+      setActiveSection("review-patch");
+    }
+    if (next.status === "failed")
+      setError(next.errorMessage ?? "Chapter production failed.");
+  }, [
+    productionJobPoll.data,
+    selectedChapter,
+    selectedProjectId,
+    refreshRenderQueue,
+    refreshProduction,
+    refreshReviewTimeline,
+    refreshChapterApproval,
+  ]);
   useEffect(() => {
-    if (!localAiJob || !["queued", "running"].includes(localAiJob.status))
-      return;
-    const timer = window.setTimeout(() => {
-      void Promise.allSettled([
-        getJob(localAiJob.id),
-        getLocalAiInstallJob(localAiJob.id),
-      ])
-        .then((settled) => {
-          const [nextJob, nextInstallJob] = settled;
-          if (nextJob.status === "fulfilled") {
-            setLocalAiJob(nextJob.value);
-            if (nextJob.value.status === "succeeded") {
-              void refreshLocalAi();
-              void refreshTtsSetup({ syncProvider: true });
-              setNotice("Local AI setup completed and was verified.");
-            }
-            if (nextJob.value.status === "failed") {
-              setError(nextJob.value.errorMessage ?? "Local AI setup failed.");
-              void refreshLocalAi();
-            }
-          }
-          if (nextInstallJob.status === "fulfilled")
-            setLocalAiInstallJob(nextInstallJob.value);
-        })
-        .catch((cause) => setError(messageOf(cause)));
-    }, 900);
-    return () => window.clearTimeout(timer);
-  }, [localAiJob]);
+    if (productionJobPoll.error) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setError(messageOf(productionJobPoll.error));
+    }
+  }, [productionJobPoll.error]);
+
+  const kokoroSetupBackoff = useRef(createPollBackoff(750)).current;
+  const kokoroSetupJobPoll = useQuery({
+    queryKey: ["job-poll", "kokoro-setup", setupJob?.id ?? null],
+    queryFn: () => getJob(setupJob!.id),
+    enabled: Boolean(setupJob && isActiveJobStatus(setupJob.status)),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (!isActiveJobStatus(status)) return false;
+      return kokoroSetupBackoff(status, query.state.dataUpdateCount);
+    },
+  });
+  useEffect(() => {
+    const next = kokoroSetupJobPoll.data;
+    if (!next) return;
+    // See the import-job effect above for why this setState-in-effect is
+    // intentional during the migration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSetupJob(next);
+    if (next.status === "succeeded") {
+      void refreshTtsSetup({ syncProvider: true });
+      setNotice(
+        "Kokoro voice system is ready. Choose a voice and set your narrator.",
+      );
+    }
+    if (next.status === "failed") {
+      setError(next.errorMessage ?? "Kokoro setup failed.");
+      void refreshTtsSetup();
+    }
+  }, [kokoroSetupJobPoll.data]);
+  useEffect(() => {
+    if (kokoroSetupJobPoll.error) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setError(messageOf(kokoroSetupJobPoll.error));
+    }
+  }, [kokoroSetupJobPoll.error]);
+
+  const localAiBackoff = useRef(createPollBackoff(900)).current;
+  const localAiJobPoll = useQuery({
+    queryKey: ["job-poll", "local-ai", localAiJob?.id ?? null],
+    queryFn: async () => {
+      const [nextJob, nextInstallJob] = await Promise.allSettled([
+        getJob(localAiJob!.id),
+        getLocalAiInstallJob(localAiJob!.id),
+      ]);
+      return { nextJob, nextInstallJob };
+    },
+    enabled: Boolean(localAiJob && isActiveJobStatus(localAiJob.status)),
+    refetchInterval: (query) => {
+      const settled = query.state.data?.nextJob;
+      const status =
+        settled?.status === "fulfilled" ? settled.value.status : undefined;
+      if (!isActiveJobStatus(status)) return false;
+      return localAiBackoff(status, query.state.dataUpdateCount);
+    },
+  });
+  useEffect(() => {
+    const result = localAiJobPoll.data;
+    if (!result) return;
+    const { nextJob, nextInstallJob } = result;
+    if (nextJob.status === "fulfilled") {
+      // See the import-job effect above for why this setState-in-effect is
+      // intentional during the migration.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLocalAiJob(nextJob.value);
+      if (nextJob.value.status === "succeeded") {
+        void refreshLocalAi();
+        void refreshTtsSetup({ syncProvider: true });
+        setNotice("Local AI setup completed and was verified.");
+      }
+      if (nextJob.value.status === "failed") {
+        setError(nextJob.value.errorMessage ?? "Local AI setup failed.");
+        void refreshLocalAi();
+      }
+    }
+    if (nextInstallJob.status === "fulfilled")
+      setLocalAiInstallJob(nextInstallJob.value);
+  }, [localAiJobPoll.data]);
+  useEffect(() => {
+    if (localAiJobPoll.error) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setError(messageOf(localAiJobPoll.error));
+    }
+  }, [localAiJobPoll.error]);
 
   async function loadProject(
     projectId: string,
@@ -679,55 +851,6 @@ export function ProjectDashboard() {
       setError(messageOf(cause));
     }
   }
-  async function refreshProduction(projectId: string, chapterId: string) {
-    try {
-      const [nextStatus, nextIssues] = await Promise.all([
-        getProductionStatus(projectId, chapterId),
-        listIssues(projectId),
-      ]);
-      setStatus(nextStatus);
-      setIssues(nextIssues);
-    } catch (cause) {
-      setStatus(null);
-      setError(messageOf(cause));
-    }
-  }
-  async function refreshRenderQueue(projectId: string, chapterId: string) {
-    try {
-      setRenderQueue(await listRenderQueue(projectId, chapterId));
-    } catch (cause) {
-      setRenderQueue([]);
-      setError(messageOf(cause));
-    }
-  }
-  async function refreshSoundDesign(projectId: string, chapterId?: string) {
-    try {
-      const [assets, cues] = await Promise.all([
-        listSoundAssets(projectId),
-        chapterId
-          ? listChapterSoundCues(projectId, chapterId)
-          : Promise.resolve([]),
-      ]);
-      setSoundAssets(assets);
-      setSoundCues(cues);
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function refreshReviewTimeline(projectId: string, chapterId: string) {
-    try {
-      setReviewTimeline(await getChapterReviewTimeline(projectId, chapterId));
-    } catch {
-      setReviewTimeline(null);
-    }
-  }
-  async function refreshChapterApproval(projectId: string, chapterId: string) {
-    try {
-      setChapterApproval(await getChapterApproval(projectId, chapterId));
-    } catch {
-      setChapterApproval(null);
-    }
-  }
   async function refreshExportEstimate(projectId: string) {
     try {
       setExportEstimate(
@@ -777,7 +900,7 @@ export function ProjectDashboard() {
     setScenes([]);
     setSegments([]);
   }
-  async function refreshReviewQueues(projectId: string) {
+  const refreshReviewQueues = useCallback(async (projectId: string) => {
     const [
       nextWarnings,
       nextQuality,
@@ -796,21 +919,24 @@ export function ProjectDashboard() {
     setIssues(nextIssues);
     setCharacters(nextCharacters);
     setSpeakerAttributions(nextAttributions);
-  }
-  async function inspectSegment(segmentId: string) {
-    if (!selectedProjectId) return;
-    try {
-      const [comparison, inspector] = await Promise.all([
-        compareSegmentRenders(selectedProjectId, segmentId),
-        getSegmentReviewInspector(selectedProjectId, segmentId),
-      ]);
-      setRenderCompare(comparison);
-      setSegmentInspector(inspector);
-    } catch {
-      setRenderCompare(null);
-      setSegmentInspector(null);
-    }
-  }
+  }, []);
+  const inspectSegment = useCallback(
+    async (segmentId: string) => {
+      if (!selectedProjectId) return;
+      try {
+        const [comparison, inspector] = await Promise.all([
+          compareSegmentRenders(selectedProjectId, segmentId),
+          getSegmentReviewInspector(selectedProjectId, segmentId),
+        ]);
+        setRenderCompare(comparison);
+        setSegmentInspector(inspector);
+      } catch {
+        setRenderCompare(null);
+        setSegmentInspector(null);
+      }
+    },
+    [selectedProjectId],
+  );
   async function refreshTtsSetup(options?: { syncProvider?: boolean }) {
     const [nextTts, nextSetup, nextProviders] = await Promise.all([
       getTtsSettings(),
@@ -901,40 +1027,51 @@ export function ProjectDashboard() {
       setBusy(false);
     }
   }
-  async function openChapter(chapter: Chapter) {
-    if (!selectedProjectId) return;
-    setSelectedChapter(chapter);
-    setStatus(null);
-    setReadiness(null);
-    setRenderCompare(null);
-    setSegmentInspector(null);
-    setReviewTimeline(null);
-    setChapterApproval(null);
-    try {
-      const nextScenes = await listScenes(chapter.id);
-      const nextSegments = nextScenes[0]
-        ? await listSegments(nextScenes[0].id)
-        : [];
-      setScenes(nextScenes);
-      setSegments(nextSegments);
-      await refreshProduction(selectedProjectId, chapter.id);
-      await refreshRenderQueue(selectedProjectId, chapter.id);
-      await refreshSoundDesign(selectedProjectId, chapter.id);
-      await refreshReviewTimeline(selectedProjectId, chapter.id);
-      await refreshChapterApproval(selectedProjectId, chapter.id);
-      if (nextSegments[0]) await inspectSegment(nextSegments[0].id);
-      setActiveSection("produce");
-    } catch (cause) {
-      setScenes([]);
-      setSegments([]);
-      setRenderQueue([]);
-      setSoundCues([]);
+  const openChapter = useCallback(
+    async (chapter: Chapter) => {
+      if (!selectedProjectId) return;
+      setSelectedChapter(chapter);
+      setStatus(null);
+      setReadiness(null);
+      setRenderCompare(null);
+      setSegmentInspector(null);
       setReviewTimeline(null);
       setChapterApproval(null);
-      setError(messageOf(cause));
-    }
-  }
-  async function saveEdit() {
+      try {
+        const nextScenes = await listScenes(chapter.id);
+        const nextSegments = nextScenes[0]
+          ? await listSegments(nextScenes[0].id)
+          : [];
+        setScenes(nextScenes);
+        setSegments(nextSegments);
+        await refreshProduction(selectedProjectId, chapter.id);
+        await refreshRenderQueue(selectedProjectId, chapter.id);
+        await refreshSoundDesign(selectedProjectId, chapter.id);
+        await refreshReviewTimeline(selectedProjectId, chapter.id);
+        await refreshChapterApproval(selectedProjectId, chapter.id);
+        if (nextSegments[0]) await inspectSegment(nextSegments[0].id);
+        setActiveSection("produce");
+      } catch (cause) {
+        setScenes([]);
+        setSegments([]);
+        setRenderQueue([]);
+        setSoundCues([]);
+        setReviewTimeline(null);
+        setChapterApproval(null);
+        setError(messageOf(cause));
+      }
+    },
+    [
+      selectedProjectId,
+      refreshProduction,
+      refreshRenderQueue,
+      refreshSoundDesign,
+      refreshReviewTimeline,
+      refreshChapterApproval,
+      inspectSegment,
+    ],
+  );
+  const saveEdit = useCallback(async () => {
     if (!editing || !draft.trim()) return;
     setBusy(true);
     try {
@@ -955,8 +1092,16 @@ export function ProjectDashboard() {
     } finally {
       setBusy(false);
     }
-  }
-  async function toggleSegmentLock(segment: Segment) {
+  }, [
+    editing,
+    draft,
+    selectedProjectId,
+    selectedChapter,
+    segmentInspector,
+    refreshProduction,
+    inspectSegment,
+  ]);
+  const toggleSegmentLock = useCallback(async (segment: Segment) => {
     try {
       const updated = (await setStructureLock("segment", segment.id, {
         locked: !segment.userLocked,
@@ -968,8 +1113,8 @@ export function ProjectDashboard() {
     } catch (cause) {
       setError(messageOf(cause));
     }
-  }
-  async function splitAtReadingBreak(segment: Segment) {
+  }, []);
+  const splitAtReadingBreak = useCallback(async (segment: Segment) => {
     const midpoint = Math.floor(segment.textContent.length / 2);
     const before = segment.textContent.lastIndexOf(" ", midpoint);
     const after = segment.textContent.indexOf(" ", midpoint);
@@ -984,18 +1129,21 @@ export function ProjectDashboard() {
     } catch (cause) {
       setError(messageOf(cause));
     }
-  }
-  async function mergeWithNext(segment: Segment, nextSegment?: Segment) {
-    if (!nextSegment) return;
-    try {
-      await mergeSegment(segment.id, nextSegment.id);
-      setSegments(await listSegments(segment.sceneId));
-      setSegmentInspector(null);
-      setNotice("Segments merged and marked for review.");
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
+  }, []);
+  const mergeWithNext = useCallback(
+    async (segment: Segment, nextSegment?: Segment) => {
+      if (!nextSegment) return;
+      try {
+        await mergeSegment(segment.id, nextSegment.id);
+        setSegments(await listSegments(segment.sceneId));
+        setSegmentInspector(null);
+        setNotice("Segments merged and marked for review.");
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [],
+  );
   async function saveTts() {
     if (!tts) return;
     setBusy(true);
@@ -1097,213 +1245,246 @@ export function ProjectDashboard() {
       setBusy(false);
     }
   }
-  async function addVoice(event: FormEvent) {
-    event.preventDefault();
-    if (!selectedProjectId || !voiceName.trim() || !providerVoiceId.trim())
-      return;
-    try {
-      const voice = await createVoice(selectedProjectId, {
-        name: voiceName.trim(),
-        backend: selectedTtsProvider,
-        providerVoiceId: providerVoiceId.trim(),
-      });
-      setVoices((current) => [...current, voice]);
-      setVoiceName("");
-      setProviderVoiceId("");
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function addCharacter(event: FormEvent) {
-    event.preventDefault();
-    if (!selectedProjectId || !characterName.trim()) return;
-    try {
-      const item = await createCharacter(selectedProjectId, {
-        displayName: characterName.trim(),
-        aliases: csvList(characterAliases),
-        traits: csvList(characterTraits),
-        roleType: "major",
-      });
-      setCharacters((current) =>
-        [...current, item].sort((a, b) =>
-          a.displayName.localeCompare(b.displayName),
-        ),
+  const addVoice = useCallback(
+    async (event: FormEvent) => {
+      event.preventDefault();
+      if (!selectedProjectId || !voiceName.trim() || !providerVoiceId.trim())
+        return;
+      try {
+        const voice = await createVoice(selectedProjectId, {
+          name: voiceName.trim(),
+          backend: selectedTtsProvider,
+          providerVoiceId: providerVoiceId.trim(),
+        });
+        setVoices((current) => [...current, voice]);
+        setVoiceName("");
+        setProviderVoiceId("");
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [selectedProjectId, voiceName, providerVoiceId, selectedTtsProvider],
+  );
+  const addCharacter = useCallback(
+    async (event: FormEvent) => {
+      event.preventDefault();
+      if (!selectedProjectId || !characterName.trim()) return;
+      try {
+        const item = await createCharacter(selectedProjectId, {
+          displayName: characterName.trim(),
+          aliases: csvList(characterAliases),
+          traits: csvList(characterTraits),
+          roleType: "major",
+        });
+        setCharacters((current) =>
+          [...current, item].sort((a, b) =>
+            a.displayName.localeCompare(b.displayName),
+          ),
+        );
+        setCharacterName("");
+        setCharacterAliases("");
+        setCharacterTraits("");
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [selectedProjectId, characterName, characterAliases, characterTraits],
+  );
+  const saveCharacter = useCallback(
+    async (
+      characterId: string,
+      payload: Parameters<typeof updateCharacter>[1],
+    ) => {
+      try {
+        const item = await updateCharacter(characterId, payload);
+        setCharacters((current) =>
+          current.map((candidate) =>
+            candidate.id === item.id ? item : candidate,
+          ),
+        );
+        setNotice("Character bible updated.");
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [],
+  );
+  const mergeCast = useCallback(
+    async (source: Character, targetId: string) => {
+      if (!selectedProjectId || !targetId || targetId === source.id) return;
+      try {
+        await mergeCharacter(
+          targetId,
+          source.id,
+          `Merged from Character Bible on ${new Date().toISOString()}`,
+        );
+        setCharacters(await listCharacters(selectedProjectId));
+        setNotice(
+          "Character records merged; source remains linked for traceability.",
+        );
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [selectedProjectId],
+  );
+  const splitCast = useCallback(
+    async (character: Character) => {
+      if (!selectedProjectId) return;
+      const displayName = window.prompt(
+        "New character name",
+        `${character.displayName} variant`,
       );
-      setCharacterName("");
-      setCharacterAliases("");
-      setCharacterTraits("");
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function saveCharacter(
-    characterId: string,
-    payload: Parameters<typeof updateCharacter>[1],
-  ) {
-    try {
-      const item = await updateCharacter(characterId, payload);
-      setCharacters((current) =>
-        current.map((candidate) =>
-          candidate.id === item.id ? item : candidate,
-        ),
+      if (!displayName?.trim()) return;
+      try {
+        await splitCharacter(character.id, {
+          displayName: displayName.trim(),
+          reason: `Split from ${character.displayName} in Character Bible`,
+        });
+        setCharacters(await listCharacters(selectedProjectId));
+        setNotice("Character split created with history on both records.");
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [selectedProjectId],
+  );
+  const runCastReview = useCallback(
+    async (useLocalLlm = false) => {
+      if (!selectedProjectId) return;
+      setBusy(true);
+      try {
+        const next = await runSpeakerAttribution(selectedProjectId, {
+          useLocalLlm,
+        });
+        await waitFor(next.id, selectedProjectId);
+        const [nextAttributions, nextCharacters] = await Promise.all([
+          listSpeakerAttributions(selectedProjectId),
+          listCharacters(selectedProjectId),
+        ]);
+        setSpeakerAttributions(nextAttributions);
+        setCharacters(nextCharacters);
+        setNotice(
+          useLocalLlm
+            ? "Cast review refreshed with local Ollama speaker assistance."
+            : "Cast review refreshed from the current Structure & Cast Draft.",
+        );
+        if (selectedChapter)
+          await refreshProduction(selectedProjectId, selectedChapter.id);
+      } catch (cause) {
+        setError(messageOf(cause));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [selectedProjectId, selectedChapter, refreshProduction],
+  );
+  const saveAttribution = useCallback(
+    async (
+      attributionId: string,
+      payload: Parameters<typeof updateSpeakerAttribution>[1],
+    ) => {
+      try {
+        const item = await updateSpeakerAttribution(attributionId, payload);
+        setSpeakerAttributions((current) =>
+          current.map((candidate) =>
+            candidate.id === item.id ? item : candidate,
+          ),
+        );
+        setNotice(
+          item.propagatedCount
+            ? `Speaker attribution updated; ${item.propagatedCount} matching rows were approved.`
+            : "Speaker attribution updated.",
+        );
+        if (selectedProjectId && selectedChapter)
+          await refreshProduction(selectedProjectId, selectedChapter.id);
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [selectedProjectId, selectedChapter, refreshProduction],
+  );
+  const applyTriageIssue = useCallback(
+    async (issue: Issue, targetCharacterId?: string | null) => {
+      if (!selectedProjectId) return;
+      setBusy(true);
+      try {
+        const response = await applyIssueAction(issue.id, {
+          targetCharacterId: targetCharacterId || undefined,
+          reason: `Applied from Parser Review on ${new Date().toISOString()}`,
+        });
+        await refreshReviewQueues(selectedProjectId);
+        if (selectedChapter)
+          await refreshProduction(selectedProjectId, selectedChapter.id);
+        setNotice(
+          response.result.action === "merge_cast"
+            ? "Cast issue applied and merged."
+            : "Cast issue applied.",
+        );
+      } catch (cause) {
+        setError(messageOf(cause));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [selectedProjectId, selectedChapter, refreshReviewQueues, refreshProduction],
+  );
+  const rejectTriageMerge = useCallback(
+    async (issue: Issue, targetCharacterId: string) => {
+      if (!selectedProjectId) return;
+      const target = characters.find(
+        (character) => character.id === targetCharacterId,
       );
-      setNotice("Character bible updated.");
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function mergeCast(source: Character, targetId: string) {
-    if (!selectedProjectId || !targetId || targetId === source.id) return;
-    try {
-      await mergeCharacter(
-        targetId,
-        source.id,
-        `Merged from Character Bible on ${new Date().toISOString()}`,
-      );
-      setCharacters(await listCharacters(selectedProjectId));
-      setNotice(
-        "Character records merged; source remains linked for traceability.",
-      );
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function splitCast(character: Character) {
-    if (!selectedProjectId) return;
-    const displayName = window.prompt(
-      "New character name",
-      `${character.displayName} variant`,
-    );
-    if (!displayName?.trim()) return;
-    try {
-      await splitCharacter(character.id, {
-        displayName: displayName.trim(),
-        reason: `Split from ${character.displayName} in Character Bible`,
-      });
-      setCharacters(await listCharacters(selectedProjectId));
-      setNotice("Character split created with history on both records.");
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function runCastReview(useLocalLlm = false) {
-    if (!selectedProjectId) return;
-    setBusy(true);
-    try {
-      const next = await runSpeakerAttribution(selectedProjectId, {
-        useLocalLlm,
-      });
-      await waitFor(next.id, selectedProjectId);
-      const [nextAttributions, nextCharacters] = await Promise.all([
-        listSpeakerAttributions(selectedProjectId),
-        listCharacters(selectedProjectId),
-      ]);
-      setSpeakerAttributions(nextAttributions);
-      setCharacters(nextCharacters);
-      setNotice(
-        useLocalLlm
-          ? "Cast review refreshed with local Ollama speaker assistance."
-          : "Cast review refreshed from the current Structure & Cast Draft.",
-      );
-      if (selectedChapter)
-        await refreshProduction(selectedProjectId, selectedChapter.id);
-    } catch (cause) {
-      setError(messageOf(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function saveAttribution(
-    attributionId: string,
-    payload: Parameters<typeof updateSpeakerAttribution>[1],
-  ) {
-    try {
-      const item = await updateSpeakerAttribution(attributionId, payload);
-      setSpeakerAttributions((current) =>
-        current.map((candidate) =>
-          candidate.id === item.id ? item : candidate,
-        ),
-      );
-      setNotice(
-        item.propagatedCount
-          ? `Speaker attribution updated; ${item.propagatedCount} matching rows were approved.`
-          : "Speaker attribution updated.",
-      );
-      if (selectedProjectId && selectedChapter)
-        await refreshProduction(selectedProjectId, selectedChapter.id);
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function applyTriageIssue(
-    issue: Issue,
-    targetCharacterId?: string | null,
-  ) {
-    if (!selectedProjectId) return;
-    setBusy(true);
-    try {
-      const response = await applyIssueAction(issue.id, {
-        targetCharacterId: targetCharacterId || undefined,
-        reason: `Applied from Parser Review on ${new Date().toISOString()}`,
-      });
-      await refreshReviewQueues(selectedProjectId);
-      if (selectedChapter)
-        await refreshProduction(selectedProjectId, selectedChapter.id);
-      setNotice(
-        response.result.action === "merge_cast"
-          ? "Cast issue applied and merged."
-          : "Cast issue applied.",
-      );
-    } catch (cause) {
-      setError(messageOf(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function rejectTriageMerge(issue: Issue, targetCharacterId: string) {
-    if (!selectedProjectId) return;
-    const target = characters.find(
-      (character) => character.id === targetCharacterId,
-    );
-    const candidateName =
-      typeof issue.metadata.candidateName === "string"
-        ? issue.metadata.candidateName.trim()
-        : "";
-    if (!target || !candidateName) {
-      setError("Cast issue is missing the duplicate candidate.");
-      return;
-    }
-    setBusy(true);
-    try {
-      await rejectCharacterMerge(target.id, {
-        candidateName,
-        reason: `Rejected from Parser Review on ${new Date().toISOString()}`,
-      });
-      await refreshReviewQueues(selectedProjectId);
-      if (selectedChapter)
-        await refreshProduction(selectedProjectId, selectedChapter.id);
-      setNotice("Cast duplicate rejected and the issue queue was refreshed.");
-    } catch (cause) {
-      setError(messageOf(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function dismissTriageIssue(issue: Issue) {
-    if (!selectedProjectId) return;
-    setBusy(true);
-    try {
-      await updateIssue(issue.id, { status: "resolved" });
-      await refreshReviewQueues(selectedProjectId);
-      if (selectedChapter)
-        await refreshProduction(selectedProjectId, selectedChapter.id);
-      setNotice("Parser review item dismissed.");
-    } catch (cause) {
-      setError(messageOf(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
+      const candidateName =
+        typeof issue.metadata.candidateName === "string"
+          ? issue.metadata.candidateName.trim()
+          : "";
+      if (!target || !candidateName) {
+        setError("Cast issue is missing the duplicate candidate.");
+        return;
+      }
+      setBusy(true);
+      try {
+        await rejectCharacterMerge(target.id, {
+          candidateName,
+          reason: `Rejected from Parser Review on ${new Date().toISOString()}`,
+        });
+        await refreshReviewQueues(selectedProjectId);
+        if (selectedChapter)
+          await refreshProduction(selectedProjectId, selectedChapter.id);
+        setNotice("Cast duplicate rejected and the issue queue was refreshed.");
+      } catch (cause) {
+        setError(messageOf(cause));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      selectedProjectId,
+      characters,
+      selectedChapter,
+      refreshReviewQueues,
+      refreshProduction,
+    ],
+  );
+  const dismissTriageIssue = useCallback(
+    async (issue: Issue) => {
+      if (!selectedProjectId) return;
+      setBusy(true);
+      try {
+        await updateIssue(issue.id, { status: "resolved" });
+        await refreshReviewQueues(selectedProjectId);
+        if (selectedChapter)
+          await refreshProduction(selectedProjectId, selectedChapter.id);
+        setNotice("Parser review item dismissed.");
+      } catch (cause) {
+        setError(messageOf(cause));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [selectedProjectId, selectedChapter, refreshReviewQueues, refreshProduction],
+  );
   async function ensureKokoroVoice(voiceId: string) {
     if (!selectedProjectId) return null;
     const existing = voices.find(
@@ -1335,57 +1516,66 @@ export function ProjectDashboard() {
       setError(messageOf(cause));
     }
   }
-  async function removeVoice(voiceId: string) {
+  const removeVoice = useCallback(async (voiceId: string) => {
     try {
       await deleteVoice(voiceId);
       setVoices((current) => current.filter((voice) => voice.id !== voiceId));
     } catch (cause) {
       setError(messageOf(cause));
     }
-  }
-  async function selectNarrator(voiceId: string) {
-    if (!selectedProjectId) return;
-    try {
-      const next = await saveProductionSettings(selectedProjectId, {
-        narratorVoiceProfileId: voiceId,
-        defaultDirection:
-          production?.defaultDirection ??
+  }, []);
+  const selectNarrator = useCallback(
+    async (voiceId: string) => {
+      if (!selectedProjectId) return;
+      try {
+        const next = await saveProductionSettings(selectedProjectId, {
+          narratorVoiceProfileId: voiceId,
+          defaultDirection:
+            production?.defaultDirection ??
+            directionFor("project", selectedProjectId),
+        });
+        setProduction(next);
+        if (selectedChapter)
+          await refreshProduction(selectedProjectId, selectedChapter.id);
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [selectedProjectId, production, selectedChapter, refreshProduction],
+  );
+  const playPreview = useCallback(
+    async (voiceId: string, text?: string) => {
+      if (!selectedProjectId) return;
+      try {
+        const preview = await previewVoice(
+          selectedProjectId,
+          voiceId,
           directionFor("project", selectedProjectId),
-      });
-      setProduction(next);
-      if (selectedChapter)
-        await refreshProduction(selectedProjectId, selectedChapter.id);
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function playPreview(voiceId: string, text?: string) {
-    if (!selectedProjectId) return;
-    try {
-      const preview = await previewVoice(
-        selectedProjectId,
-        voiceId,
-        directionFor("project", selectedProjectId),
-        text,
-      );
-      const player = new Audio(assetUrl(preview.audioUrl));
-      await player.play();
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function setOverride(segmentId: string, voiceProfileId: string) {
-    if (!selectedProjectId) return;
-    try {
-      await saveSegmentOverride(selectedProjectId, segmentId, {
-        voiceProfileId: voiceProfileId || null,
-      });
-      setNotice("Segment voice override saved for future production.");
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function inferDirections() {
+          text,
+        );
+        const player = new Audio(assetUrl(preview.audioUrl));
+        await player.play();
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [selectedProjectId],
+  );
+  const setOverride = useCallback(
+    async (segmentId: string, voiceProfileId: string) => {
+      if (!selectedProjectId) return;
+      try {
+        await saveSegmentOverride(selectedProjectId, segmentId, {
+          voiceProfileId: voiceProfileId || null,
+        });
+        setNotice("Segment voice override saved for future production.");
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [selectedProjectId],
+  );
+  const inferDirections = useCallback(async () => {
     if (!selectedProjectId) return;
     setBusy(true);
     try {
@@ -1400,63 +1590,72 @@ export function ProjectDashboard() {
     } finally {
       setBusy(false);
     }
-  }
-  async function saveDirection(segmentId: string, direction: Direction) {
-    if (!selectedProjectId) return;
-    try {
-      const item = await saveSegmentDirection(selectedProjectId, segmentId, {
-        direction,
-        userLocked: true,
-      });
-      setSegmentDirections((current) => [
-        ...current.filter((candidate) => candidate.segmentId !== segmentId),
-        item,
-      ]);
-      setNotice(
-        "Segment direction saved; affected renders will refresh on the next run.",
-      );
-      if (selectedChapter)
-        await refreshProduction(selectedProjectId, selectedChapter.id);
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function produce(force = false) {
-    if (!selectedProjectId || !selectedChapter) return;
-    try {
-      setActiveSection("produce");
-      setRenderQueue([]);
-      setJob(
-        await produceChapter(selectedProjectId, selectedChapter.id, force),
-      );
-      setNotice("Chapter production is running locally.");
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function chooseSoundFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file || !selectedProjectId) return;
-    setBusy(true);
-    try {
-      const asset = await uploadSoundAsset(
-        selectedProjectId,
-        file,
-        soundAssetType,
-      );
-      setSoundAssets((current) => [asset, ...current]);
-      setSelectedSoundAssetId(asset.id);
-      setNotice(
-        "Sound asset imported locally. Assign it to a scene before assembling a mix.",
-      );
-    } catch (cause) {
-      setError(messageOf(cause));
-    } finally {
-      setBusy(false);
-      event.target.value = "";
-    }
-  }
-  async function addSoundCue() {
+  }, [selectedProjectId, selectedChapter, refreshProduction]);
+  const saveDirection = useCallback(
+    async (segmentId: string, direction: Direction) => {
+      if (!selectedProjectId) return;
+      try {
+        const item = await saveSegmentDirection(selectedProjectId, segmentId, {
+          direction,
+          userLocked: true,
+        });
+        setSegmentDirections((current) => [
+          ...current.filter((candidate) => candidate.segmentId !== segmentId),
+          item,
+        ]);
+        setNotice(
+          "Segment direction saved; affected renders will refresh on the next run.",
+        );
+        if (selectedChapter)
+          await refreshProduction(selectedProjectId, selectedChapter.id);
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [selectedProjectId, selectedChapter, refreshProduction],
+  );
+  const produce = useCallback(
+    async (force = false) => {
+      if (!selectedProjectId || !selectedChapter) return;
+      try {
+        setActiveSection("produce");
+        setRenderQueue([]);
+        setJob(
+          await produceChapter(selectedProjectId, selectedChapter.id, force),
+        );
+        setNotice("Chapter production is running locally.");
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [selectedProjectId, selectedChapter],
+  );
+  const chooseSoundFile = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file || !selectedProjectId) return;
+      setBusy(true);
+      try {
+        const asset = await uploadSoundAsset(
+          selectedProjectId,
+          file,
+          soundAssetType,
+        );
+        setSoundAssets((current) => [asset, ...current]);
+        setSelectedSoundAssetId(asset.id);
+        setNotice(
+          "Sound asset imported locally. Assign it to a scene before assembling a mix.",
+        );
+      } catch (cause) {
+        setError(messageOf(cause));
+      } finally {
+        setBusy(false);
+        event.target.value = "";
+      }
+    },
+    [selectedProjectId, soundAssetType],
+  );
+  const addSoundCue = useCallback(async () => {
     if (
       !selectedProjectId ||
       !selectedChapter ||
@@ -1483,35 +1682,53 @@ export function ProjectDashboard() {
     } catch (cause) {
       setError(messageOf(cause));
     }
-  }
-  async function assembleSound(mode: "clean" | "light" | "dramatized") {
-    if (!selectedProjectId || !selectedChapter) return;
-    setBusy(true);
-    try {
-      const render = await assembleChapter(
-        selectedProjectId,
-        selectedChapter.id,
-        mode,
-      );
-      await refreshProduction(selectedProjectId, selectedChapter.id);
-      setStatus((current) =>
-        current ? { ...current, activeRender: render } : current,
-      );
-      await refreshSoundDesign(selectedProjectId, selectedChapter.id);
-      await refreshReviewTimeline(selectedProjectId, selectedChapter.id);
-      await refreshChapterApproval(selectedProjectId, selectedChapter.id);
-      setNotice(
-        mode === "clean"
-          ? "Clean narration render assembled."
-          : `${mode} chapter mix assembled.`,
-      );
-    } catch (cause) {
-      setError(messageOf(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function runReadinessReport() {
+  }, [
+    selectedProjectId,
+    selectedChapter,
+    currentSceneId,
+    activeSoundAsset,
+    soundCueType,
+    soundGain,
+    soundRenderMode,
+  ]);
+  const assembleSound = useCallback(
+    async (mode: "clean" | "light" | "dramatized") => {
+      if (!selectedProjectId || !selectedChapter) return;
+      setBusy(true);
+      try {
+        const render = await assembleChapter(
+          selectedProjectId,
+          selectedChapter.id,
+          mode,
+        );
+        await refreshProduction(selectedProjectId, selectedChapter.id);
+        setStatus((current) =>
+          current ? { ...current, activeRender: render } : current,
+        );
+        await refreshSoundDesign(selectedProjectId, selectedChapter.id);
+        await refreshReviewTimeline(selectedProjectId, selectedChapter.id);
+        await refreshChapterApproval(selectedProjectId, selectedChapter.id);
+        setNotice(
+          mode === "clean"
+            ? "Clean narration render assembled."
+            : `${mode} chapter mix assembled.`,
+        );
+      } catch (cause) {
+        setError(messageOf(cause));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      selectedProjectId,
+      selectedChapter,
+      refreshProduction,
+      refreshSoundDesign,
+      refreshReviewTimeline,
+      refreshChapterApproval,
+    ],
+  );
+  const runReadinessReport = useCallback(async () => {
     if (!selectedProjectId) return;
     setSectionWorking("readiness", true);
     try {
@@ -1524,61 +1741,67 @@ export function ProjectDashboard() {
     } finally {
       setSectionWorking("readiness", false);
     }
-  }
-  async function setReadinessIssue(
-    issueId: string,
-    status: "resolved" | "ignored" | "locked",
-  ) {
-    setSectionWorking("readiness", true);
-    try {
-      await updateIssue(issueId, { status });
-      if (selectedProjectId) {
-        setReadiness(
-          await runReadiness(selectedProjectId, selectedChapter?.id),
-        );
-        setIssues(await listIssues(selectedProjectId));
+  }, [selectedProjectId, selectedChapter, setSectionWorking]);
+  const setReadinessIssue = useCallback(
+    async (issueId: string, status: "resolved" | "ignored" | "locked") => {
+      setSectionWorking("readiness", true);
+      try {
+        await updateIssue(issueId, { status });
+        if (selectedProjectId) {
+          setReadiness(
+            await runReadiness(selectedProjectId, selectedChapter?.id),
+          );
+          setIssues(await listIssues(selectedProjectId));
+        }
+      } catch (cause) {
+        setError(messageOf(cause));
+      } finally {
+        setSectionWorking("readiness", false);
       }
-    } catch (cause) {
-      setError(messageOf(cause));
-    } finally {
-      setSectionWorking("readiness", false);
-    }
-  }
-  async function openIssue(issue: Issue) {
+    },
+    [selectedProjectId, selectedChapter, setSectionWorking],
+  );
+  const openIssue = useCallback(async (issue: Issue) => {
     setActiveIssue(issue);
     try {
       setComments(await listComments(issue.id));
     } catch (cause) {
       setError(messageOf(cause));
     }
-  }
-  async function comment(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    if (!activeIssue || !String(form.get("comment") || "").trim()) return;
-    try {
-      const added = await addComment(
-        activeIssue.id,
-        String(form.get("comment")),
-      );
-      setComments((current) => [...current, added]);
-      event.currentTarget.reset();
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function resolveIssue(issue: Issue) {
-    try {
-      const updated = await updateIssue(issue.id, { status: "resolved" });
-      setIssues((current) =>
-        current.map((item) => (item.id === updated.id ? updated : item)),
-      );
-      if (activeIssue?.id === updated.id) setActiveIssue(updated);
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
-  async function approveSelectedChapter() {
+  }, []);
+  const comment = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      if (!activeIssue || !String(form.get("comment") || "").trim()) return;
+      try {
+        const added = await addComment(
+          activeIssue.id,
+          String(form.get("comment")),
+        );
+        setComments((current) => [...current, added]);
+        event.currentTarget.reset();
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [activeIssue],
+  );
+  const resolveIssue = useCallback(
+    async (issue: Issue) => {
+      try {
+        const updated = await updateIssue(issue.id, { status: "resolved" });
+        setIssues((current) =>
+          current.map((item) => (item.id === updated.id ? updated : item)),
+        );
+        if (activeIssue?.id === updated.id) setActiveIssue(updated);
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    [activeIssue],
+  );
+  const approveSelectedChapter = useCallback(async () => {
     if (!selectedProjectId || !selectedChapter) return;
     setSectionWorking("approval", true);
     try {
@@ -1596,26 +1819,38 @@ export function ProjectDashboard() {
     } finally {
       setSectionWorking("approval", false);
     }
-  }
-  async function patch(issue: Issue) {
-    if (!selectedProjectId || !issue.segmentId) return;
-    try {
-      await patchSegment(selectedProjectId, issue.segmentId, {
-        issueId: issue.id,
-      });
-      setNotice("Segment patched and its chapter reassembled.");
-      if (selectedChapter) {
-        await refreshProduction(selectedProjectId, selectedChapter.id);
-        await refreshReviewTimeline(selectedProjectId, selectedChapter.id);
-        await refreshChapterApproval(selectedProjectId, selectedChapter.id);
+  }, [selectedProjectId, selectedChapter, setSectionWorking]);
+  const patch = useCallback(
+    async (issue: Issue) => {
+      if (!selectedProjectId || !issue.segmentId) return;
+      try {
+        await patchSegment(selectedProjectId, issue.segmentId, {
+          issueId: issue.id,
+        });
+        setNotice("Segment patched and its chapter reassembled.");
+        if (selectedChapter) {
+          await refreshProduction(selectedProjectId, selectedChapter.id);
+          await refreshReviewTimeline(selectedProjectId, selectedChapter.id);
+          await refreshChapterApproval(selectedProjectId, selectedChapter.id);
+        }
+        await inspectSegment(issue.segmentId);
+        setReadiness(
+          await runReadiness(selectedProjectId, selectedChapter?.id),
+        );
+        setIssues(await listIssues(selectedProjectId));
+      } catch (cause) {
+        setError(messageOf(cause));
       }
-      await inspectSegment(issue.segmentId);
-      setReadiness(await runReadiness(selectedProjectId, selectedChapter?.id));
-      setIssues(await listIssues(selectedProjectId));
-    } catch (cause) {
-      setError(messageOf(cause));
-    }
-  }
+    },
+    [
+      selectedProjectId,
+      selectedChapter,
+      refreshProduction,
+      refreshReviewTimeline,
+      refreshChapterApproval,
+      inspectSegment,
+    ],
+  );
   async function exportSelected(
     format: ExportFormat,
     options?: { includeRetailSample?: boolean },
@@ -1658,6 +1893,111 @@ export function ProjectDashboard() {
       if (issue) void openIssue(issue);
     }
   }
+
+  // Stable callback identities for the handlers threaded into
+  // StoryMapPanel / ReviewPatchPanel / VoiceBiblePanel (and, transitively,
+  // their memoized leaf rows: SegmentEditorCard, IssueCard, VoiceProfileCard,
+  // CharacterBible rows). An inline arrow re-created at the JSX callsite on
+  // every render defeats `React.memo` on those leaves even when every other
+  // prop is stable — see docs/ui/frontend-architecture.md ("Root-Cause
+  // Analysis" #3).
+  const handleGoManuscript = useCallback(
+    () => setActiveSection("manuscript"),
+    [],
+  );
+  const handleInferDirections = useCallback(
+    () => void inferDirections(),
+    [inferDirections],
+  );
+  const handleOpenChapter = useCallback(
+    (chapter: Chapter) => void openChapter(chapter),
+    [openChapter],
+  );
+  const handleOpenScene = useCallback(
+    (scene: Scene) => void listSegments(scene.id).then(setSegments),
+    [],
+  );
+  const handleStartEdit = useCallback((segment: Segment) => {
+    setEditing(segment);
+    setDraft(segment.textContent);
+  }, []);
+  const handleCancelEdit = useCallback(() => setEditing(null), []);
+  const handleSaveEditClick = useCallback(() => void saveEdit(), [saveEdit]);
+  const handleToggleLock = useCallback(
+    (segment: Segment) => void toggleSegmentLock(segment),
+    [toggleSegmentLock],
+  );
+  const handleSplit = useCallback(
+    (segment: Segment) => void splitAtReadingBreak(segment),
+    [splitAtReadingBreak],
+  );
+  const handleMerge = useCallback(
+    (segment: Segment, nextSegment: Segment) =>
+      void mergeWithNext(segment, nextSegment),
+    [mergeWithNext],
+  );
+  const handleInspectSegment = useCallback(
+    (segmentId: string) => void inspectSegment(segmentId),
+    [inspectSegment],
+  );
+  const handleOverrideSegment = useCallback(
+    (segmentId: string, voiceId: string) =>
+      void setOverride(segmentId, voiceId),
+    [setOverride],
+  );
+  const handleProduce = useCallback(
+    (force = false) => void produce(force),
+    [produce],
+  );
+  const handleGoProduce = useCallback(
+    () => setActiveSection("produce"),
+    [],
+  );
+  const handleOpenIssue = useCallback(
+    (issue: Issue) => void openIssue(issue),
+    [openIssue],
+  );
+  const handlePatchIssue = useCallback(
+    (issue: Issue) => void patch(issue),
+    [patch],
+  );
+  const handleResolveIssue = useCallback(
+    (issue: Issue) => void resolveIssue(issue),
+    [resolveIssue],
+  );
+  const handlePreviewVoice = useCallback(
+    (voiceId: string) => void playPreview(voiceId),
+    [playPreview],
+  );
+  const handleSelectNarrator = useCallback(
+    (voiceId: string) => void selectNarrator(voiceId),
+    [selectNarrator],
+  );
+  const handleRemoveVoice = useCallback(
+    (voiceId: string) => void removeVoice(voiceId),
+    [removeVoice],
+  );
+  const handleLoadVoiceSuggestions = useCallback(
+    (characterId: string) => listVoiceSuggestions(characterId),
+    [],
+  );
+  const handlePreviewVoiceSuggestion = useCallback(
+    (voiceId: string, sampleText: string) =>
+      void playPreview(voiceId, sampleText),
+    [playPreview],
+  );
+  const handleAddPronunciation = useCallback(
+    async (value: string) => {
+      if (!project) return;
+      const parts = value.includes("->")
+        ? value.split("->")
+        : value.split("→");
+      const [term, replacementText] = parts.map((item) => item.trim());
+      const item = await createPronunciation(project.id, term, replacementText);
+      setPronunciations((current) => [...current, item]);
+    },
+    [project],
+  );
 
   return (
     <div className="desk-shell">
@@ -1965,9 +2305,9 @@ export function ProjectDashboard() {
                 onVoiceNameChange={setVoiceName}
                 onProviderVoiceIdChange={setProviderVoiceId}
                 onAddVoice={addVoice}
-                onPreviewVoice={(voiceId) => void playPreview(voiceId)}
-                onSelectNarrator={(voiceId) => void selectNarrator(voiceId)}
-                onRemoveVoice={(voiceId) => void removeVoice(voiceId)}
+                onPreviewVoice={handlePreviewVoice}
+                onSelectNarrator={handleSelectNarrator}
+                onRemoveVoice={handleRemoveVoice}
                 onCharacterNameChange={setCharacterName}
                 onCharacterAliasesChange={setCharacterAliases}
                 onCharacterTraitsChange={setCharacterTraits}
@@ -1975,28 +2315,11 @@ export function ProjectDashboard() {
                 onSaveCharacter={saveCharacter}
                 onMergeCharacter={mergeCast}
                 onSplitCharacter={splitCast}
-                onLoadVoiceSuggestions={(characterId) =>
-                  listVoiceSuggestions(characterId)
-                }
-                onPreviewVoiceSuggestion={(voiceId, sampleText) =>
-                  void playPreview(voiceId, sampleText)
-                }
+                onLoadVoiceSuggestions={handleLoadVoiceSuggestions}
+                onPreviewVoiceSuggestion={handlePreviewVoiceSuggestion}
                 onRunCastReview={runCastReview}
                 onSaveAttribution={saveAttribution}
-                onAddPronunciation={async (value) => {
-                  const parts = value.includes("->")
-                    ? value.split("->")
-                    : value.split("→");
-                  const [term, replacementText] = parts.map((item) =>
-                    item.trim(),
-                  );
-                  const item = await createPronunciation(
-                    project.id,
-                    term,
-                    replacementText,
-                  );
-                  setPronunciations((current) => [...current, item]);
-                }}
+                onAddPronunciation={handleAddPronunciation}
               />
             ) : null}
             {activeSection === "manuscript" ? (
@@ -2050,33 +2373,24 @@ export function ProjectDashboard() {
                 soundRenderMode={soundRenderMode}
                 soundGain={soundGain}
                 busy={busy}
-                onGoManuscript={() => setActiveSection("manuscript")}
-                onInferDirections={() => void inferDirections()}
-                onOpenChapter={(chapter) => void openChapter(chapter)}
-                onOpenScene={(scene) =>
-                  void listSegments(scene.id).then(setSegments)
-                }
-                onStartEdit={(segment) => {
-                  setEditing(segment);
-                  setDraft(segment.textContent);
-                }}
+                onGoManuscript={handleGoManuscript}
+                onInferDirections={handleInferDirections}
+                onOpenChapter={handleOpenChapter}
+                onOpenScene={handleOpenScene}
+                onStartEdit={handleStartEdit}
                 onDraftChange={setDraft}
-                onCancelEdit={() => setEditing(null)}
-                onSaveEdit={() => void saveEdit()}
-                onToggleLock={(segment) => void toggleSegmentLock(segment)}
-                onSplit={(segment) => void splitAtReadingBreak(segment)}
-                onMerge={(segment, nextSegment) =>
-                  void mergeWithNext(segment, nextSegment)
-                }
-                onInspect={(segmentId) => void inspectSegment(segmentId)}
-                onOverride={(segmentId, voiceId) =>
-                  void setOverride(segmentId, voiceId)
-                }
+                onCancelEdit={handleCancelEdit}
+                onSaveEdit={handleSaveEditClick}
+                onToggleLock={handleToggleLock}
+                onSplit={handleSplit}
+                onMerge={handleMerge}
+                onInspect={handleInspectSegment}
+                onOverride={handleOverrideSegment}
                 onSaveDirection={saveDirection}
                 onApplyIssue={applyTriageIssue}
                 onRejectMerge={rejectTriageMerge}
                 onDismissIssue={dismissTriageIssue}
-                onProduce={(force = false) => void produce(force)}
+                onProduce={handleProduce}
                 onAssetType={setSoundAssetType}
                 onAssetSelect={setSelectedSoundAssetId}
                 onCueType={setSoundCueType}
@@ -2100,14 +2414,14 @@ export function ProjectDashboard() {
                 issues={issues}
                 activeIssue={activeIssue}
                 comments={comments}
-                onGoProduce={() => setActiveSection("produce")}
+                onGoProduce={handleGoProduce}
                 onRunReadiness={runReadinessReport}
                 onApproveChapter={approveSelectedChapter}
                 onSetReadinessIssue={setReadinessIssue}
-                onInspect={(segmentId) => void inspectSegment(segmentId)}
-                onOpenIssue={(issue) => void openIssue(issue)}
-                onPatch={(issue) => void patch(issue)}
-                onResolveIssue={(issue) => void resolveIssue(issue)}
+                onInspect={handleInspectSegment}
+                onOpenIssue={handleOpenIssue}
+                onPatch={handlePatchIssue}
+                onResolveIssue={handleResolveIssue}
                 onComment={comment}
               />
             ) : null}
