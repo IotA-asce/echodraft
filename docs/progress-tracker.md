@@ -245,7 +245,11 @@ It is separate from the completed G1-G20 alpha gap tracker above.
     - Evidence: `feat/casting-narrator-selection`; ordered narration drives a first-person-pronoun
       ratio sanity check, commercially usable measured voices are ranked deterministically, and
       reruns reuse the persisted catalog-linked narrator profile.
-  - [ ] W4.3 - Scoring and constraint-solving assignment.
+  - [x] W4.3 - Scoring and constraint-solving assignment.
+    - Evidence: `feat/casting-solver`; migration `0034` adds append-only casting decisions and
+      automatic-casting settings. The deterministic solver derives dialogue prominence and scene
+      co-occurrence, reserves the narrator, enforces required facets and major uniqueness, scores
+      timbre/reuse/distinctiveness, and routes sub-floor walk-ons intentionally to the narrator.
   - [ ] W4.4 - Auto-chain, override model, and backward compatibility.
 
 ### v2 Remaining Phases
