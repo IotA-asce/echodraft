@@ -679,6 +679,11 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         container: AppContainer = request.app.state.container
         if payload.provider not in {"ollama", "openai_compat"}:
             raise HTTPException(status_code=422, detail="Unknown LLM provider.")
+        # Pre-read used only to validate the request (422 checks below) before we
+        # bother taking the writer lock. It is advisory: a concurrent PUT could
+        # change the stored api_key between this read and the actual write, so
+        # the authoritative keep-or-replace decision is recomputed from a fresh
+        # read inside the writer callable, atomically under the lock.
         stored = container.llm_settings.get()
         if payload.api_key is None:
             effective_key = stored.api_key
@@ -701,15 +706,28 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 raise HTTPException(
                     status_code=422, detail="Cloud providers require a base URL and a model."
                 )
-        container.orchestrator_pools.writer.run(
-            lambda: container.llm_settings.update(
+
+        def _write_llm_settings() -> None:
+            # Re-read and recompute the effective key here, under the writer
+            # lock, so a concurrent PUT that changed the stored key between the
+            # pre-read above and now cannot be reverted by this request's
+            # "keep the stored key" (api_key is None) case.
+            current = container.llm_settings.get()
+            if payload.api_key is None:
+                current_effective_key = current.api_key
+            elif payload.api_key == "":
+                current_effective_key = None
+            else:
+                current_effective_key = payload.api_key
+            container.llm_settings.update(
                 provider=payload.provider,
                 base_url=payload.base_url,
                 model=payload.model,
-                api_key=effective_key,
+                api_key=current_effective_key,
                 cloud_consent=payload.cloud_consent,
             )
-        )
+
+        container.orchestrator_pools.writer.run(_write_llm_settings)
         return _llm_settings_response(container)
 
     @app.post("/api/v1/llm/settings/test", response_model=LlmConnectionTestResult)
