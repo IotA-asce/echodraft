@@ -217,7 +217,13 @@ It is separate from the completed G1-G20 alpha gap tracker above.
     - Gate: cast precision/recall/F1 and alias purity remained 1.0, merge/split error rates
       remained 0, and flags fell from 3 to 2 on `modern-format-synthetic`; see
       `docs/analysis/eval-baselines/2026-07-10-cast-v2-gate.md`.
-  - [ ] W3.5 - Attribution v2.
+  - [x] W3.5 - Attribution v2.
+    - Evidence: `feat/attribution-v2-llm-primary`; feature-flagged scene-window MAP treats the
+      deterministic cascade as candidate evidence, carries conversation state, votes three times
+      on low-confidence targets, and performs a bounded alternation reduce without touching locks.
+    - Gate: attribution accuracy, auto-accept precision, attributable-dialogue recall, and explicit
+      speaker coverage remained 1.0; see
+      `docs/analysis/eval-baselines/2026-07-10-attribution-v2-gate.md`.
   - [ ] W3.6 - Confidence and flag model.
   - [ ] W3.7 - Direction v2 and progressive delivery.
 - [ ] W4 - Automatic casting.
