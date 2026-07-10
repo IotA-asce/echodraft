@@ -42,6 +42,26 @@ def test_orchestrator_checkpoint_store_and_work_queue(client) -> None:
     assert queue.pop_ready(store) is None
 
 
+def test_work_queue_prefers_chapter_flow_priority_and_preserves_fifo(client) -> None:
+    project = client.post(
+        "/api/v1/projects",
+        json={"title": "Priority", "rightsStatus": "declared"},
+    ).json()
+    container = client.app.state.container
+    job = container.jobs_repository.create("priority.test", project_id=project["id"])
+    store = CheckpointStore(container.orchestrator_repository)
+    stage = Stage("chapter_flow", "v2")
+    later = Unit(stage, job.id, project["id"], {"chapter": 2}, priority=20)
+    first_a = Unit(stage, job.id, project["id"], {"chapter": 1, "pass": "a"}, priority=10)
+    first_b = Unit(stage, job.id, project["id"], {"chapter": 1, "pass": "b"}, priority=10)
+
+    queue = WorkQueue([later, first_a, first_b])
+
+    assert queue.pop_ready(store) == first_a
+    assert queue.pop_ready(store) == first_b
+    assert queue.pop_ready(store) == later
+
+
 def test_orchestrator_repository_cache_and_events(client) -> None:
     project = client.post(
         "/api/v1/projects",

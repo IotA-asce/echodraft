@@ -206,7 +206,7 @@ It is separate from the completed G1-G20 alpha gap tracker above.
   - [x] W2.3 - Inference cache and provider abstraction.
   - [x] W2.4 - Adaptive LLM worker pool and hardware probe.
   - [x] W2.5 - audio-gen and tts pool seams.
-- [ ] W3 - Extraction v2.
+- [x] W3 - Extraction v2.
   - [x] W3.1 - Parallelize existing LLM loops.
   - [x] W3.2 - Ingestion v2.
   - [x] W3.3 - Structure v2.
@@ -230,7 +230,12 @@ It is separate from the completed G1-G20 alpha gap tracker above.
     - Gate: the committed fixture produces 2 optional grouped tasks, 0 required tasks, and retains
       1.0 attribution accuracy/precision/recall; see
       `docs/analysis/eval-baselines/2026-07-10-confidence-v2-gate.md`.
-  - [ ] W3.7 - Direction v2 and progressive delivery.
+  - [x] W3.7 - Direction v2 and progressive delivery.
+    - Evidence: `feat/direction-v2-progressive`; profile-aware scene windows refine in parallel,
+      while chapter-priority checkpoints/events publish provisional directions during the first pass.
+    - Gate: the committed fixture emitted its first chapter-ready event in 0.029 s with 1 optional
+      grouped task and 0 required tasks; the 500-page hardware milestone remains a separate M1/M2
+      acceptance run. See `docs/analysis/eval-baselines/2026-07-10-direction-v2-gate.md`.
 - [ ] W4 - Automatic casting.
   - [ ] W4.1 - Voice catalog and one-time audition backfill.
   - [ ] W4.2 - Narrator selection.

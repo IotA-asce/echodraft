@@ -307,7 +307,7 @@ field rather than breaking readers.
   firehose (2,453 + 731 in a real run) in favor of aggregated `issues`; calibrate thresholds on
   the harness. **Gate:** < 20 optional flags/book, 0 required steps.
   Verify: `uv run pytest`, `uv run ruff check .`, `uv run mypy ...`, eval vs baseline. Size: **M**.
-- [ ] **W3.7 — Direction v2 + progressive delivery.** Branch `feat/direction-v2-progressive`.
+- [x] **W3.7 — Direction v2 + progressive delivery.** Branch `feat/direction-v2-progressive`.
   Ship direction inference on the window framework and enable progressive chapter streaming
   (chapters flow to mastering as upstream stages complete) via the W2 scheduler's chapter-flow
   priority. **Gate:** first listenable chapter ≤ 10 min on mid-tier hardware.

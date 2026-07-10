@@ -53,6 +53,16 @@ def main() -> int:
         action="store_true",
         help="Enable grouped extraction review tasks and three-tier confidence auditing.",
     )
+    parser.add_argument(
+        "--direction-v2",
+        action="store_true",
+        help="Enable profile-aware direction-v2 inference.",
+    )
+    parser.add_argument(
+        "--progressive-delivery",
+        action="store_true",
+        help="Emit and measure per-chapter progressive readiness events.",
+    )
     args = parser.parse_args()
 
     books = args.books or ["modern-format-synthetic"]
@@ -63,6 +73,8 @@ def main() -> int:
             cast_v2=args.cast_v2,
             attribution_v2=args.attribution_v2,
             confidence_v2=args.confidence_v2,
+            direction_v2=args.direction_v2,
+            progressive_delivery=args.progressive_delivery,
         ),
         "books": [
             evaluate_book(
@@ -71,6 +83,8 @@ def main() -> int:
                 cast_v2_enabled=args.cast_v2,
                 attribution_v2_enabled=args.attribution_v2,
                 confidence_v2_enabled=args.confidence_v2,
+                direction_v2_enabled=args.direction_v2,
+                progressive_delivery_enabled=args.progressive_delivery,
             )
             for book in books
         ],
@@ -89,7 +103,12 @@ def _display_path(path: Path) -> Path:
 
 
 def _pipeline_name(
-    *, cast_v2: bool, attribution_v2: bool, confidence_v2: bool
+    *,
+    cast_v2: bool,
+    attribution_v2: bool,
+    confidence_v2: bool,
+    direction_v2: bool,
+    progressive_delivery: bool,
 ) -> str:
     enabled = [
         name
@@ -97,6 +116,8 @@ def _pipeline_name(
             (cast_v2, "cast-v2-clustering"),
             (attribution_v2, "attribution-v2"),
             (confidence_v2, "confidence-v2"),
+            (direction_v2, "direction-v2"),
+            (progressive_delivery, "progressive-delivery"),
         )
         if active
     ]
@@ -110,6 +131,8 @@ def evaluate_book(
     cast_v2_enabled: bool = False,
     attribution_v2_enabled: bool = False,
     confidence_v2_enabled: bool = False,
+    direction_v2_enabled: bool = False,
+    progressive_delivery_enabled: bool = False,
 ) -> dict[str, Any]:
     text = load_book_text(book_slug)
     labels = load_labels(book_slug)
@@ -125,12 +148,16 @@ def evaluate_book(
                 cast_v2_enabled=cast_v2_enabled,
                 attribution_v2_enabled=attribution_v2_enabled,
                 confidence_v2_enabled=confidence_v2_enabled,
+                direction_v2_enabled=direction_v2_enabled,
+                progressive_delivery_enabled=progressive_delivery_enabled,
             )
         )
         with TestClient(app) as client:
             project_id = create_project(client, book_slug, text)
-            extract_structure(client, project_id, max_segment_chars=max_segment_chars)
-            snapshot = collect_snapshot(client, project_id)
+            structure_job_id = extract_structure(
+                client, project_id, max_segment_chars=max_segment_chars
+            )
+            snapshot = collect_snapshot(client, project_id, structure_job_id)
     elapsed = time.perf_counter() - started
     metrics = compute_metrics(book_slug, labels, snapshot)
     return {
@@ -162,12 +189,13 @@ def create_project(client: TestClient, book_slug: str, text: str) -> str:
     return project_id
 
 
-def extract_structure(client: TestClient, project_id: str, *, max_segment_chars: int) -> None:
+def extract_structure(client: TestClient, project_id: str, *, max_segment_chars: int) -> str:
     job = client.post(
         f"/api/v1/projects/{project_id}/structure/extract",
         json={"maxSegmentChars": max_segment_chars},
     ).json()
     wait_for_job(client, str(job["id"]))
+    return str(job["id"])
 
 
 def wait_for_job(client: TestClient, job_id: str) -> None:
@@ -181,7 +209,9 @@ def wait_for_job(client: TestClient, job_id: str) -> None:
     raise TimeoutError(f"job {job_id} did not finish")
 
 
-def collect_snapshot(client: TestClient, project_id: str) -> dict[str, list[dict[str, Any]]]:
+def collect_snapshot(
+    client: TestClient, project_id: str, structure_job_id: str
+) -> dict[str, Any]:
     chapters = client.get(f"/api/v1/projects/{project_id}/chapters").json()
     scenes = [
         scene
@@ -193,6 +223,9 @@ def collect_snapshot(client: TestClient, project_id: str) -> dict[str, list[dict
         for scene in scenes
         for segment in client.get(f"/api/v1/scenes/{scene['id']}/segments").json()
     ]
+    events = client.app.state.container.orchestrator_repository.events_for_job(
+        structure_job_id
+    )
     return {
         "chapters": chapters,
         "scenes": scenes,
@@ -202,13 +235,23 @@ def collect_snapshot(client: TestClient, project_id: str) -> dict[str, list[dict
         "issues": client.get(f"/api/v1/projects/{project_id}/issues").json(),
         "warnings": client.get(f"/api/v1/projects/{project_id}/structure-warnings").json(),
         "reviewTasks": client.get(f"/api/v1/projects/{project_id}/review-tasks").json(),
+        "structureJob": client.get(f"/api/v1/jobs/{structure_job_id}").json(),
+        "jobEvents": [
+            {
+                "type": event.type,
+                "scope": json.loads(event.scope_json or "{}"),
+                "payload": json.loads(event.payload_json or "{}"),
+                "ts": event.ts.isoformat(),
+            }
+            for event in events
+        ],
     }
 
 
 def compute_metrics(
     book_slug: str,
     labels: dict[str, Any],
-    snapshot: dict[str, list[dict[str, Any]]],
+    snapshot: dict[str, Any],
 ) -> dict[str, Any]:
     attribution = attribution_metrics(
         attribution_gold(labels.get("attribution_sample", {})),
@@ -224,11 +267,42 @@ def compute_metrics(
         book_slug,
         review_tasks or [*snapshot["issues"], *snapshot["warnings"]],
     )
+    first_chapter_seconds = progressive_ready_seconds(snapshot)
     return {
         "attribution": attribution.__dict__,
         "cast": cast.__dict__,
         "flags": flags.__dict__,
+        "progressive": {
+            "first_chapter_ready_seconds": first_chapter_seconds,
+            "within_ten_minutes": (
+                first_chapter_seconds <= 600 if first_chapter_seconds is not None else None
+            ),
+        },
     }
+
+
+def progressive_ready_seconds(snapshot: dict[str, Any]) -> float | None:
+    events = [
+        event
+        for event in snapshot.get("jobEvents", [])
+        if event.get("type") == "chapter.direction.ready"
+        and event.get("payload", {}).get("provisional") is True
+    ]
+    job = snapshot.get("structureJob") or {}
+    created_at = job.get("createdAt")
+    if not events or not created_at:
+        return None
+    started = _aware_datetime(str(created_at))
+    ready = min(
+        _aware_datetime(str(event["ts"]))
+        for event in events
+    )
+    return round(max(0.0, (ready - started).total_seconds()), 3)
+
+
+def _aware_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def attribution_gold(payload: dict[str, Any]) -> list[AttributionGold]:
