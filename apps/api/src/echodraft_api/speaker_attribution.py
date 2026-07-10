@@ -22,6 +22,7 @@ from .attribution_v2 import (
     ATTRIBUTION_MID_CONFIDENCE,
     ATTRIBUTION_V2_VERSION,
     ATTRIBUTION_VOTE_SAMPLES,
+    ATTRIBUTION_VOTE_TEMPERATURE,
     AttributionDecision,
     AttributionVote,
     ConversationState,
@@ -31,7 +32,7 @@ from .attribution_v2 import (
 )
 from .container import AppContainer
 from .cast_discovery import CastDiscoveryService
-from .local_llm import LocalLlmService
+from .local_llm import CheckpointContext, LocalLlmService
 
 SPEAKER_ATTRIBUTION_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -338,8 +339,23 @@ class SpeakerAttributionService:
                     active_speakers=window.active_speakers,
                 ),
             )
+            checkpoint = (
+                CheckpointContext(
+                    job_id=job_id,
+                    project_id=project_id,
+                    stage="speaker.attribution.window",
+                    scope={"targetSegmentIds": sorted(window.target_segment_ids)},
+                )
+                if job_id
+                else None
+            )
             try:
-                return batch_index, window, request, llm.extract(project_id, request, job_id)
+                return (
+                    batch_index,
+                    window,
+                    request,
+                    llm.extract(project_id, request, job_id, checkpoint=checkpoint),
+                )
             except ValueError as error:
                 return batch_index, window, request, error
 
@@ -494,14 +510,27 @@ class SpeakerAttributionService:
                 exemplars,
                 state,
             )
+            target_ids = sorted(window.target_segment_ids)
             request = LlmExtractionRequest(
                 model=model,
                 task="speaker_attribution_v2_map",
                 schema=SPEAKER_ATTRIBUTION_V2_SCHEMA,
                 prompt=prompt,
             )
+            base_checkpoint = (
+                CheckpointContext(
+                    job_id=job_id,
+                    project_id=project_id,
+                    stage="speaker.attribution.v2.map",
+                    scope={"targetSegmentIds": target_ids},
+                )
+                if job_id
+                else None
+            )
             try:
-                base_result = llm.extract(project_id, request, job_id)
+                base_result = llm.extract(
+                    project_id, request, job_id, checkpoint=base_checkpoint
+                )
             except ValueError as error:
                 return window_index, window, [], [], error
             run_ids = [base_result.run.id]
@@ -521,6 +550,7 @@ class SpeakerAttributionService:
                 or base_votes[segment_id].confidence < ATTRIBUTION_MID_CONFIDENCE
             }
             if low_segment_ids:
+                low_ids = sorted(low_segment_ids)
                 for sample_index in range(1, ATTRIBUTION_VOTE_SAMPLES + 1):
                     vote_request = LlmExtractionRequest(
                         model=model,
@@ -530,9 +560,26 @@ class SpeakerAttributionService:
                             f"{prompt}\n\nSelf-consistency vote sample {sample_index}. "
                             "Re-evaluate independently and return every TARGET."
                         ),
+                        # Non-zero temperature + a distinct per-sample seed makes each vote an
+                        # independent draw with its own cache identity, instead of collapsing
+                        # onto one deterministic cached result that trivially auto-approves.
+                        temperature=ATTRIBUTION_VOTE_TEMPERATURE,
+                        seed=sample_index,
+                    )
+                    vote_checkpoint = (
+                        CheckpointContext(
+                            job_id=job_id,
+                            project_id=project_id,
+                            stage="speaker.attribution.v2.vote",
+                            scope={"targetSegmentIds": low_ids, "sample": sample_index},
+                        )
+                        if job_id
+                        else None
                     )
                     try:
-                        sample = llm.extract(project_id, vote_request, job_id)
+                        sample = llm.extract(
+                            project_id, vote_request, job_id, checkpoint=vote_checkpoint
+                        )
                     except ValueError:
                         continue
                     run_ids.append(sample.run.id)

@@ -50,7 +50,15 @@ class FakeProvider:
         }
         return OllamaGenerateResult(response=response, raw={"response": "{}"})
 
-    def infer(self, model: str, prompt: str, schema: dict[str, object]) -> OllamaGenerateResult:
+    def infer(
+        self,
+        model: str,
+        prompt: str,
+        schema: dict[str, object],
+        *,
+        temperature: float | None = None,
+        seed: int | None = None,
+    ) -> OllamaGenerateResult:
         return self.generate_json(model, prompt, schema)
 
     def embed(self, _request: object) -> object:

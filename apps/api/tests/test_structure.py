@@ -551,7 +551,7 @@ def test_llm_structure_refinement_creates_cast_and_speaker_rows(client, monkeypa
         lambda _self: False,
     )
 
-    def fake_extract(_self, _project_id, request, _job_id=None):
+    def fake_extract(_self, _project_id, request, _job_id=None, **_kwargs):
         if request.task == "atom_segment_refinement":
             atom_ids = atom_ids_from_prompt(request.prompt)
             return SimpleNamespace(
@@ -613,7 +613,7 @@ def test_invalid_llm_structure_refinement_falls_back_with_warning(client, monkey
         lambda _self: True,
     )
 
-    def fake_extract(_self, _project_id, request, _job_id=None):
+    def fake_extract(_self, _project_id, request, _job_id=None, **_kwargs):
         if request.task == "atom_segment_refinement":
             atom_ids = atom_ids_from_prompt(request.prompt)
             return SimpleNamespace(
@@ -666,7 +666,7 @@ def test_invalid_atom_groupings_are_rejected(client, monkeypatch, case) -> None:
         lambda _self: False,
     )
 
-    def fake_extract(_self, _project_id, request, _job_id=None):
+    def fake_extract(_self, _project_id, request, _job_id=None, **_kwargs):
         if request.task == "atom_segment_refinement":
             atom_ids = atom_ids_from_prompt(request.prompt)
             if case == "missing":
@@ -833,7 +833,7 @@ def test_llm_mentions_additively_enrich_existing_character_observations(
         cast_discovery_module.CastDiscoveryService, "_local_llm_ready", lambda _self: True
     )
 
-    def fake_extract(_self, _project_id, request, _job_id=None):
+    def fake_extract(_self, _project_id, request, _job_id=None, **_kwargs):
         if request.task != "cast_discovery":
             return SimpleNamespace(run=SimpleNamespace(id="llmrun_empty"), result={"warnings": []})
         segment_id = request.prompt.split("- ", 1)[1].split(" ", 1)[0]
@@ -1033,7 +1033,7 @@ def test_cast_graph_filters_noise_mentions_and_writes_manifest(client, monkeypat
         cast_discovery_module.CastDiscoveryService, "_local_llm_ready", lambda _self: True
     )
 
-    def fake_extract(_self, _project_id, request, _job_id=None):
+    def fake_extract(_self, _project_id, request, _job_id=None, **_kwargs):
         if request.task != "cast_discovery":
             return SimpleNamespace(run=SimpleNamespace(id="llmrun_empty"), result={"warnings": []})
         segment_ids = [

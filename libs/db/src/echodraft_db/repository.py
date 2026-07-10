@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -463,20 +464,80 @@ class JobRepository:
         with self.database.session() as session:
             return [_job(record) for record in session.scalars(statement)]
 
-    def reconcile_interrupted(self) -> int:
-        """In-process jobs cannot safely resume after restart; fail them with guidance."""
+    def reconcile_interrupted(
+        self,
+        *,
+        resumable_job_types: set[str] | None = None,
+        has_checkpoints: Callable[[str], bool] | None = None,
+    ) -> list[Job]:
+        """Reconcile jobs left ``RUNNING`` by an interrupted process.
+
+        Jobs whose type is in ``resumable_job_types`` and that recorded orchestrator
+        checkpoints (as reported by ``has_checkpoints``) are re-queued for resume:
+        their status returns to ``QUEUED`` with a ``resumedAt`` note in progress, and
+        their timing/error fields are cleared. Every other interrupted job keeps the
+        historical fail-closed behaviour. Returns the jobs that were re-queued so the
+        caller can re-run them once the job runner is available.
+        """
+        resumable_types = resumable_job_types or set()
+        # Phase 1: read the interrupted job ids (read-only, no open write transaction).
         with self.database.session() as session:
-            records = list(
-                session.scalars(select(JobRecord).where(JobRecord.status == JobState.RUNNING.value))
-            )
-            for record in records:
-                record.status = JobState.FAILED.value
-                record.error_message = (
-                    "interrupted: restart the requested workflow from its last persisted artifact"
+            running = [
+                (record.id, record.job_type)
+                for record in session.scalars(
+                    select(JobRecord).where(JobRecord.status == JobState.RUNNING.value)
                 )
-                record.finished_at = datetime.now(UTC)
+            ]
+        # Phase 2: decide which ones can resume (may consult other tables/repositories).
+        resume_ids = {
+            job_id
+            for job_id, job_type in running
+            if job_type in resumable_types
+            and has_checkpoints is not None
+            and has_checkpoints(job_id)
+        }
+        # Phase 3: apply the reconciliation.
+        now = datetime.now(UTC)
+        resumed: list[Job] = []
+        with self.database.session() as session:
+            for job_id, _job_type in running:
+                record = session.get(JobRecord, job_id)
+                if record is None:
+                    continue
+                if job_id in resume_ids:
+                    record.status = JobState.QUEUED.value
+                    record.started_at = None
+                    record.finished_at = None
+                    record.error_message = None
+                    record.progress_json = json.dumps(
+                        self._resumed_progress(record.progress_json, now)
+                    )
+                    resumed.append(_job(record))
+                else:
+                    record.status = JobState.FAILED.value
+                    record.error_message = (
+                        "interrupted: restart the requested workflow from its last "
+                        "persisted artifact"
+                    )
+                    record.finished_at = now
             session.commit()
-            return len(records)
+        return resumed
+
+    @staticmethod
+    def _resumed_progress(progress_json: str | None, now: datetime) -> dict[str, object]:
+        base: dict[str, object] = {}
+        if progress_json:
+            try:
+                loaded = json.loads(progress_json)
+            except json.JSONDecodeError:
+                loaded = None
+            if isinstance(loaded, dict):
+                base = loaded
+        base["resumedAt"] = now.isoformat()
+        base["resumeNote"] = (
+            "re-enqueued from orchestrator checkpoints after an interrupted run"
+        )
+        return base
 
     def set_progress(self, job_id: str, progress: dict[str, object]) -> Job:
         with self.database.session() as session:

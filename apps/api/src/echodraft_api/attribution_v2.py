@@ -6,6 +6,11 @@ from dataclasses import dataclass, replace
 ATTRIBUTION_V2_VERSION = "attribution-v2-window-vote-reduce-0.1.0"
 ATTRIBUTION_MID_CONFIDENCE = 0.8
 ATTRIBUTION_VOTE_SAMPLES = 3
+# Self-consistency voting resamples the attribution MAP at a mildly stochastic
+# temperature so the k samples are genuinely independent draws rather than
+# near-identical deterministic ones. See docs/architecture/extraction-pipeline-v2.md
+# (§S4 self-consistency voting at temperature ~= 0.4).
+ATTRIBUTION_VOTE_TEMPERATURE = 0.4
 
 
 @dataclass(frozen=True)

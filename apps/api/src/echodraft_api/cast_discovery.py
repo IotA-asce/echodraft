@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from .cast_v2 import CAST_V2_VERSION, ClusterMention, ClusterResult, cluster_mentions
 from .container import AppContainer
-from .local_llm import LocalLlmService
+from .local_llm import CheckpointContext, LocalLlmService
 from .structure import DEFAULT_REFINEMENT_MODEL, DEFAULT_REFINEMENT_MODEL_KEY
 
 CAST_WINDOW_MAX_CHARS = 6000
@@ -461,6 +461,7 @@ class CastDiscoveryService:
                     candidate,
                     index,
                     use_local_llm=ready,
+                    job_id=job_id,
                 )
                 if cast_v2_enabled
                 else self._decision_for_candidate(
@@ -468,6 +469,7 @@ class CastDiscoveryService:
                     candidate,
                     index,
                     use_local_llm=ready,
+                    job_id=job_id,
                 )
             )
             profile: dict[str, object] | None = None
@@ -476,6 +478,7 @@ class CastDiscoveryService:
                     project_id,
                     candidate,
                     use_local_llm=ready,
+                    job_id=job_id,
                 )
             decisions.append(decision)
             self._apply_candidate(project_id, source_id, candidate, decision, index)
@@ -604,8 +607,23 @@ class CastDiscoveryService:
                 schema=CAST_MENTION_SCHEMA,
                 prompt=self._cast_prompt(window, segment_map),
             )
+            checkpoint = (
+                CheckpointContext(
+                    job_id=job_id,
+                    project_id=project_id,
+                    stage="cast.discovery.mentions",
+                    scope={"windowId": window.id, "segmentIds": sorted(window.segment_ids)},
+                )
+                if job_id
+                else None
+            )
             try:
-                return index, window, request, llm.extract(project_id, request, job_id)
+                return (
+                    index,
+                    window,
+                    request,
+                    llm.extract(project_id, request, job_id, checkpoint=checkpoint),
+                )
             except ValueError as error:
                 return index, window, request, error
 
@@ -998,6 +1016,7 @@ class CastDiscoveryService:
         index: CharacterIndex,
         *,
         use_local_llm: bool,
+        job_id: str | None = None,
     ) -> MergeDecision:
         exact_matches = [
             match
@@ -1056,7 +1075,9 @@ class CastDiscoveryService:
                 )
 
         if shortlist and use_local_llm:
-            decision = self._llm_merge_decision(project_id, candidate, shortlist)
+            decision = self._llm_merge_decision(
+                project_id, candidate, shortlist, job_id=job_id
+            )
             if decision:
                 return self._annotate_decision(candidate, decision)
 
@@ -1102,12 +1123,14 @@ class CastDiscoveryService:
         index: CharacterIndex,
         *,
         use_local_llm: bool,
+        job_id: str | None = None,
     ) -> MergeDecision:
         deterministic = self._decision_for_candidate(
             project_id,
             candidate,
             index,
             use_local_llm=False,
+            job_id=job_id,
         )
         if deterministic.action == "merge" or not use_local_llm:
             return replace(
@@ -1126,6 +1149,7 @@ class CastDiscoveryService:
             candidate,
             shortlist,
             task="cast_cluster_reconcile",
+            job_id=job_id,
         )
         if reconciled is None or (not shortlist and reconciled.action == "unsure"):
             return replace(
@@ -1151,8 +1175,23 @@ class CastDiscoveryService:
         shortlist: list[CharacterMatch],
         *,
         task: str = "cast_merge_verification",
+        job_id: str | None = None,
     ) -> MergeDecision | None:
         llm = LocalLlmService(self.container)
+        checkpoint = (
+            CheckpointContext(
+                job_id=job_id,
+                project_id=project_id,
+                stage="cast.discovery.merge-decision",
+                scope={
+                    "candidateKey": candidate.key,
+                    "task": task,
+                    "shortlist": sorted(match.character.id for match in shortlist),
+                },
+            )
+            if job_id
+            else None
+        )
         try:
             result = llm.extract(
                 project_id,
@@ -1166,6 +1205,7 @@ class CastDiscoveryService:
                         else self._merge_prompt(project_id, candidate, shortlist)
                     ),
                 ),
+                checkpoint=checkpoint,
             )
         except ValueError as error:
             return MergeDecision(
@@ -1243,9 +1283,20 @@ class CastDiscoveryService:
         candidate: CharacterCandidate,
         *,
         use_local_llm: bool,
+        job_id: str | None = None,
     ) -> tuple[CharacterCandidate, dict[str, object]]:
         profile = self._deterministic_profile(candidate)
         if use_local_llm:
+            checkpoint = (
+                CheckpointContext(
+                    job_id=job_id,
+                    project_id=project_id,
+                    stage="cast.discovery.profile",
+                    scope={"candidateKey": candidate.key},
+                )
+                if job_id
+                else None
+            )
             try:
                 result = LocalLlmService(self.container).extract(
                     project_id,
@@ -1255,6 +1306,7 @@ class CastDiscoveryService:
                         schema=CAST_PROFILE_SCHEMA,
                         prompt=self._profile_prompt(candidate),
                     ),
+                    checkpoint=checkpoint,
                 )
             except ValueError as error:
                 profile["fallbackReason"] = str(error)[:500]

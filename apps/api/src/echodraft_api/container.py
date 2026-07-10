@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING
 
 from echodraft_db import (
@@ -26,6 +27,7 @@ from .artifacts import ArtifactStore
 from .config import AppSettings
 from .jobs import InProcessJobRunner
 from .orchestrator import HardwareProbe, OrchestratorPools, tts_device
+from .resume import RESUME_REGISTRY
 from .tts_settings import TtsSettingsStore
 from .tts_worker import TtsWorkerManager
 
@@ -66,7 +68,15 @@ def build_container(settings: AppSettings) -> AppContainer:
     database.create_schema()
     artifacts = ArtifactStore(settings.artifact_root)
     jobs_repository = JobRepository(database)
-    jobs_repository.reconcile_interrupted()
+    orchestrator_repository = OrchestratorRepository(database)
+    # Jobs interrupted mid-run cannot continue in place. Resumable, checkpointed jobs
+    # are re-queued (and re-run below once the runner exists); everything else fails closed.
+    resumed_jobs = jobs_repository.reconcile_interrupted(
+        resumable_job_types=set(RESUME_REGISTRY),
+        has_checkpoints=lambda job_id: bool(
+            orchestrator_repository.checkpoints_for_job(job_id)
+        ),
+    )
     tts_settings = TtsSettingsStore(settings)
     orchestrator_pools = OrchestratorPools.from_probe(
         HardwareProbe(),
@@ -81,12 +91,12 @@ def build_container(settings: AppSettings) -> AppContainer:
         device=tts_device(orchestrator_pools.hardware),
     )
     adapter = tts_settings.adapter(worker_manager=tts_worker_manager)
-    return AppContainer(
+    container = AppContainer(
         settings=settings,
         artifacts=artifacts,
         projects=ProjectRepository(database, str(settings.artifact_root)),
         jobs_repository=jobs_repository,
-        orchestrator_repository=OrchestratorRepository(database),
+        orchestrator_repository=orchestrator_repository,
         sources=SourceDocumentRepository(database),
         source_artifacts=SourceArtifactRepository(database),
         structure=StructureRepository(database),
@@ -107,3 +117,11 @@ def build_container(settings: AppSettings) -> AppContainer:
         orchestrator_pools=orchestrator_pools,
         jobs=InProcessJobRunner(jobs_repository, settings.max_concurrent_jobs),
     )
+    # Re-run interrupted, checkpointed jobs now that the runner is available. Their
+    # extraction stages skip already-checkpointed units via the inference cache.
+    for job in resumed_jobs:
+        resume_callable = RESUME_REGISTRY.get(job.job_type)
+        if resume_callable is None:
+            continue
+        container.jobs.resume(job.id, partial(resume_callable, container, job))
+    return container

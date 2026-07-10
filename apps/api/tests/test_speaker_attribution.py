@@ -372,9 +372,11 @@ def test_speaker_attribution_proposes_missing_cast_from_confident_label(
         path_calls["candidateDisplayName"] = candidate.display_name if candidate else None
         return candidate
 
-    def track_decision_for_candidate(self, project_id, candidate, index, *, use_local_llm):
+    def track_decision_for_candidate(
+        self, project_id, candidate, index, *, use_local_llm, job_id=None
+    ):
         decision = original_decision_for_candidate(
-            self, project_id, candidate, index, use_local_llm=use_local_llm
+            self, project_id, candidate, index, use_local_llm=use_local_llm, job_id=job_id
         )
         path_calls["decisionAction"] = decision.action
         path_calls["decisionReason"] = decision.reason
@@ -460,9 +462,11 @@ def test_speaker_attribution_additively_enriches_existing_character_via_cast_gra
     original_create_character = app.state.container.casting.create_character
     create_character_calls = 0
 
-    def track_decision_for_candidate(self, project_id, candidate, index, *, use_local_llm):
+    def track_decision_for_candidate(
+        self, project_id, candidate, index, *, use_local_llm, job_id=None
+    ):
         decision = original_decision_for_candidate(
-            self, project_id, candidate, index, use_local_llm=use_local_llm
+            self, project_id, candidate, index, use_local_llm=use_local_llm, job_id=job_id
         )
         path_calls["candidateSource"] = candidate.source
         path_calls["decisionAction"] = decision.action
@@ -615,7 +619,7 @@ def test_locked_attribution_exemplars_injected_into_llm_prompt(client, monkeypat
 
     captured: dict[str, str] = {}
 
-    def fake_extract(_self, _project_id, request, _job_id=None):
+    def fake_extract(_self, _project_id, request, _job_id=None, **_kwargs):
         if request.task == "speaker_attribution":
             captured["prompt"] = request.prompt
         return SimpleNamespace(
@@ -661,7 +665,7 @@ def test_llm_prompt_includes_same_scene_context_window(client, monkeypatch) -> N
 
     captured: dict[str, str] = {}
 
-    def fake_extract(_self, _project_id, request, _job_id=None):
+    def fake_extract(_self, _project_id, request, _job_id=None, **_kwargs):
         if request.task == "speaker_attribution":
             captured["prompt"] = request.prompt
         return SimpleNamespace(

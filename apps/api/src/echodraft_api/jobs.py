@@ -48,6 +48,14 @@ class InProcessJobRunner:
         self._executor.submit(self.run_inline, job.id, lambda: operation(job.id))
         return job
 
+    def resume(self, job_id: str, operation: Callable[[], None]) -> None:
+        """Re-run a job row that already exists and is back in QUEUED.
+
+        Used by startup resume to re-execute interrupted, checkpointed jobs without
+        creating a new job row (preserving the job id and its event/checkpoint history).
+        """
+        self._executor.submit(self.run_inline, job_id, operation)
+
     @staticmethod
     def _recovery_message(error: Exception) -> str:
         message = str(error)

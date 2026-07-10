@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import json
 from pathlib import Path
 import re
+import time
 from typing import cast
 from uuid import uuid4
 import wave
@@ -12,6 +13,7 @@ from echodraft_db.models import (
     AmbienceCueRecord,
     ChapterRecord,
     CharacterRecord,
+    JobEventRecord,
     SceneRecord,
     SegmentRecord,
     VoiceProfileRecord,
@@ -702,29 +704,63 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         request: Request,
         job_id: str = Query(..., alias="jobId"),
         after: int = Query(0, ge=0),
+        poll_interval: float = Query(1.0, alias="pollInterval", gt=0, le=5),
+        heartbeat_interval: float = Query(15.0, alias="heartbeatInterval", gt=0),
+        max_duration: float = Query(3600.0, alias="maxDuration", gt=0),
     ) -> StreamingResponse:
         app_container: AppContainer = request.app.state.container
         if not app_container.jobs_repository.get(job_id):
             raise HTTPException(status_code=404, detail="Job not found")
         last_event_id = _event_cursor(request.headers.get("last-event-id"), after)
+        terminal_statuses = {JobState.SUCCEEDED, JobState.FAILED, JobState.CANCELLED}
+
+        def _format(event: JobEventRecord) -> Iterable[str]:
+            payload = {
+                "jobId": event.job_id,
+                "projectId": event.project_id,
+                "type": event.type,
+                "stage": event.stage,
+                "scope": json.loads(event.scope_json or "{}"),
+                "payload": json.loads(event.payload_json or "{}"),
+                "ts": event.ts.isoformat(),
+            }
+            yield f"id: {event.event_id}\n"
+            yield f"event: {event.type}\n"
+            yield f"data: {json.dumps(payload, sort_keys=True)}\n\n"
 
         def event_stream() -> Iterable[str]:
-            for event in app_container.orchestrator_repository.events_for_job(
-                job_id, after_event_id=last_event_id
-            ):
-                payload = {
-                    "jobId": event.job_id,
-                    "projectId": event.project_id,
-                    "type": event.type,
-                    "stage": event.stage,
-                    "scope": json.loads(event.scope_json or "{}"),
-                    "payload": json.loads(event.payload_json or "{}"),
-                    "ts": event.ts.isoformat(),
-                }
-                yield f"id: {event.event_id}\n"
-                yield f"event: {event.type}\n"
-                yield f"data: {json.dumps(payload, sort_keys=True)}\n\n"
-            yield ": heartbeat\n\n"
+            # Live tail: replay persisted rows past the cursor, then keep polling for new
+            # rows and emitting heartbeats until the job reaches a terminal status (or the
+            # max stream duration elapses as a safety bound). Dependency-free by design.
+            cursor = last_event_id
+            deadline = time.monotonic() + max_duration
+            last_heartbeat = time.monotonic()
+            while True:
+                new_events = app_container.orchestrator_repository.events_for_job(
+                    job_id, after_event_id=cursor
+                )
+                for event in new_events:
+                    cursor = event.event_id
+                    yield from _format(event)
+                job = app_container.jobs_repository.get(job_id)
+                now = time.monotonic()
+                if job is None or job.status in terminal_statuses:
+                    # Drain any rows appended between the last read and the terminal
+                    # transition, then close the stream.
+                    for event in app_container.orchestrator_repository.events_for_job(
+                        job_id, after_event_id=cursor
+                    ):
+                        cursor = event.event_id
+                        yield from _format(event)
+                    yield ": heartbeat\n\n"
+                    return
+                if now >= deadline:
+                    yield ": heartbeat\n\n"
+                    return
+                if now - last_heartbeat >= heartbeat_interval:
+                    yield ": heartbeat\n\n"
+                    last_heartbeat = now
+                time.sleep(poll_interval)
 
         return StreamingResponse(
             event_stream(),
