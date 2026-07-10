@@ -268,6 +268,12 @@ class LlmExtractionRequest(ApiModel):
     source_document_id: str | None = Field(default=None, alias="sourceDocumentId")
     output_schema: dict[str, object] | None = Field(default=None, alias="schema")
     prompt: str | None = None
+    # Sampling controls. ``temperature`` defaults to None, which the provider maps to a
+    # deterministic temperature-0 draw and preserves the existing inference-cache behaviour.
+    # Self-consistency voting resamples with a non-zero temperature (and a per-sample seed)
+    # so votes are genuinely independent instead of collapsing onto one cached draw.
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    seed: int | None = Field(default=None, ge=0)
 
 
 class LlmExtractionResult(ApiModel):

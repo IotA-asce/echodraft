@@ -17,6 +17,7 @@ from echodraft_domain import (
 
 from .container import AppContainer
 from .ollama_models import find_ollama_model
+from .orchestrator import CheckpointStore, Stage, Unit
 
 DEFAULT_EXTRACTION_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -45,6 +46,31 @@ class OllamaGenerateResult:
     raw: dict[str, object]
 
 
+@dataclass(frozen=True)
+class CheckpointContext:
+    """Content-addressed orchestrator checkpoint for a single LLM extraction unit.
+
+    Passing this into :meth:`LocalLlmService.extract` records the unit's progress in
+    the orchestrator checkpoint store so that a resumed job can observe which units
+    already completed. The inference cache makes the actual recomputation cheap; the
+    checkpoint makes the skip deterministic and observable.
+    """
+
+    job_id: str
+    project_id: str | None
+    stage: str
+    scope: dict[str, object]
+    stage_version: str = "1"
+
+    def unit(self) -> Unit:
+        return Unit(
+            stage=Stage(self.stage, self.stage_version),
+            job_id=self.job_id,
+            project_id=self.project_id,
+            scope=self.scope,
+        )
+
+
 class SchemaValidationError(ValueError):
     pass
 
@@ -66,8 +92,22 @@ class OllamaLlmProvider:
         return self.infer(model, prompt, schema)
 
     def infer(
-        self, model: str, prompt: str, schema: dict[str, object]
+        self,
+        model: str,
+        prompt: str,
+        schema: dict[str, object],
+        *,
+        temperature: float | None = None,
+        seed: int | None = None,
     ) -> OllamaGenerateResult:
+        options: dict[str, object] = {
+            # None keeps the historical deterministic default draw (temperature 0).
+            "temperature": 0 if temperature is None else temperature,
+            "top_p": 0.9,
+            "num_predict": 4096,
+        }
+        if seed is not None:
+            options["seed"] = seed
         payload = self._post_or_get(
             "POST",
             "/api/generate",
@@ -81,11 +121,7 @@ class OllamaLlmProvider:
                 "stream": False,
                 "format": schema,
                 "think": False,
-                "options": {
-                    "temperature": 0,
-                    "top_p": 0.9,
-                    "num_predict": 4096,
-                },
+                "options": options,
             },
             timeout=180,
         )
@@ -150,11 +186,21 @@ class LocalLlmService:
         return self.provider.tags()
 
     def extract(
-        self, project_id: str, request: LlmExtractionRequest, job_id: str | None = None
+        self,
+        project_id: str,
+        request: LlmExtractionRequest,
+        job_id: str | None = None,
+        *,
+        checkpoint: CheckpointContext | None = None,
     ) -> LlmExtractionResult:
         project = self.container.projects.get(project_id)
         if not project:
             raise ValueError("Project not found.")
+        store: CheckpointStore | None = None
+        unit: Unit | None = None
+        if checkpoint is not None:
+            store = CheckpointStore(self.container.orchestrator_repository)
+            unit = checkpoint.unit()
         source = (
             self.container.sources.get(request.source_document_id)
             if request.source_document_id
@@ -184,7 +230,25 @@ class LocalLlmService:
                 schema=schema,
             )
         )
-        cache_key = _inference_cache_key(request.model, request.task, prompt, schema)
+        cache_key = _inference_cache_key(
+            request.model, request.task, prompt, schema, request.temperature, request.seed
+        )
+
+        def _mark_checkpoint(status: str, *, error: str | None = None) -> None:
+            if store is None or unit is None:
+                return
+            checkpoint_store = store
+            checkpoint_unit = unit
+            self.container.orchestrator_pools.writer.run(
+                lambda: (
+                    checkpoint_store.mark_done(checkpoint_unit, output_ref=cache_key)
+                    if status == "done"
+                    else checkpoint_store.mark_failed(checkpoint_unit, error or "")
+                    if status == "failed"
+                    else checkpoint_store.mark_running(checkpoint_unit)
+                )
+            )
+
         cached = self.container.orchestrator_pools.writer.run(
             lambda: self.container.orchestrator_repository.cache_entry(
                 cache_key,
@@ -224,9 +288,13 @@ class LocalLlmService:
                         job_id, {"phase": "llm_extract", "runId": run_id, "status": "succeeded"}
                     )
                 )
+            # Cache hit: the unit already produced a validated result on an earlier run, so
+            # record the checkpoint as done and skip the model call entirely.
+            _mark_checkpoint("done")
             return LlmExtractionResult(run=run, result=cached_result)
         retries = 0
         errors: list[str] = []
+        _mark_checkpoint("running")
         try:
             for attempt in range(2):
                 candidate_prompt = prompt
@@ -236,7 +304,13 @@ class LocalLlmService:
                         "Return only JSON that satisfies the schema."
                     )
                 result = self.container.orchestrator_pools.llm.run(
-                    lambda: self.provider.infer(request.model, candidate_prompt, schema)
+                    lambda: self.provider.infer(
+                        request.model,
+                        candidate_prompt,
+                        schema,
+                        temperature=request.temperature,
+                        seed=request.seed,
+                    )
                 )
                 errors = validate_json_schema(result.response, schema)
                 retries = attempt
@@ -268,10 +342,12 @@ class LocalLlmService:
                                 {"phase": "llm_extract", "runId": run_id, "status": "succeeded"},
                             )
                         )
+                    _mark_checkpoint("done")
                     return LlmExtractionResult(run=run, result=result.response)
             raise SchemaValidationError("; ".join(errors) or "Response failed schema validation.")
         except Exception as error:
             error_message = str(error)
+            _mark_checkpoint("failed", error=error_message)
             run = self.container.orchestrator_pools.writer.run(
                 lambda: self.container.llm_runs.complete(
                     run_id,
@@ -352,12 +428,20 @@ def _inference_cache_key(
     task: str,
     prompt: str,
     schema: dict[str, object],
+    temperature: float | None = None,
+    seed: int | None = None,
 ) -> str:
     payload = {
         "model": model,
         "task": task,
         "prompt": prompt,
         "schema": schema,
+        # Sampling controls MUST be part of the key so self-consistency vote resamples
+        # (temperature > 0, distinct seeds) do not collapse onto one cached draw.
+        # Deterministic temperature-0 default calls always pass None here and keep their
+        # historical cache identity.
+        "temperature": temperature,
+        "seed": seed,
     }
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
     return f"llm.generate:{digest}"

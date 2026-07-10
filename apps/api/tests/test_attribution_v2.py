@@ -117,7 +117,7 @@ def test_flagged_attribution_v2_votes_and_writes_manifest(client, monkeypatch) -
     captured_prompts: list[str] = []
     vote_calls = 0
 
-    def fake_extract(_self, _project_id, request, _job_id=None):
+    def fake_extract(_self, _project_id, request, _job_id=None, **_kwargs):
         nonlocal vote_calls
         captured_prompts.append(request.prompt or "")
         if request.task == "speaker_attribution_v2_vote":

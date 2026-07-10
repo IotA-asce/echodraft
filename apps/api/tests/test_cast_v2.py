@@ -218,7 +218,7 @@ def test_profile_synthesis_updates_existing_character_fields(client, monkeypatch
     )
     observed_tasks: list[str] = []
 
-    def fake_extract(_self, _project_id, request, _job_id=None):
+    def fake_extract(_self, _project_id, request, _job_id=None, **_kwargs):
         observed_tasks.append(request.task)
         return SimpleNamespace(
             run=SimpleNamespace(id="llm_profile_1"),
@@ -275,7 +275,7 @@ def test_cluster_reconciliation_is_one_call_for_the_pooled_candidate(
     )
     calls: list[tuple[str, list[str]]] = []
 
-    def fake_reconcile(_project_id, pooled, shortlist, *, task):
+    def fake_reconcile(_project_id, pooled, shortlist, *, task, job_id=None):
         calls.append((task, pooled.aliases))
         return cast_discovery_module.MergeDecision(
             id="decision_1",

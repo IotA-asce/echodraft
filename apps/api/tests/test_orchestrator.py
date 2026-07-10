@@ -1,6 +1,8 @@
 import threading
 import time
 
+from echodraft_domain import JobState
+
 from echodraft_api.orchestrator import (
     AdaptiveWorkerPool,
     CheckpointStore,
@@ -127,8 +129,10 @@ def test_job_events_sse_endpoint_replays_persisted_events(client) -> None:
         stage="structure",
         scope={"chapter": 1},
     )
+    # A terminal job lets the live-tail stream drain persisted rows and close.
+    container.jobs_repository.transition(job.id, JobState.CANCELLED)
 
-    response = client.get(f"/api/v1/events?jobId={job.id}")
+    response = client.get(f"/api/v1/events?jobId={job.id}&pollInterval=0.05")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
@@ -138,12 +142,60 @@ def test_job_events_sse_endpoint_replays_persisted_events(client) -> None:
     assert f"id: {second.event_id}" in response.text
 
     filtered = client.get(
-        f"/api/v1/events?jobId={job.id}",
+        f"/api/v1/events?jobId={job.id}&pollInterval=0.05",
         headers={"Last-Event-ID": str(first.event_id)},
     )
 
     assert f"id: {first.event_id}" not in filtered.text
     assert f"id: {second.event_id}" in filtered.text
+
+
+def test_job_events_sse_endpoint_live_tails_new_rows(client) -> None:
+    project = client.post(
+        "/api/v1/projects",
+        json={"title": "Orchestrator", "rightsStatus": "declared"},
+    ).json()
+    container = client.app.state.container
+    job = container.jobs_repository.create("eval.test", project_id=project["id"])
+    container.jobs_repository.transition(job.id, JobState.RUNNING)
+    early = container.orchestrator_repository.append_event(
+        job_id=job.id,
+        project_id=project["id"],
+        event_type="job.running",
+        stage="structure",
+        payload={"message": "started"},
+    )
+
+    # Append a new row and finish the job after the stream has begun polling, so the
+    # assertion proves the endpoint tails rows written after the initial replay.
+    late_event_ids: list[int] = []
+
+    def produce_late_event() -> None:
+        time.sleep(0.2)
+        late = container.orchestrator_repository.append_event(
+            job_id=job.id,
+            project_id=project["id"],
+            event_type="stage.done",
+            stage="structure",
+            scope={"chapter": 7},
+        )
+        late_event_ids.append(late.event_id)
+        container.jobs_repository.transition(job.id, JobState.SUCCEEDED)
+
+    producer = threading.Thread(target=produce_late_event)
+    producer.start()
+    try:
+        response = client.get(
+            f"/api/v1/events?jobId={job.id}&pollInterval=0.05&maxDuration=10"
+        )
+    finally:
+        producer.join(timeout=5)
+
+    assert response.status_code == 200
+    assert f"id: {early.event_id}" in response.text
+    assert late_event_ids
+    assert f"id: {late_event_ids[0]}" in response.text
+    assert '"chapter": 7' in response.text
 
 
 def test_hardware_probe_recommends_adaptive_llm_workers() -> None:

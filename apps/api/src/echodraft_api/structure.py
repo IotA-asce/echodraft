@@ -26,7 +26,7 @@ from echodraft_domain import (
 from sqlalchemy import select
 
 from .container import AppContainer
-from .local_llm import LocalLlmService
+from .local_llm import CheckpointContext, LocalLlmService
 from .structure_parsing import (
     ALLOWED_PRODUCTION_TYPES,
     CONTAINER_SIGNAL_KINDS,
@@ -258,7 +258,10 @@ class StructureService:
                 max_workers = min(len(batches), self.container.orchestrator_pools.llm.max_workers)
 
                 def refine_batch(
-                    batch_index: int, batch: list[TextAtom]
+                    batch_index: int,
+                    batch: list[TextAtom],
+                    scene_id: str = scene_id,
+                    atoms: list[TextAtom] = atoms,
                 ) -> tuple[int, list[TextAtom], LlmExtractionRequest, object]:
                     request = LlmExtractionRequest(
                         model=DEFAULT_REFINEMENT_MODEL,
@@ -266,8 +269,26 @@ class StructureService:
                         schema=ATOM_SEGMENT_REFINEMENT_SCHEMA,
                         prompt=self._atom_refinement_prompt(atoms, batch),
                     )
+                    checkpoint = (
+                        CheckpointContext(
+                            job_id=job_id,
+                            project_id=project_id,
+                            stage="structure.extract.refine",
+                            scope={
+                                "sceneId": scene_id,
+                                "atomIds": sorted(atom.id for atom in batch),
+                            },
+                        )
+                        if job_id
+                        else None
+                    )
                     try:
-                        return batch_index, batch, request, llm.extract(project_id, request, job_id)
+                        return (
+                            batch_index,
+                            batch,
+                            request,
+                            llm.extract(project_id, request, job_id, checkpoint=checkpoint),
+                        )
                     except ValueError as error:
                         return batch_index, batch, request, error
 
