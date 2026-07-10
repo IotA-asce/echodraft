@@ -306,3 +306,35 @@ It is separate from the completed G1-G20 alpha gap tracker above.
       6,000 segments while mounting fewer than 20 editor rows and reaches the final row by scroll.
 - [ ] Phase D - Desktop packaging.
 - [ ] Phase E - Mobile.
+
+### 2026-07-10 review-and-hardening wave (post-drop)
+
+- [x] W0.1-W0.3 - UI freeze quick wins.
+  - Evidence: `feat/w0-quickwins-monochrome`; all five recursive setTimeout poll loops replaced by
+    TanStack Query with dataUpdateCount-keyed backoff, React.memo on SegmentEditorCard/IssueCard/
+    VoiceProfileCard/CharacterBibleRow, ~35 useCallback-stabilized handlers, CharacterBible
+    virtualized. globals.css rewritten to monochrome tokens (cream/moss/clay literals, offset
+    shadows, and serif stack removed); dark-theme token and shadow gaps fixed.
+- [x] Review-wave correctness fixes (three independent adversarial code reviews of the v2 drop).
+  - Evidence: `feat/orchestrator-resume-sse-voting` — checkpoint/resume actually wired (interrupted
+    structure.extract jobs re-queue and skip completed units; restart no longer force-fails),
+    /api/v1/events is a live SSE tail with Last-Event-ID replay, attribution vote resamples run at
+    temperature 0.4 with per-sample seeds included in the inference-cache key.
+  - Evidence: `feat/casting-voice-catalog-fixes` — casting never aborts (recorded soft-constraint
+    relaxation ladder), bounded backtracking solver for majors, honest acoustics (autocorrelation
+    pitch, FFT centroid; fabricated jitter/shimmer removed), catalog-first suggestions, incremental
+    audition backfill, deterministic pace offsets for pooled minors.
+  - Evidence: `feat/sound-planner-direction-fixes` — cross-chapter atmosphere-profile corruption
+    fixed (scene-scoped, never downgrades existing profiles), procedural music placement
+    implemented (opening + at-most-one peak cue), SFX minimum-match threshold (silence over wrong
+    asset), one-shot click fix, computed qa_status with seed retry, room tone reuses
+    mastering.room_tone(), direction failures reported under category `direction`.
+- Known honest debt carried to the V3 plan (docs/plans/2026-07-10-v3-plan.md): eval gates have only
+  run on the synthetic fixture (real-corpus certification pending), confidence thresholds are
+  uncalibrated constants, structure_parser_warnings firehose not yet retired, all v2 flags default
+  off pending graduation gates, W5.3+ blocked on GPU hardware.
+- [x] W3.3 completion - real structure v2 MAP/REDUCE (replaces the deterministic facade).
+  - Evidence: `feat/structure-v2-real-mapreduce`; per-chunk LLM MAP with v1 candidates as evidence,
+    seam-disagreement REDUCE with prefer-v1 tie-break, fixed coverage verifier (zero overlaps AND
+    zero gaps AND full-span coverage), bounded repair loop failing closed to deterministic
+    structure with a folded review task. Flag-off path v1-verbatim.

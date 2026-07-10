@@ -42,6 +42,7 @@ Read the v2 suite in this order:
 13. [domain-model-v2.md](domain/domain-model-v2.md) — consolidated target data model (reconciles all v2 schema deltas)
 14. [api-v2-contracts.md](api/api-v2-contracts.md) — consolidated API delta: pagination, SSE events, job control, new endpoints
 15. [2026-07-07-v2-implementation-roadmap.md](plans/2026-07-07-v2-implementation-roadmap.md) — master implementation plan: workstreams W0–W9, milestones, risks
+16. [2026-07-10-v3-plan.md](plans/2026-07-10-v3-plan.md) — V3 program: Prove (real-corpus flag graduation), Perform (expressive audio), Ship (desktop/mobile)
 
 ## Directory map
 - **`product/`** — vision, scope, and strategy: [product-vision-v2](product/product-vision-v2.md) (target product), [project-overview](product/project-overview.md), [mvp-product-spec](product/mvp-product-spec.md), [platform-evolution](product/platform-evolution.md), [quality-benchmark](product/quality-benchmark.md) (the Sunday Suspense yardstick for "flawless"), [roadmap](product/roadmap.md)

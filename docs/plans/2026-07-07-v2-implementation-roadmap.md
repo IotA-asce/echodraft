@@ -143,13 +143,13 @@ backend dependency, before any rewrite. Owning doc:
 
 **Tasks.**
 
-- [ ] **W0.1 — Memoize the worst re-render source.** Branch `feat/ui-memoize-segment-card`.
+- [x] **W0.1 — Memoize the worst re-render source.** Branch `feat/ui-memoize-segment-card`.
   Wrap `SegmentEditorCard` (`apps/web/app/components/.../SegmentEditorCard`) in `React.memo` with
   an id+revision-stable comparator; add `useCallback` to the handlers `SegmentList` passes per
   row so typing one character stops re-rendering every card in the scene. No behavior change.
   Verify: `npm run web:lint`, `npm run web:typecheck`, `npm run web:test:smoke`.
   Size: **S**.
-- [ ] **W0.2 — Introduce TanStack Query + convert the poll loops.** Branch
+- [x] **W0.2 — Introduce TanStack Query + convert the poll loops.** Branch
   `feat/ui-react-query-polling`. Add `@tanstack/react-query`, mount `QueryClientProvider` in the
   existing layout, and convert the `job`/`structureJob` polling effects
   (`apps/web/app/project-dashboard.tsx:129-166`, today's 1000 ms/500 ms `setTimeout` loops) to
@@ -157,7 +157,7 @@ backend dependency, before any rewrite. Owning doc:
   `useState` calls untouched — cache and God-component coexist. Add a bundle-size budget note in
   the PR. Verify: `npm run web:lint`, `npm run web:typecheck`, `npm run web:test:smoke`.
   Size: **S–M**.
-- [ ] **W0.3 — Scope the remaining poll loops + memoize hot leaves.** Branch
+- [x] **W0.3 — Scope the remaining poll loops + memoize hot leaves.** Branch
   `feat/ui-scope-polling-state`. Convert the remaining fixed-interval loops (import 750 ms,
   production 500 ms, kokoro-setup 750 ms, model-install 900 ms) to query-driven polling so a
   tick updates only its own subtree, not top-level state. `React.memo` on `IssueCard`,
