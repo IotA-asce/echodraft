@@ -470,7 +470,7 @@ virtualization, SSE-pushed progress, monolith retirement. Owning docs:
   motion spec, and primitives (Button, Select, Range, Modal/Drawer/Toast) replacing raw
   `<select>`/`<input type=range>`/`<details>` browser chrome. Verify: `npm run web:lint`,
   `npm run web:typecheck`, `npm run web:test:smoke`. Size: **L**.
-- [ ] **W7.2 — Virtualize the two worst offenders in place.** Branch `feat/ui-virtualization`.
+- [x] **W7.2 — Virtualize the two worst offenders in place.** Branch `feat/ui-virtualization`.
   Drop `@tanstack/react-virtual` into `SegmentList` and `ChapterTimeline`/`ChapterTranscriptReview`
   while still inside the monolith on the full in-memory array (upgraded to paged fetches later).
   Verify: `npm run web:lint`, `npm run web:typecheck`, `npm run web:test:smoke`. Size: **M**.

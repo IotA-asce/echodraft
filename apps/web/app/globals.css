@@ -154,6 +154,11 @@ select { min-height:36px; border:1px solid var(--line); border-radius:0; backgro
 .chapter-approval.current { border-left-color:var(--moss); background:rgba(48,75,61,.08); }
 .chapter-approval strong,.chapter-approval p { display:block; margin:0; }
 .chapter-approval p { margin-top:4px; color:var(--muted); font-size:.82rem; line-height:1.4; }
+.virtual-scroll { height:100%; min-height:320px; overflow:auto; contain:strict; }
+.virtual-list-canvas { position:relative; width:100%; }
+.virtual-list-row { position:absolute; top:0; left:0; width:100%; }
+.timeline-list .virtual-list-row { padding-bottom:7px; }
+.transcript-lines .virtual-list-row { padding-bottom:8px; }
 
 /* v2 semantic bridge: legacy layouts remain operational while W7 route extraction replaces them. */
 :root {
