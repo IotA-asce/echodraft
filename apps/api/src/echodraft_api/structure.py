@@ -825,6 +825,8 @@ def chapter_model(record: ChapterRecord) -> Chapter:
             "parserEvidence": _evidence(record.parser_evidence_json),
             "userLocked": record.user_locked,
             "lockReason": record.lock_reason,
+            "autoAccepted": record.auto_accepted,
+            "decisionTier": record.decision_tier,
         }
     )
 
@@ -842,6 +844,8 @@ def scene_model(record: SceneRecord) -> Scene:
             "parserEvidence": _evidence(record.parser_evidence_json),
             "userLocked": record.user_locked,
             "lockReason": record.lock_reason,
+            "autoAccepted": record.auto_accepted,
+            "decisionTier": record.decision_tier,
         }
     )
 
@@ -857,6 +861,7 @@ def segment_model(record: SegmentRecord) -> Segment:
             "segmentType": record.segment_type,
             "speakerCandidate": record.speaker_candidate,
             "speakerConfidence": record.speaker_confidence,
+            "confidence": record.confidence,
             "startOffset": record.start_offset,
             "endOffset": record.end_offset,
             "revision": record.revision,
@@ -864,6 +869,8 @@ def segment_model(record: SegmentRecord) -> Segment:
             "parserEvidence": _evidence(record.parser_evidence_json),
             "userLocked": record.user_locked,
             "lockReason": record.lock_reason,
+            "autoAccepted": record.auto_accepted,
+            "decisionTier": record.decision_tier,
         }
     )
 

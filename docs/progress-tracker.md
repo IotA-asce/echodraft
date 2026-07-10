@@ -224,7 +224,12 @@ It is separate from the completed G1-G20 alpha gap tracker above.
     - Gate: attribution accuracy, auto-accept precision, attributable-dialogue recall, and explicit
       speaker coverage remained 1.0; see
       `docs/analysis/eval-baselines/2026-07-10-attribution-v2-gate.md`.
-  - [ ] W3.6 - Confidence and flag model.
+  - [x] W3.6 - Confidence and flag model.
+    - Evidence: `feat/extraction-flag-model`; migration `0032` adds auditable decision tiers and
+      durable grouped review tasks, with open-cause deduplication and typed list/status APIs.
+    - Gate: the committed fixture produces 2 optional grouped tasks, 0 required tasks, and retains
+      1.0 attribution accuracy/precision/recall; see
+      `docs/analysis/eval-baselines/2026-07-10-confidence-v2-gate.md`.
   - [ ] W3.7 - Direction v2 and progressive delivery.
 - [ ] W4 - Automatic casting.
   - [ ] W4.1 - Voice catalog and one-time audition backfill.

@@ -164,6 +164,10 @@ class SpeakerAttributionService:
                 job_id,
                 {"phase": "speaker_attribution", "current": len(segments), "total": len(segments)},
             )
+        if self.container.settings.confidence_v2_enabled:
+            from .confidence import ConfidenceReviewService
+
+            ConfidenceReviewService(self.container).apply(project_id)
         return self.list_attributions(project_id)
 
     def update(
