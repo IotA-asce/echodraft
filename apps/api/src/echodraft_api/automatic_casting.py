@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from typing import cast
 from uuid import uuid4
@@ -27,6 +27,30 @@ from .voice_catalog import VoiceCatalogService
 CASTING_ALGORITHM_VERSION = "1.0.0"
 MIN_DIALOGUE_WORDS = 5
 DISTINCT_THRESHOLD = 0.35
+
+# Bounded greedy-with-backtracking solver for majors (design doc "Step 3").
+# When a major's best available score falls below this threshold, the solver
+# backtracks one prior major assignment to its second-best candidate and
+# retries, bounded to MAX_BACKTRACK_DEPTH total backtracks so the whole pass
+# stays roughly linear even on a large cast.
+BACKTRACK_SCORE_THRESHOLD = 1.0
+MAX_BACKTRACK_DEPTH = 3
+
+# Relaxation ladder (design doc "Consistency rules" + this fix): a character
+# must always end with a voice. On hard-constraint exhaustion, soft/hard
+# constraints are relaxed in this fixed order, and every relaxation actually
+# applied is recorded on the decision's evidence trail.
+RELAXATION_DROP_TIMBRE = "droppedTimbrePreference"
+RELAXATION_ALLOW_REUSE = "allowedNonNarratorVoiceReuse"
+RELAXATION_DROP_GENDER = "droppedGenderRequirement"
+RELAXATION_DROP_REMAINING = "droppedRemainingRequiredFacets"
+
+# Small, deterministic pace offsets (+/-3-5%) applied by pool index so pooled
+# minor characters sharing one catalog voice are not byte-identical in
+# delivery (design doc "apply_pool_offset"). Index 0 is unperturbed -- the
+# first minor to use a pooled voice sounds exactly like the catalog voice;
+# only the second-and-later sharers are nudged.
+POOL_PACE_OFFSETS: tuple[float, ...] = (0.0, 0.04, -0.04, 0.05, -0.05, 0.03, -0.03)
 
 
 @dataclass(frozen=True)
@@ -62,6 +86,16 @@ class CastingSpec:
     evidence_refs: list[str]
 
 
+@dataclass(frozen=True)
+class _MajorAssignment:
+    spec: CastingSpec
+    voice: VoiceCatalogEntry
+    score: float
+    candidate_scores: list[dict[str, object]]
+    relaxations: list[str]
+    scored: list[tuple[VoiceCatalogEntry, float, list[dict[str, object]]]]
+
+
 class AutomaticCastingService:
     def __init__(self, container: AppContainer) -> None:
         self.container = container
@@ -73,9 +107,11 @@ class AutomaticCastingService:
             raise ValueError("Project not found.")
         narration = self._narration(project_id)
         pov = detect_point_of_view(narration)
-        catalog = VoiceCatalogService(self.container).entries()
-        if not catalog:
-            catalog = VoiceCatalogService(self.container).audition_backfill()
+        # Incremental: cheap no-op once every installed voice is cataloged,
+        # but always self-heals a catalog that is missing newly installed
+        # engine voices (see voice_catalog.audition_backfill's incremental
+        # skip-if-already-cataloged behavior).
+        catalog = VoiceCatalogService(self.container).audition_backfill()
         eligible = [entry for entry in catalog if _catalog_entry_is_eligible(entry)]
         if not eligible:
             raise ValueError("No commercially usable voice catalog entry is available.")
@@ -128,9 +164,9 @@ class AutomaticCastingService:
         if not settings.auto_cast_enabled:
             raise ValueError("Automatic casting is disabled for this project.")
         self.container.production.configure_casting(project_id, style_preset=style_preset)
-        catalog = VoiceCatalogService(self.container).entries()
-        if not catalog:
-            catalog = VoiceCatalogService(self.container).audition_backfill()
+        # See select_narrator: incremental backfill is cheap once cataloged,
+        # and self-heals a catalog missing newly installed engine voices.
+        catalog = VoiceCatalogService(self.container).audition_backfill()
         eligible = [entry for entry in catalog if _catalog_entry_is_eligible(entry)]
         if not eligible:
             raise ValueError("No commercially usable voice catalog entry is available.")
@@ -226,9 +262,21 @@ class AutomaticCastingService:
         ]
         narrator_profile_id = cast(str, selection["voiceProfileId"])
         assigned: dict[str, VoiceCatalogEntry] = {}
-        used_by_major: set[str] = set()
+        pool_usage: dict[str, int] = {}
         decisions = [narrator_decision]
+        # Majors get a dedicated bounded backtracking pass (Fix 2): they are
+        # first pick of the catalog while it is least depleted, and a purely
+        # greedy pick order can lock in a locally-good but globally-poor
+        # arrangement when scene co-occurrence makes assignment a joint, not
+        # incremental, optimization. `_assign_majors` mutates `assigned` in
+        # place so minors processed afterward see majors' final choices.
+        major_specs = [spec for spec in specs if spec.prominence_class == "major"]
+        major_assignments = (
+            self._assign_majors(major_specs, assignable, assigned) if assignable else {}
+        )
         for index, spec in enumerate(specs, 1):
+            relaxations: list[str] = []
+            pool_offset = 0.0
             if spec.prominence_class == "walk_on" or not assignable:
                 chosen = catalog_by_id[narrator_catalog_id]
                 candidate_scores = [
@@ -244,12 +292,26 @@ class AutomaticCastingService:
                 ]
                 score = 0.0
                 voice_profile_id = narrator_profile_id
+                if spec.prominence_class != "walk_on":
+                    # Every assignable catalog voice was already claimed
+                    # (narrator reservation + locks); fall back to the
+                    # narrator voice rather than ever leaving a character
+                    # unvoiced (casting must never abort mid-run).
+                    relaxations.append("catalogExhaustedFellBackToNarrator")
+            elif spec.prominence_class == "major":
+                result = major_assignments[spec.character_id]
+                chosen = result.voice
+                score = result.score
+                candidate_scores = result.candidate_scores
+                relaxations = result.relaxations
+                voice_profile_id = self._project_voice(
+                    project_id,
+                    chosen.id,
+                    chosen.engine,
+                    chosen.engine_voice_id,
+                )
             else:
-                scored = self._rank_candidates(spec, assignable, assigned)
-                if spec.prominence_class == "major":
-                    unused = [item for item in scored if item[0].id not in used_by_major]
-                    if unused:
-                        scored = unused
+                scored, relaxations = self._rank_candidates(spec, assignable, assigned)
                 chosen, score, candidate_scores = scored[0]
                 voice_profile_id = self._project_voice(
                     project_id,
@@ -257,8 +319,29 @@ class AutomaticCastingService:
                     chosen.engine,
                     chosen.engine_voice_id,
                 )
-                if spec.prominence_class == "major":
-                    used_by_major.add(chosen.id)
+                if spec.prominence_class == "minor":
+                    # Pooled minors sharing one catalog voice get a small,
+                    # deterministic pace offset by pool index so they are not
+                    # byte-identical in delivery (design doc
+                    # `apply_pool_offset`). Applied at render time by
+                    # production.py's direction resolution.
+                    offset_index = pool_usage.get(chosen.id, 0)
+                    pool_usage[chosen.id] = offset_index + 1
+                    pool_offset = POOL_PACE_OFFSETS[offset_index % len(POOL_PACE_OFFSETS)]
+            evidence: dict[str, object] = {
+                "requiredFacets": spec.required_facets,
+                "preferredFacets": spec.preferred_facets,
+                "timbrePreference": spec.timbre_preference,
+                "dialogueWordCount": spec.dialogue_word_count,
+                "dialogueSegmentCount": spec.dialogue_segment_count,
+                "sceneCoOccurrence": spec.scene_co_occurrence,
+                "confidence": spec.confidence,
+                "evidenceRefs": spec.evidence_refs,
+                "scope": scope,
+                "relaxations": relaxations,
+            }
+            if pool_offset:
+                evidence["poolOffset"] = pool_offset
             decision = self._save_decision(
                 project_id=project_id,
                 character_id=spec.character_id,
@@ -267,17 +350,7 @@ class AutomaticCastingService:
                 prominence_class=spec.prominence_class,
                 score=score,
                 candidate_scores=candidate_scores,
-                evidence={
-                    "requiredFacets": spec.required_facets,
-                    "preferredFacets": spec.preferred_facets,
-                    "timbrePreference": spec.timbre_preference,
-                    "dialogueWordCount": spec.dialogue_word_count,
-                    "dialogueSegmentCount": spec.dialogue_segment_count,
-                    "sceneCoOccurrence": spec.scene_co_occurrence,
-                    "confidence": spec.confidence,
-                    "evidenceRefs": spec.evidence_refs,
-                    "scope": scope,
-                },
+                evidence=evidence,
                 catalog_version=catalog_version,
             )
             self.container.casting.assign(
@@ -501,24 +574,152 @@ class AutomaticCastingService:
             )
         )
 
+    def _assign_majors(
+        self,
+        majors: list[CastingSpec],
+        assignable: list[VoiceCatalogEntry],
+        assigned: dict[str, VoiceCatalogEntry],
+    ) -> dict[str, _MajorAssignment]:
+        """Greedy-with-bounded-backtracking assignment for major characters.
+
+        Majors are processed in the deterministic order the caller supplies
+        (prominence/word-count/id, per `derive_casting_specs`). A purely
+        greedy pass can lock in a locally-good but globally-poor arrangement,
+        since scene co-occurrence penalties are inherently a joint, not
+        incremental, optimization. When a major's best available score falls
+        below `BACKTRACK_SCORE_THRESHOLD`, this backtracks the immediately
+        preceding major's assignment to its second-best candidate and
+        retries the current major -- bounded to `MAX_BACKTRACK_DEPTH` total
+        backtracks so the pass stays roughly linear even on a large cast.
+        Ordering/tie-breaks stay deterministic throughout: `_rank_candidates`
+        always sorts by `(-score, voiceId)`. Mutates `assigned` in place so
+        callers processing minors afterward see majors' final choices.
+        """
+        history: list[_MajorAssignment] = []
+        backtracks_used = 0
+        index = 0
+        while index < len(majors):
+            spec = majors[index]
+            scored, relaxations = self._rank_candidates(spec, assignable, assigned)
+            used_by_major = {item.voice.id for item in history}
+            preferred = [item for item in scored if item[0].id not in used_by_major]
+            effective = preferred if preferred else scored
+            best_voice, best_score, best_candidates = effective[0]
+            can_backtrack = (
+                best_score < BACKTRACK_SCORE_THRESHOLD
+                and bool(history)
+                and backtracks_used < MAX_BACKTRACK_DEPTH
+                and len(history[-1].scored) > 1
+            )
+            if can_backtrack:
+                previous = history[-1]
+                alt_voice, alt_score, alt_candidates = previous.scored[1]
+                history[-1] = _MajorAssignment(
+                    spec=previous.spec,
+                    voice=alt_voice,
+                    score=alt_score,
+                    candidate_scores=alt_candidates,
+                    relaxations=previous.relaxations,
+                    scored=previous.scored,
+                )
+                assigned[previous.spec.character_id] = alt_voice
+                backtracks_used += 1
+                continue
+            assigned[spec.character_id] = best_voice
+            history.append(
+                _MajorAssignment(
+                    spec=spec,
+                    voice=best_voice,
+                    score=best_score,
+                    candidate_scores=best_candidates,
+                    relaxations=relaxations,
+                    scored=scored,
+                )
+            )
+            index += 1
+        return {item.spec.character_id: item for item in history}
+
     def _rank_candidates(
         self,
         spec: CastingSpec,
         catalog: list[VoiceCatalogEntry],
         assigned: dict[str, VoiceCatalogEntry],
-    ) -> list[tuple[VoiceCatalogEntry, float, list[dict[str, object]]]]:
-        scored: list[tuple[VoiceCatalogEntry, float, dict[str, object]]] = []
-        for voice in catalog:
-            components = _score_voice(voice, spec, assigned)
-            if components is not None:
-                scored.append((voice, cast(float, components["score"]), components))
+    ) -> tuple[list[tuple[VoiceCatalogEntry, float, list[dict[str, object]]]], list[str]]:
+        """Score every candidate voice against a casting spec.
+
+        Casting must never abort mid-run -- a character always ends with a
+        voice. If the hard constraints (required facets) leave zero
+        candidates, this relaxes constraints in a fixed, recorded order
+        rather than raising: drop the timbre preference, then re-score while
+        no longer penalizing a reused non-narrator voice, then drop the
+        gender requirement (relaxed only as a last resort), and finally drop
+        any other remaining required facet (e.g. age) so a non-empty catalog
+        always yields at least one candidate. Every relaxation actually
+        applied is returned for the decision's evidence trail.
+        """
+        relaxations: list[str] = []
+        working_spec = spec
+        scored = self._score_candidates(working_spec, catalog, assigned)
+
+        if not scored and working_spec.timbre_preference:
+            working_spec = replace(working_spec, timbre_preference=[])
+            relaxations.append(RELAXATION_DROP_TIMBRE)
+            scored = self._score_candidates(working_spec, catalog, assigned)
+
         if not scored:
-            raise ValueError(
-                f"No catalog voice satisfies the hard constraints for {spec.character_id}."
+            relaxations.append(RELAXATION_ALLOW_REUSE)
+            scored = self._score_candidates(
+                working_spec, catalog, assigned, ignore_repeat_penalty=True
             )
+
+        if not scored and "gender" in working_spec.required_facets:
+            working_spec = replace(
+                working_spec,
+                required_facets={
+                    key: value
+                    for key, value in working_spec.required_facets.items()
+                    if key != "gender"
+                },
+            )
+            relaxations.append(RELAXATION_DROP_GENDER)
+            scored = self._score_candidates(
+                working_spec, catalog, assigned, ignore_repeat_penalty=True
+            )
+
+        if not scored and working_spec.required_facets:
+            relaxations.append(RELAXATION_DROP_REMAINING)
+            working_spec = replace(working_spec, required_facets={})
+            scored = self._score_candidates(
+                working_spec, catalog, assigned, ignore_repeat_penalty=True
+            )
+
+        if not scored:
+            # Every caller guarantees `catalog` is non-empty before reaching
+            # this method (an exhausted/empty catalog falls back to the
+            # narrator voice earlier); this is a defensive invariant check,
+            # not a normal casting outcome.
+            raise ValueError(f"Voice catalog is empty; cannot cast {spec.character_id}.")
+
         scored.sort(key=lambda item: (-item[1], item[0].id))
         top = [item[2] for item in scored[:3]]
-        return [(voice, score, top) for voice, score, _components in scored]
+        return [(voice, score, top) for voice, score, _components in scored], relaxations
+
+    def _score_candidates(
+        self,
+        spec: CastingSpec,
+        catalog: list[VoiceCatalogEntry],
+        assigned: dict[str, VoiceCatalogEntry],
+        *,
+        ignore_repeat_penalty: bool = False,
+    ) -> list[tuple[VoiceCatalogEntry, float, dict[str, object]]]:
+        scored: list[tuple[VoiceCatalogEntry, float, dict[str, object]]] = []
+        for voice in catalog:
+            components = _score_voice(
+                voice, spec, assigned, ignore_repeat_penalty=ignore_repeat_penalty
+            )
+            if components is not None:
+                scored.append((voice, cast(float, components["score"]), components))
+        return scored
 
     def _save_decision(
         self,
@@ -717,6 +918,8 @@ def _score_voice(
     voice: VoiceCatalogEntry,
     spec: CastingSpec,
     assigned: dict[str, VoiceCatalogEntry],
+    *,
+    ignore_repeat_penalty: bool = False,
 ) -> dict[str, object] | None:
     matched_required: list[str] = []
     for key, expected in spec.required_facets.items():
@@ -739,7 +942,11 @@ def _score_voice(
         else 0.5
     )
     reused = sum(assigned_voice.id == voice.id for assigned_voice in assigned.values())
-    repeat_penalty = reused * (4.0 if spec.prominence_class == "major" else 0.5)
+    repeat_penalty = (
+        0.0
+        if ignore_repeat_penalty
+        else reused * (4.0 if spec.prominence_class == "major" else 0.5)
+    )
     distinctiveness_penalty = 0.0
     conflicts: list[str] = []
     for partner_id in spec.scene_co_occurrence:

@@ -323,7 +323,17 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         sample_text = representative_lines[0] if representative_lines else _fallback_audition_line(character)
         suggestions: list[VoiceSuggestion] = []
         for voice in container.casting.voices(character.project_id):
-            facets = _voice_facets(voice.backend, voice.provider_voice_id)
+            # Mirror voice_profile_model's pattern: consult the measured voice
+            # catalog entry first (real acoustic/labeled facets), and only
+            # fall back to the legacy ID-string regex guess for voices that
+            # have no catalog entry yet (e.g. a hand-uploaded custom voice
+            # not yet audited).
+            catalog_entry = VoiceCatalogService(container).entry(voice.voice_catalog_entry_id)
+            facets = (
+                catalog_entry.facets
+                if catalog_entry
+                else _voice_facets(voice.backend, voice.provider_voice_id)
+            )
             haystack = " ".join(
                 [voice.name, voice.backend, voice.provider_voice_id, voice.style_prompt or "", *facets]
             ).casefold()

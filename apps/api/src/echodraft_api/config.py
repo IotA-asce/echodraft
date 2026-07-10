@@ -37,6 +37,7 @@ class AppSettings:
     progressive_delivery_enabled: bool = False
     automatic_casting_v2_enabled: bool = False
     atmosphere_profiles_enabled: bool = False
+    voice_labeling_enabled: bool = False
 
     @classmethod
     def from_environment(cls) -> "AppSettings":
@@ -136,6 +137,7 @@ class AppSettings:
                 "ECHODRAFT_ATMOSPHERE_PROFILES_ENABLED"
             )
             or _env_truthy("ECHODRAFT_ATMOSPHERE_PROFILES"),
+            voice_labeling_enabled=_env_truthy("ECHODRAFT_VOICE_LABELING_ENABLED"),
         )
 
 
