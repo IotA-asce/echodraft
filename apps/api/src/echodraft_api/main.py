@@ -35,6 +35,8 @@ from echodraft_domain import (
     CharacterRejectMergeRequest,
     CharacterSplitRequest,
     CharacterUpdate,
+    CastingAutoRunRequest,
+    CastingDecision,
     CleaningRun,
     Comment,
     CommentCreate,
@@ -121,6 +123,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from .config import AppSettings
 from .confidence import ConfidenceReviewService
+from .automatic_casting import AutomaticCastingService
 from .voice_catalog import VoiceCatalogService
 from .container import AppContainer, build_container
 from .logging import configure_logging
@@ -1052,7 +1055,11 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     ) -> ProjectProductionSettings:
         try:
             return ProductionService(request.app.state.container).update_settings(
-                project_id, payload.narrator_voice_profile_id, payload.default_direction
+                project_id,
+                payload.narrator_voice_profile_id,
+                payload.default_direction,
+                payload.casting_style_preset,
+                payload.auto_cast_enabled,
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -1366,6 +1373,45 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     @app.get("/api/v1/voice-catalog", response_model=list[VoiceCatalogEntry])
     def list_voice_catalog(request: Request) -> list[VoiceCatalogEntry]:
         return VoiceCatalogService(request.app.state.container).entries()
+
+    @app.post(
+        "/api/v1/projects/{project_id}/casting/auto-run",
+        response_model=Job,
+        status_code=202,
+    )
+    def run_automatic_casting(
+        project_id: str,
+        payload: CastingAutoRunRequest,
+        request: Request,
+    ) -> Job:
+        container: AppContainer = request.app.state.container
+        if not container.projects.get(project_id):
+            raise HTTPException(status_code=404, detail="Project not found.")
+        service = AutomaticCastingService(container)
+
+        def run(job_id: str) -> None:
+            service.auto_cast(
+                project_id,
+                style_preset=payload.casting_style_preset,
+                scope=payload.scope,
+                job_id=job_id,
+            )
+
+        return container.jobs.submit_with_job(
+            "casting.auto_run",
+            run,
+            project_id,
+        )
+
+    @app.get(
+        "/api/v1/characters/{character_id}/casting-decision",
+        response_model=CastingDecision,
+    )
+    def get_casting_decision(character_id: str, request: Request) -> CastingDecision:
+        decision = AutomaticCastingService(request.app.state.container).decision(character_id)
+        if not decision:
+            raise HTTPException(status_code=404, detail="Casting decision not found.")
+        return decision
 
     @app.post(
         "/api/v1/voice-catalog/audition-jobs",

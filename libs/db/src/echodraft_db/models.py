@@ -637,10 +637,55 @@ class VoiceCatalogEntryRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class CastingDecisionRecord(Base):
+    __tablename__ = "casting_decisions"
+    __table_args__ = (
+        Index("ix_casting_decisions_project_role", "project_id", "role"),
+        Index(
+            "uq_casting_decisions_active_character",
+            "project_id",
+            "character_id",
+            unique=True,
+            sqlite_where=text("superseded_by_id IS NULL AND role = 'character'"),
+        ),
+        Index(
+            "uq_casting_decisions_active_narrator",
+            "project_id",
+            unique=True,
+            sqlite_where=text("superseded_by_id IS NULL AND role = 'narrator'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    character_id: Mapped[str | None] = mapped_column(ForeignKey("characters.id"))
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    voice_catalog_entry_id: Mapped[str] = mapped_column(
+        ForeignKey("voice_catalog_entries.id"), nullable=False
+    )
+    prominence_class: Mapped[str | None] = mapped_column(String(32))
+    score: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    candidate_scores_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    algorithm_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    catalog_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
+    locked_reason: Mapped[str | None] = mapped_column(Text)
+    superseded_by_id: Mapped[str | None] = mapped_column(ForeignKey("casting_decisions.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class ProjectProductionSettingsRecord(Base):
     __tablename__ = "project_production_settings"
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), primary_key=True)
     narrator_voice_profile_id: Mapped[str | None] = mapped_column(ForeignKey("voice_profiles.id"))
+    narrator_casting_decision_id: Mapped[str | None] = mapped_column(
+        ForeignKey("casting_decisions.id")
+    )
+    casting_style_preset: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="warm_neutral"
+    )
+    auto_cast_enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
     default_direction_json: Mapped[str | None] = mapped_column(Text)
 
 

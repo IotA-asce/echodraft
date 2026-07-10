@@ -36,13 +36,21 @@ class ProductionService:
         return ProjectProductionSettings(
             projectId=project_id,
             narratorVoiceProfileId=record.narrator_voice_profile_id,
+            narratorCastingDecisionId=record.narrator_casting_decision_id,
+            castingStylePreset=record.casting_style_preset,
+            autoCastEnabled=record.auto_cast_enabled,
             defaultDirection=json.loads(record.default_direction_json)
             if record.default_direction_json
             else None,
         )
 
     def update_settings(
-        self, project_id: str, narrator_voice_profile_id: str | None, direction: DirectionProfile | None
+        self,
+        project_id: str,
+        narrator_voice_profile_id: str | None,
+        direction: DirectionProfile | None,
+        casting_style_preset: str | None = None,
+        auto_cast_enabled: bool | None = None,
     ) -> ProjectProductionSettings:
         if not self.container.projects.get(project_id):
             raise ValueError("Project not found.")
@@ -55,9 +63,18 @@ class ProductionService:
             narrator_voice_profile_id,
             json.dumps(direction.model_dump(by_alias=True)) if direction else None,
         )
+        if casting_style_preset is not None or auto_cast_enabled is not None:
+            record = self.container.production.configure_casting(
+                project_id,
+                style_preset=casting_style_preset,
+                auto_cast_enabled=auto_cast_enabled,
+            )
         return ProjectProductionSettings(
             projectId=project_id,
             narratorVoiceProfileId=record.narrator_voice_profile_id,
+            narratorCastingDecisionId=record.narrator_casting_decision_id,
+            castingStylePreset=record.casting_style_preset,
+            autoCastEnabled=record.auto_cast_enabled,
             defaultDirection=json.loads(record.default_direction_json)
             if record.default_direction_json
             else None,
