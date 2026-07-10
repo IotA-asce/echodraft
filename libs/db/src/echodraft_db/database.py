@@ -80,6 +80,24 @@ class Database:
                 repairs.append(
                     "ALTER TABLE voice_profiles ADD COLUMN voice_catalog_entry_id VARCHAR(64)"
                 )
+        if "project_production_settings" in tables:
+            columns = {
+                column["name"]
+                for column in inspector.get_columns("project_production_settings")
+            }
+            casting_columns = {
+                "narrator_casting_decision_id": "VARCHAR(64)",
+                "casting_style_preset": (
+                    "VARCHAR(32) NOT NULL DEFAULT 'warm_neutral'"
+                ),
+                "auto_cast_enabled": "BOOLEAN NOT NULL DEFAULT 1",
+            }
+            for column_name, column_type in casting_columns.items():
+                if column_name not in columns:
+                    repairs.append(
+                        "ALTER TABLE project_production_settings "
+                        f"ADD COLUMN {column_name} {column_type}"
+                    )
         if "export_packages" in tables:
             columns = {column["name"] for column in inspector.get_columns("export_packages")}
             if "archive_path" not in columns:

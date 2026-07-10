@@ -56,6 +56,49 @@ def test_alembic_head_matches_models(tmp_path: Path, monkeypatch: pytest.MonkeyP
     )
 
 
+def test_alembic_head_creates_automatic_casting_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = f"sqlite:///{tmp_path / 'automatic-casting-head.db'}"
+    monkeypatch.setenv("ECHODRAFT_DATABASE_URL", url)
+
+    config = Config(str(ALEMBIC_INI))
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    try:
+        inspector = inspect(engine)
+        decision_columns = {
+            column["name"] for column in inspector.get_columns("casting_decisions")
+        }
+        assert {
+            "voice_catalog_entry_id",
+            "candidate_scores_json",
+            "algorithm_version",
+            "catalog_version",
+            "superseded_by_id",
+        } <= decision_columns
+        decision_indexes = {
+            index["name"] for index in inspector.get_indexes("casting_decisions")
+        }
+        assert {
+            "ix_casting_decisions_project_role",
+            "uq_casting_decisions_active_character",
+            "uq_casting_decisions_active_narrator",
+        } <= decision_indexes
+        settings_columns = {
+            column["name"]
+            for column in inspector.get_columns("project_production_settings")
+        }
+        assert {
+            "narrator_casting_decision_id",
+            "casting_style_preset",
+            "auto_cast_enabled",
+        } <= settings_columns
+    finally:
+        engine.dispose()
+
+
 def test_alembic_head_creates_cast_graph_tables_and_character_enrichment_columns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

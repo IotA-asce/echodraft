@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -475,6 +475,33 @@ class VoiceCatalogEntry(ApiModel):
     created_at: datetime = Field(alias="createdAt")
 
 
+class CastingAutoRunRequest(ApiModel):
+    scope: Literal["all", "unlocked_only"] = "all"
+    casting_style_preset: Literal[
+        "warm_neutral", "brisk", "literary", "theatrical", "protagonist_pov"
+    ] = Field(default="warm_neutral", alias="castingStylePreset")
+
+
+class CastingDecision(ApiModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    character_id: str | None = Field(default=None, alias="characterId")
+    role: Literal["narrator", "character"]
+    chosen_voice_id: str = Field(alias="chosenVoiceId")
+    prominence_class: str | None = Field(default=None, alias="prominenceClass")
+    score: float
+    candidate_scores: list[dict[str, object]] = Field(
+        default_factory=list, alias="candidateScores"
+    )
+    evidence: dict[str, object] = Field(default_factory=dict)
+    algorithm_version: str = Field(alias="algorithmVersion")
+    catalog_version: str = Field(alias="catalogVersion")
+    user_locked: bool = Field(alias="userLocked")
+    locked_reason: str | None = Field(default=None, alias="lockedReason")
+    superseded_by_id: str | None = Field(default=None, alias="supersededById")
+    created_at: datetime = Field(alias="createdAt")
+
+
 class VoiceProfile(ApiModel):
     id: str
     project_id: str = Field(alias="projectId")
@@ -742,11 +769,18 @@ class LocalAiHealth(ApiModel):
 class ProjectProductionSettings(ApiModel):
     project_id: str = Field(alias="projectId")
     narrator_voice_profile_id: str | None = Field(default=None, alias="narratorVoiceProfileId")
+    narrator_casting_decision_id: str | None = Field(
+        default=None, alias="narratorCastingDecisionId"
+    )
+    casting_style_preset: str = Field(default="warm_neutral", alias="castingStylePreset")
+    auto_cast_enabled: bool = Field(default=True, alias="autoCastEnabled")
     default_direction: DirectionProfile | None = Field(default=None, alias="defaultDirection")
 
 
 class ProjectProductionSettingsUpdate(ApiModel):
     narrator_voice_profile_id: str | None = Field(default=None, alias="narratorVoiceProfileId")
+    casting_style_preset: str | None = Field(default=None, alias="castingStylePreset")
+    auto_cast_enabled: bool | None = Field(default=None, alias="autoCastEnabled")
     default_direction: DirectionProfile | None = Field(default=None, alias="defaultDirection")
 
 
