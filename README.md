@@ -161,7 +161,7 @@ Read **[CONTRIBUTING.md](CONTRIBUTING.md)** for setup, the branch/verification w
 
 ## Rights & responsibility
 
-Echodraft is a production tool, not a rights workaround. It requires an explicit rights declaration per project and is meant for **your own manuscripts, licensed work, and the public domain**. It is not a voice marketplace, does not clone voices without consent, and never uploads your content anywhere.
+Echodraft is a production tool, not a rights workaround. It requires an explicit rights declaration per project and is meant for **your own manuscripts, licensed work, and the public domain**. It is not a voice marketplace, does not clone voices without consent, and never uploads your content anywhere — unless you explicitly enable an optional cloud LLM provider, in which case manuscript text is sent to that provider under your own API key and consent.
 
 ## License
 
