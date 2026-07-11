@@ -40,8 +40,11 @@ the Ollama provider:
     `LocalLlmService.extract`, above the provider.
 - `available_models(*, use_cache=True)` — `GET {base_url}/models`, cached per
   `base_url` so per-unit extraction calls do not pay a network round trip.
-  The test-connection endpoint passes `use_cache=False` to always hit the
-  network.
+  The cache is a **class-level dict on `OpenAiCompatProvider`**, so it is
+  process-global — shared across every provider instance in the process,
+  keyed by `base_url`, and never invalidated until the process restarts.
+  The test-connection endpoint passes `use_cache=False` to always bypass it
+  and hit the network.
 - `embed(...)` — always raises `ValueError`. **Embeddings never go to the
   cloud**; see routing below.
 

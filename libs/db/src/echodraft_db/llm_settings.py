@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from sqlalchemy.exc import IntegrityError
+
 from .database import Database
 from .models import LlmSettingsRecord
 
@@ -38,7 +40,17 @@ class LlmSettingsRepository:
             if record is None:
                 record = LlmSettingsRecord(id=_SINGLETON_ID, provider="ollama", cloud_consent=False)
                 session.add(record)
-                session.commit()
+                try:
+                    session.commit()
+                except IntegrityError:
+                    # Concurrent first-access: pipeline stages construct LocalLlmService
+                    # from inside a ThreadPoolExecutor fan-out, so two threads can both
+                    # observe `record is None` on a fresh DB and race to insert id=1. The
+                    # loser rolls back and re-reads the winner's row instead of raising.
+                    session.rollback()
+                    winner = session.get(LlmSettingsRecord, _SINGLETON_ID)
+                    assert winner is not None  # only reachable if the winner's insert committed
+                    record = winner
             return _row(record)
 
     def update(

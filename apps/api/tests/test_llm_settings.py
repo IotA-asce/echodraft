@@ -1,10 +1,12 @@
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
 from echodraft_api.llm_providers import OpenAiCompatProvider
 from echodraft_api.local_llm import _inference_cache_key
-from echodraft_db import Database, LlmSettingsRepository
+from echodraft_db import Database, LlmSettingsRepository, LlmSettingsRow
 
 
 def wait_for_job(client, job_id: str) -> dict:
@@ -63,6 +65,82 @@ def test_llm_settings_update_round_trips(tmp_path) -> None:
     assert row.api_key == "xai-secret"
     assert row.cloud_consent is True
     assert row.updated_at is not None
+
+
+def test_llm_settings_get_recovers_from_concurrent_first_insert(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deterministic regression test for the reachable first-insert race.
+
+    Several pipeline stages construct ``LocalLlmService`` from inside a
+    ``ThreadPoolExecutor`` fan-out, and each construction calls
+    ``LlmSettingsRepository.get()``. On a fresh DB, two threads can both
+    observe ``record is None`` and race to INSERT id=1; the loser's
+    ``commit()`` must recover by re-reading the winner's row instead of
+    letting ``IntegrityError`` escape.
+
+    Orchestrating that interleaving via real threads is timing-dependent, so
+    instead we simulate the race directly: patch ``Session.commit`` so that,
+    on the first call made from inside ``get()``, a *separate* session wins
+    the race by inserting and committing the singleton row first. The
+    patched call then proceeds to the real ``commit()``, which hits SQLite's
+    genuine primary-key constraint and raises a real ``IntegrityError`` --
+    exercising the exact except-branch under test.
+    """
+    from sqlalchemy.orm import Session
+
+    from echodraft_db.models import LlmSettingsRecord
+
+    database = Database(f"sqlite:///{tmp_path}/settings.db")
+    database.create_schema()
+    repo = LlmSettingsRepository(database)
+
+    real_commit = Session.commit
+    calls = {"n": 0}
+
+    def racing_commit(self: Session) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # Simulate a second thread's get() winning the race.
+            with database.session() as other_session:
+                other_session.add(LlmSettingsRecord(id=1))
+                real_commit(other_session)
+        real_commit(self)
+
+    monkeypatch.setattr(Session, "commit", racing_commit)
+
+    row = repo.get()
+
+    assert calls["n"] == 1  # get() calls session.commit() exactly once
+    assert row.provider == "ollama"
+    assert row.cloud_consent is False
+
+
+def test_llm_settings_get_is_race_tolerant_under_concurrent_first_access(tmp_path) -> None:
+    """Concurrency smoke test alongside the deterministic test above: several
+    real threads hammering ``get()`` on a fresh DB at once must never raise
+    and must always agree on the singleton row. GIL/timing mean this does
+    not reliably land inside the INSERT-vs-INSERT window by itself, so it is
+    a smoke check (no crash, no disagreement), not the primary regression
+    coverage for the race.
+    """
+    database = Database(f"sqlite:///{tmp_path}/settings.db")
+    database.create_schema()
+    repo = LlmSettingsRepository(database)
+
+    worker_count = 8
+    barrier = threading.Barrier(worker_count)
+
+    def call_get() -> LlmSettingsRow:
+        barrier.wait()  # line every thread up so they all hit `get()` at once
+        return repo.get()
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        rows = list(executor.map(lambda _: call_get(), range(worker_count)))
+
+    assert len(rows) == worker_count
+    assert all(row.provider == "ollama" for row in rows)
+    assert all(row.cloud_consent is False for row in rows)
 
 
 CLOUD_ENV = {

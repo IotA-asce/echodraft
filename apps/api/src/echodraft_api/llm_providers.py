@@ -136,6 +136,9 @@ class OpenAiCompatProvider:
                     else {"type": "json_object"}
                 ),
                 "temperature": 0 if temperature is None else temperature,
+                # 4096 mirrors the Ollama num_predict cap; chunk sizes are tuned for small
+                # local models, so this matches today's workload. Larger caps/chunks for
+                # bigger-context cloud models are a V3 follow-up (see docs out-of-scope note).
                 "max_tokens": 4096,
                 "stream": False,
             }
