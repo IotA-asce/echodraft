@@ -1,6 +1,7 @@
 from .database import Database
 from .ambience import AmbienceRepository
 from .llm_runs import LlmRunRepository
+from .llm_settings import LlmSettingsRepository, LlmSettingsRow
 from .local_ai import LocalAiRepository
 from .source_artifacts import SourceArtifactRepository
 from .repository import (
@@ -28,6 +29,8 @@ __all__ = [
     "JobRepository",
     "OrchestratorRepository",
     "LlmRunRepository",
+    "LlmSettingsRepository",
+    "LlmSettingsRow",
     "LocalAiRepository",
     "ProjectRepository",
     "ProductionSettingsRepository",

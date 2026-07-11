@@ -10,6 +10,7 @@ from echodraft_db import (
     Database,
     JobRepository,
     LlmRunRepository,
+    LlmSettingsRepository,
     LocalAiRepository,
     OrchestratorRepository,
     ProjectRepository,
@@ -56,6 +57,7 @@ class AppContainer:
     segment_directions: SegmentDirectionRepository
     local_ai: LocalAiRepository
     llm_runs: LlmRunRepository
+    llm_settings: LlmSettingsRepository
     tts_settings: TtsSettingsStore
     tts_adapter: "TtsProvider"
     tts_worker_manager: TtsWorkerManager
@@ -111,6 +113,7 @@ def build_container(settings: AppSettings) -> AppContainer:
         segment_directions=SegmentDirectionRepository(database),
         local_ai=LocalAiRepository(database),
         llm_runs=LlmRunRepository(database),
+        llm_settings=LlmSettingsRepository(database),
         tts_settings=tts_settings,
         tts_adapter=adapter,
         tts_worker_manager=tts_worker_manager,

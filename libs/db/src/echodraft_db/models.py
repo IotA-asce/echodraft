@@ -146,6 +146,18 @@ class LlmRunRecord(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class LlmSettingsRecord(Base):
+    __tablename__ = "llm_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="ollama")
+    base_url: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(200))
+    api_key: Mapped[str | None] = mapped_column(Text)
+    cloud_consent: Mapped[bool] = mapped_column(nullable=False, default=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class RightsDeclarationRecord(Base):
     __tablename__ = "rights_declarations"
 

@@ -1,6 +1,6 @@
 # Progress Tracker
 
-Last updated: 2026-07-07
+Last updated: 2026-07-11
 
 This tracker follows `docs/product/roadmap.md` and `docs/history/analysis/gap-analysis.md`.
 
@@ -338,3 +338,22 @@ It is separate from the completed G1-G20 alpha gap tracker above.
     seam-disagreement REDUCE with prefer-v1 tie-break, fixed coverage verifier (zero overlaps AND
     zero gaps AND full-span coverage), bounded repair loop failing closed to deterministic
     structure with a folded review task. Flag-off path v1-verbatim.
+
+### 2026-07-11 optional cloud LLM providers (xAI/grok-4.5 first)
+
+- [x] Optional bring-your-own-key cloud LLM provider layer, strictly opt-in behind a consent gate.
+  - Evidence: `feat/cloud-llm-provider`; design spec `docs/specs/2026-07-10-cloud-llm-provider.md`,
+    architecture doc `docs/architecture/local-ai/cloud-llm-providers.md`. Single
+    `OpenAiCompatProvider` adapter (json_schema response_format with sticky json_object fallback,
+    fail-closed ValueError normalization, per-base-url /models cache); migration `0038` single-row
+    `llm_settings` table with `ECHODRAFT_LLM_*` env overrides and never-echoed key;
+    `GET/PUT /api/v1/llm/settings` (atomic writer-lock update, 422 on consentless/keyless cloud
+    activation) plus `POST /api/v1/llm/settings/test`; global cloud model override for every
+    generate stage with embeddings pinned to Ollama; cloud-only inference-cache namespacing keeps
+    local cache/checkpoint identity; AI Provider dashboard card with consent gate, connection test,
+    and active-provider badge. README privacy copy updated to stay honest about the opt-in cloud
+    exception.
+  - Verification (2026-07-11): disposable-DB `alembic upgrade head` reaches `0038_llm_settings`;
+    `uv run pytest`, `uv run ruff check .`, `uv run mypy apps/api/src libs/domain-models/src
+    libs/db/src`, `npm run web:lint`, `npm run web:typecheck`, and `npm run web:test:smoke` all
+    green on the feature branch.
