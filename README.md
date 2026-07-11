@@ -18,7 +18,7 @@
 
 Echodraft is a **local-first AI audiobook production studio**. Drop in a rights-cleared manuscript — PDF, EPUB, DOCX, Markdown, or plain text — and it understands the book: chapters, scenes, characters, who speaks which line, and how each line should be delivered. Then it casts voices, narrates every segment, mixes and masters chapter audio, and packages a chaptered audiobook you can export as WAV, MP3, or M4B.
 
-Everything runs on your hardware. Your manuscripts, voices, and audio never leave your machine.
+Everything runs on your hardware. Your manuscripts, voices, and audio never leave your machine — unless you explicitly opt in: bring-your-own-key [cloud LLM providers](docs/architecture/local-ai/cloud-llm-providers.md) are available strictly behind a consent gate, and local stays the default.
 
 ![Review, patch, and export workflow](docs/assets/review-patch-export.gif)
 
@@ -35,7 +35,7 @@ Fixing one bad line never means regenerating a chapter or losing history. Every 
 | Paste text, get audio | Understand → cast → direct → narrate → mix → review → export |
 | Re-render large chunks to fix one line | Re-render exactly one segment |
 | Black-box output | Evidence trails, manifests, append-only render lineage |
-| Cloud-first, upload your book | Local-first, nothing leaves your machine |
+| Cloud-first, upload your book | Local-first — nothing leaves your machine unless you explicitly opt in to a cloud LLM |
 | Single narrator voice | Multi-voice cast with per-character voices and delivery direction |
 
 ## The vision
@@ -49,7 +49,7 @@ Where this project is headed — and where we want collaborators:
 - **A living soundtrack.** Ambient beds, sparse SFX, and restrained music generated locally and placed automatically from each scene's atmosphere — conservative and tasteful by design.
 - **An app for everyone, everywhere.** Windows, macOS, Linux — then Android and iOS. Every dependency and model downloaded and managed by the app itself. No terminal required.
 - **Minimal, monochrome UI.** Two colors, thin type, only necessary motion. The book is the star.
-- **Local-first, forever.** No mandatory cloud, no uploads, no accounts. Optional cloud tiers may come later; they will never be required.
+- **Local-first, forever.** No mandatory cloud, no uploads, no accounts. Optional bring-your-own-key cloud LLM providers exist today — strictly opt-in, never required.
 
 This isn't hand-waving: the complete target product is already designed in a **15-document engineering blueprint** — architecture, algorithms, data model, API contracts, UI spec, evaluation harness, and a workstream-by-workstream [implementation roadmap](docs/plans/v2-implementation-roadmap.md). Start at [`docs/README.md`](docs/README.md).
 
